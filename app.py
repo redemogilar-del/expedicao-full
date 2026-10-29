@@ -260,7 +260,7 @@ def _num(v):
         return None
 
 
-def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
+def _gerar_xlsx(linhas, params, tipo, arquivo_ml='', coleta=None):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -273,9 +273,17 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
     cab_fill = PatternFill('solid', fgColor='1F3A5F')
     fonte = Font(name='Arial', size=10)
 
-    def aba(ws, cabecalho, linhas_dados, larguras, total=None, fmt=None):
+    def aba(ws, cabecalho, linhas_dados, larguras, total=None, fmt=None, topo=None):
+        for t in (topo or []):
+            ws.append(t)
+        if topo:
+            for linha in ws.iter_rows():
+                linha[0].font = Font(name='Arial', bold=True)
+                linha[1].font = Font(name='Arial', size=11)
+            ws.append([])
+        h = len(topo) + 2 if topo else 1        # linha do cabeçalho (depois do topo e de uma linha em branco)
         ws.append(cabecalho)
-        for c in ws[1]:
+        for c in ws[h]:
             c.font, c.fill, c.alignment = cab_fonte, cab_fill, Alignment(vertical='center', wrap_text=True)
         for linha in linhas_dados:
             ws.append(linha)
@@ -283,17 +291,17 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
             ws.append(total)
             for c in ws[ws.max_row]:
                 c.font = Font(name='Arial', bold=True)
-        for linha in ws.iter_rows(min_row=2):
+        for linha in ws.iter_rows(min_row=h + 1):
             for c in linha:
                 if c.font is None or not c.font.bold:
                     c.font = fonte
         for i, w in enumerate(larguras, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
         for col, f in (fmt or {}).items():
-            for c in ws[col][1:]:
+            for c in ws[col][h:]:
                 c.number_format = f
-        ws.freeze_panes = 'A2'
-        ws.auto_filter.ref = ws.dimensions
+        ws.freeze_panes = 'A%d' % (h + 1)
+        ws.auto_filter.ref = '%s%d:%s%d' % ('A', h, get_column_letter(len(cabecalho)), ws.max_row)
 
     def origem(r):
         if r['status'] != envios.ST_ENVIAR:
@@ -311,8 +319,10 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
             [14, 18, 22, 52, 34, 12, 12, 30, 14, 12], total=['TOTAL', '', '', '', '', sum(r['qtd'] for r in enviar)])
     ws2 = wb.active if tipo == 'producao' else wb.create_sheet()
     ws2.title = 'Resumo por SKU'
-    aba(ws2, ['SKU', 'Quantidade total', 'Produtos (anúncios do Full)'], [[_seguro(t['sku']), t['qtd'], t['produtos']] for t in resumo],
-        [30, 18, 26], total=['TOTAL', sum(t['qtd'] for t in resumo), sum(t['produtos'] for t in resumo)])
+    coleta = coleta or {}
+    aba(ws2, ['SKU', 'Quantidade total'], [[_seguro(t['sku']), t['qtd']] for t in resumo],
+        [30, 18], total=['TOTAL', sum(t['qtd'] for t in resumo)],
+        topo=[['Data da coleta', coleta.get('data') or agora.strftime('%d/%m/%Y')], ['Número da coleta', _seguro(coleta.get('numero') or '')]])
     if tipo == 'envio':
         fora = [r for r in linhas if not r['incluir']]
         ws3 = wb.create_sheet('Fora do envio')
@@ -324,6 +334,7 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
         wsp = wb.create_sheet('Parâmetros')
         for linha in (['Gerado em', agora.strftime('%d/%m/%Y %H:%M')], ['Relatório do ML', _seguro(arquivo_ml)],
                       ['Meses de estoque no Full', params.get('meses')], ['Limite de frete sobre o custo (%)', params.get('limite_frete_pct')],
+                      ['Data da coleta', coleta.get('data') or agora.strftime('%d/%m/%Y')], ['Número da coleta', _seguro(coleta.get('numero') or '')],
                       ['Unidades do envio-teste', params.get('qtd_teste')], ['Produtos a enviar', len(enviar)],
                       ['Unidades a enviar', sum(r['qtd'] for r in enviar)], ['SKUs diferentes', len(resumo)]):
             wsp.append(linha)
@@ -335,7 +346,8 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    nome = '%s_%s.xlsx' % ('envio_full' if tipo == 'envio' else 'resumo_por_sku', agora.strftime('%Y-%m-%d_%H%M'))
+    sufixo = ''.join(ch for ch in str(coleta.get('numero') or '') if ch.isalnum() or ch in '-_')[:20]
+    nome = '%s%s_%s.xlsx' % ('envio_full' if tipo == 'envio' else 'resumo_por_sku', ('_coleta' + sufixo) if sufixo else '', agora.strftime('%Y-%m-%d_%H%M'))
     return buf, nome
 
 
@@ -350,7 +362,13 @@ def api_exportar():
         if not any(r['incluir'] for r in linhas):
             raise envios.ArquivoInvalido('Nenhum produto marcado para enviar.')
         params = corpo.get('parametros') if isinstance(corpo.get('parametros'), dict) else {}
-        buf, nome = _gerar_xlsx(linhas, params, tipo, str(corpo.get('arquivo') or '')[:120])
+        col = corpo.get('coleta') if isinstance(corpo.get('coleta'), dict) else {}
+        try:
+            data = datetime.strptime(str(col.get('data') or ''), '%Y-%m-%d').strftime('%d/%m/%Y')
+        except ValueError:
+            data = ''
+        coleta = {'data': data, 'numero': str(col.get('numero') or '').strip()[:30]}
+        buf, nome = _gerar_xlsx(linhas, params, tipo, str(corpo.get('arquivo') or '')[:120], coleta)
         return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
     except Exception as exc:
         return _erro(exc)

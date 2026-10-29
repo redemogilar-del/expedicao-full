@@ -232,7 +232,7 @@ class TestSite(unittest.TestCase):
 
     def test_exportar_envio_e_producao(self):
         self.entrar()
-        r = self.c.post('/api/envios/exportar', json={'tipo': 'envio', 'linhas': self.linhas_exp(), 'parametros': {'meses': '1.5'}, 'arquivo': 'rel.xlsx'})
+        r = self.c.post('/api/envios/exportar', json={'tipo': 'envio', 'linhas': self.linhas_exp(), 'parametros': {'meses': '1.5'}, 'arquivo': 'rel.xlsx', 'coleta': {'data': '2026-10-29', 'numero': '12'}})
         self.assertEqual(r.status_code, 200)
         wb = load_workbook(io.BytesIO(r.data))
         self.assertEqual(wb.sheetnames, ['Enviar', 'Resumo por SKU', 'Fora do envio', 'Parâmetros'])
@@ -245,7 +245,12 @@ class TestSite(unittest.TestCase):
         self.assertIn('manualmente', origens['C'])
         self.assertTrue(any(str(l[2]).startswith("'=") for l in env))     # texto com = fica inofensivo
         self.assertEqual({l[0] for l in wb['Fora do envio'].iter_rows(min_row=2, values_only=True)}, {'Enviar'})
-        resumo = {l[0]: l[1] for l in wb['Resumo por SKU'].iter_rows(min_row=2, values_only=True)}
+        rs = wb['Resumo por SKU']
+        self.assertEqual((rs['A1'].value, rs['B1'].value), ('Data da coleta', '29/10/2026'))
+        self.assertEqual((rs['A2'].value, rs['B2'].value), ('Número da coleta', '12'))
+        self.assertEqual([c.value for c in rs[4]], ['SKU', 'Quantidade total'])          # sem a coluna de anúncios
+        self.assertEqual(rs.max_column, 2)
+        resumo = {l[0]: l[1] for l in rs.iter_rows(min_row=5, values_only=True)}
         self.assertEqual(resumo['S1'], 17); self.assertEqual(resumo['TOTAL'], 21); self.assertNotIn('S9', resumo)
         r2 = self.c.post('/api/envios/exportar', json={'tipo': 'producao', 'linhas': self.linhas_exp()})
         self.assertEqual(load_workbook(io.BytesIO(r2.data)).sheetnames, ['Resumo por SKU'])

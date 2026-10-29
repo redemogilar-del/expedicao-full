@@ -226,7 +226,7 @@ async function baixar(tipo){
     const linhas = escopo().map(r => ({incluir: r.incluir, qtd: r.qtd, qtd_calc: r.qtd_calc, status: r.status, tipo: r.tipo, codigo_ml: r.codigo_ml, mlbu: r.mlbu, sku: r.sku,
       produto: r.produto, mlbs: r.mlbs, motivo: r.motivo, vendas: r.vendas, estoque_total: r.estoque_total, frete: r.frete, custo: r.custo,
       impacto_pct: r.impacto_pct, urgencia: r.urgencia, prazo: r.prazo}));
-    const resp = await fetch('/api/envios/exportar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tipo, linhas, parametros: PARAMS, arquivo: ARQUIVO})});
+    const resp = await fetch('/api/envios/exportar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tipo, linhas, parametros: PARAMS, arquivo: ARQUIVO, coleta: {data: $('coletaData').value, numero: $('coletaNum').value}})});
     if (resp.status === 401) { location.href = '/login'; return; }
     if (!resp.ok) { let m = 'Erro ' + resp.status; try { m = (await resp.json()).error || m; } catch(e) {} throw new Error(m); }
     const blob = await resp.blob(), nome = (resp.headers.get('Content-Disposition') || '').match(/filename\*?=(?:UTF-8'')?"?([^";]+)/);
@@ -236,6 +236,7 @@ async function baixar(tipo){
   } catch (err) { mensagem('Não consegui gerar a planilha: ' + err.message, 'erro'); }
   botao.disabled = false;
 }
+{ const h = new Date(); $('coletaData').value = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0') + '-' + String(h.getDate()).padStart(2, '0'); }
 $('baixarEnvio').onclick = () => baixar('envio');
 $('baixarSku').onclick = () => baixar('producao');
 

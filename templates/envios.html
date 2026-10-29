@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block titulo %}Envios Full — Expedição Mogilar{% endblock %}
+{% block corpo %}
+<h1>Envios para o Full</h1>
+<p class="suave">Suba o relatório do Mercado Livre e o painel diz <b>quais produtos enviar e quantas unidades</b>, e gera o resumo por SKU para a produção. Nada é alterado no Mercado Livre.</p>
+
+<section class="cartao passos">
+  <div class="passo">
+    <h2><span class="num">1</span> Relatório do Mercado Livre</h2>
+    <p class="suave">No Mercado Livre, na área do Full, baixe o <b>Relatório de Planejamento de envios</b> (Excel).</p>
+    <label class="soltar" id="soltarRel">
+      <input type="file" id="arqRel" accept=".xlsx,.xlsm">
+      <span id="txtRel">Clique aqui ou arraste o arquivo</span>
+    </label>
+  </div>
+  <div class="passo">
+    <h2><span class="num">2</span> Base de frete e custo</h2>
+    <p class="suave">É a planilha de controle (aba <b>anuncios</b>) com Frete e Custo de cada produto. Só precisa enviar de novo quando mudar.</p>
+    <div id="baseInfo" class="aviso"></div>
+    <label class="botao secundario" id="botBase"><input type="file" id="arqBase" accept=".xlsx,.xlsm" hidden><span id="txtBotBase">Enviar a base</span></label>
+  </div>
+  <div class="passo">
+    <h2><span class="num">3</span> Regras</h2>
+    <div class="regras">
+      <label>Meses de estoque no Full<input id="pMeses" type="number" min="0" max="12" step="0.1" value="{{ padrao.meses }}"></label>
+      <label>Frete máximo sobre o custo (%)<input id="pLimite" type="number" min="1" max="500" step="1" value="{{ padrao.limite_frete_pct }}"></label>
+      <label>Unidades do envio-teste<input id="pTeste" type="number" min="1" max="50" step="1" value="{{ padrao.qtd_teste }}"></label>
+    </div>
+    <p class="suave pequeno">Produto sem estoque nenhum no Full recebe no mínimo o envio-teste. O frete precisa ser menor que o limite.</p>
+    <button class="primario" id="calcular" disabled>Calcular envios</button>
+  </div>
+</section>
+
+<p id="msg" class="aviso" hidden role="status"></p>
+
+<section id="resultado" hidden>
+  <div class="cartoes" id="cartoes"></div>
+
+  <div class="barra">
+    <div class="filtros" id="filtros"></div>
+    <input type="search" id="busca" placeholder="Buscar SKU, produto, MLB…">
+  </div>
+  <div class="barra" id="barraTeste" hidden>
+    <span class="aviso inline" id="avisoTeste"></span>
+    <button class="secundario" id="marcarTestes">Marcar todos os testes</button>
+    <button class="secundario" id="marcarTestesUrg">Marcar só os urgentes</button>
+    <button class="secundario" id="limparTestes">Desmarcar testes</button>
+  </div>
+
+  <div class="duas">
+    <div class="tabela-caixa">
+      <table id="tabela">
+        <thead><tr>
+          <th class="chk"><input type="checkbox" id="todos" title="Marcar/desmarcar tudo que está na tela"></th>
+          <th>Situação</th><th>SKU</th><th>Produto</th><th>Código ML</th><th class="n">Vendas 30d</th><th class="n">No Full</th>
+          <th class="n">Cobre (dias)</th><th class="n">Frete / custo</th><th class="n">Qtd</th><th>Tipo</th><th>Motivo</th><th>Urgência ML</th>
+        </tr></thead>
+        <tbody id="corpo"></tbody>
+      </table>
+      <p id="vazio" class="suave centro" hidden>Nada nesta lista.</p>
+    </div>
+    <aside class="cartao lateral">
+      <h2>Resumo para a produção</h2>
+      <p class="suave pequeno">Soma dos produtos marcados, por SKU.</p>
+      <div class="tabela-caixa mini"><table id="tabSku"><thead><tr><th>SKU</th><th class="n">Qtd</th></tr></thead><tbody id="corpoSku"></tbody><tfoot><tr><th>Total</th><th class="n" id="totSku">0</th></tr></tfoot></table></div>
+    </aside>
+  </div>
+
+  <div class="acoes">
+    <button class="primario" id="baixarEnvio">Baixar planilha de envio (MLBs + quantidades)</button>
+    <button class="secundario" id="baixarSku">Baixar resumo por SKU (produção)</button>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='envios.js') }}"></script>{% endblock %}

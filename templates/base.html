@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Expedição Mogilar{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+{% if abas %}
+<header class="topo">
+  <div class="marca"><span class="logo">M</span><span>Expedição <b>Mogilar</b></span></div>
+  <nav class="abas">
+    {% for chave, nome, pronta in abas %}
+      {% if pronta %}<a href="/{{ chave }}" class="aba{{ ' on' if chave == ativa }}">{{ nome }}</a>
+      {% else %}<a href="/{{ chave }}" class="aba breve{{ ' on' if chave == ativa }}">{{ nome }} <small>em breve</small></a>{% endif %}
+    {% endfor %}
+  </nav>
+  <a class="sair" href="/sair">Sair</a>
+</header>
+{% endif %}
+<main>{% block corpo %}{% endblock %}</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

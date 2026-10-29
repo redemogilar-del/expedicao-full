@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: expedicao-mogilar
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requisitos.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 60 --bind 0.0.0.0:$PORT
+    healthCheckPath: /saude
+    envVars:
+      - key: EXP_SECRET_KEY
+        sync: false
+      - key: EXP_LOGIN_USER
+        sync: false
+      - key: EXP_LOGIN_PASSWORD_HASH
+        sync: false

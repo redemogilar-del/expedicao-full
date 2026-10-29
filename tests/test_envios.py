@@ -203,19 +203,20 @@ class TestSite(unittest.TestCase):
         ws = openpyxl.load_workbook(io.BytesIO(r.data)).active
         self.assertEqual(ws.title, 'Aptos para Full')
         dados = [l for l in ws.iter_rows(min_row=2, values_only=True)]
-        self.assertEqual([l[4] for l in dados[:-1]], ['A', 'B'])                  # só os aptos, marcados ou não
-        self.assertEqual([l[2] for l in dados[:-1]], ['Sim', 'Não'])
-        self.assertEqual([(l[0], l[1]) for l in dados[:-1]], [('MLB1', 12), ('MLB1', 0)])          # A = MLB, B = quantidade a enviar
+        self.assertEqual([l[3] for l in dados[:-1]], ['A'])                       # só os aptos que estão marcados para enviar
+        self.assertEqual([(l[0], l[1]) for l in dados[:-1]], [('MLB1', 12)])          # A = MLB, B = quantidade a enviar
         self.assertEqual(ws['A1'].value, 'MLB'); self.assertEqual(ws['B1'].value, 'Quantidade para envio')
         self.assertNotEqual(ws['A2'].fill.fgColor.rgb, ws['C2'].fill.fgColor.rgb); self.assertTrue(ws['B2'].font.bold)
         rs = openpyxl.load_workbook(io.BytesIO(r.data))['Resumo por SKU']              # resumo só do que está marcado nos aptos
         self.assertEqual([(l[0], l[1]) for l in rs.iter_rows(min_row=5, values_only=True)], [('S1', 12), ('TOTAL', 12)])
         r = self.c.post('/api/envios/exportar', json={'tipo': 'nao_aptos', 'linhas': linhas})
-        self.assertEqual([l[4] for l in list(openpyxl.load_workbook(io.BytesIO(r.data)).active.iter_rows(min_row=2, values_only=True))[:-1]], ['C'])
+        self.assertEqual([l[3] for l in list(openpyxl.load_workbook(io.BytesIO(r.data)).active.iter_rows(min_row=2, values_only=True))[:-1]], ['C'])
         r = self.c.post('/api/envios/exportar', json={'tipo': 'envio', 'linhas': linhas})                  # planilha de envio: aptos e não aptos marcados
         wb = openpyxl.load_workbook(io.BytesIO(r.data))
         enviar = [(l[2], l[9]) for l in wb['Enviar'].iter_rows(min_row=2, max_row=3, values_only=True)]
         self.assertEqual(sorted(enviar), [('A', 'Sim'), ('C', 'Não')])
+        nada = [dict(l, incluir=False) for l in linhas]                          # grupo sem nada marcado: não gera relatório vazio
+        self.assertEqual(self.c.post('/api/envios/exportar', json={'tipo': 'aptos', 'linhas': nada}).status_code, 400)
         sem = [dict(l, apto=None) for l in linhas]
         self.assertEqual(self.c.post('/api/envios/exportar', json={'tipo': 'aptos', 'linhas': sem}).status_code, 400)
 

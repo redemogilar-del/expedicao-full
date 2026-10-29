@@ -145,7 +145,9 @@ function desenhar(){
     const na = esc.filter(r => r.apto === true).length, nn = esc.filter(r => r.apto === false).length, gb = $('grupos'); gb.replaceChildren();
     for (const [k, nome, n] of [['todos', 'Todos', esc.length], ['aptos', 'Aptos para Full', na], ['nao', 'Não aptos', nn]])
       gb.append(el('button', {class: k === grupo ? 'on' : '', onclick: () => { grupo = k; desenhar(); }}, nome + ' (' + n + ')'));
-    $('baixarAptos').disabled = !na; $('baixarNaoAptos').disabled = !nn; $('marcarAptos').disabled = !na;
+    const ma = esc.filter(r => r.apto === true && r.incluir && r.qtd > 0).length, mn = esc.filter(r => r.apto === false && r.incluir && r.qtd > 0).length;
+    $('baixarAptos').disabled = !ma; $('baixarNaoAptos').disabled = !mn; $('marcarAptos').disabled = !na;
+    $('baixarAptos').textContent = 'Baixar relatório dos aptos (' + ma + ' marcados)'; $('baixarNaoAptos').textContent = 'Baixar relatório dos não aptos (' + mn + ' marcados)';
   }
   const pend = testes.filter(r => !r.incluir).length;
   $('barraTeste').hidden = !testes.length;

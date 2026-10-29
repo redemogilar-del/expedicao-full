@@ -69,3 +69,4 @@ button.link{background:none;border:0;padding:0;color:var(--destaque,#ffc933);tex
 th.sel,td.sel{width:26px;padding-left:6px;padding-right:2px}
 td.sel input,th.sel input{width:14px;height:14px;margin:0}
 tr.sel{outline:1px solid var(--destaque,#ffc933);outline-offset:-1px}
+[hidden]{display:none !important}

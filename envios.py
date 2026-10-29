@@ -1,8 +1,9 @@
 """Regras do controle de envios para o Full (Mercado Livre).
 
 Entradas:
-  - Relatório de Planejamento de envios (xlsx baixado do ML, aba única, cabeçalho na linha com "Código ML").
-  - Base de frete e custo por produto (a aba "anuncios" da planilha de controle: Número de produto, SKU, Frete, Custo).
+  - Relatório de Planejamento de envios (xlsx baixado do ML, cabeçalho na linha com "Código ML").
+  - Frete (API do Mercado Livre) e custo (planilha de custos) de cada produto, buscados por `fontes.py` e entregues
+    aqui como {codigo_ml: {'frete': float|None, 'custo': float|None, 'erro': texto opcional}}.
 
 Regras (as mesmas da planilha de controle):
   - estoque_full = "Aptas para venda"; pendente = "Unidades com recebimento pendente no Full"
@@ -173,40 +174,6 @@ def ler_relatorio(arquivo):
     return itens
 
 
-_COLS_BASE = {'mlbu': ['numero de produto', 'mlbu', 'mlb'], 'sku': ['sku'], 'frete': ['frete'], 'custo': ['custo']}
-
-
-def ler_base(arquivo):
-    """Base de frete e custo. Lê a aba 'anuncios' (ou a primeira aba que tenha as colunas).
-    Devolve {'itens': {mlbu: {'sku', 'frete', 'custo'}}, 'linhas': n, 'sem_valor': n}."""
-    wb = _abrir(arquivo)
-    abas = sorted(wb.worksheets, key=lambda w: 0 if _norm(w.title) == 'anuncios' else 1)
-    for ws in abas:
-        linha_cab, col = _achar_cabecalho(ws, _COLS_BASE, tuple(_COLS_BASE))
-        if col is None:
-            continue
-        itens, sem_valor = {}, 0
-        for linha in ws.iter_rows(min_row=linha_cab + 1, values_only=True):
-            def g(campo):
-                j = col[campo]
-                return linha[j] if j < len(linha) else None
-            mlbu = _txt(g('mlbu'))
-            if not mlbu:
-                continue
-            frete, custo = _numero(g('frete')), _numero(g('custo'))
-            if frete is None or custo is None:
-                sem_valor += 1
-            itens[mlbu] = {'sku': _txt(g('sku')),
-                           'frete': float(frete) if frete is not None else None,
-                           'custo': float(custo) if custo is not None else None}
-        if itens:
-            if sem_valor == len(itens):
-                raise ArquivoInvalido('A base não tem valores de Frete e Custo. Se as colunas são fórmulas, abra a planilha no '
-                                      'Google Planilhas e baixe de novo em Arquivo > Fazer download > Excel (.xlsx).')
-            return {'itens': itens, 'linhas': len(itens), 'sem_valor': sem_valor}
-    raise ArquivoInvalido('Não achei as colunas Número de produto, SKU, Frete e Custo na base.')
-
-
 def _br(v, casas=2):
     """Número no formato brasileiro (vírgula decimal)."""
     return ('{:,.%df}' % casas).format(float(v)).replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -220,13 +187,11 @@ def _impedimento(obs):
     return None
 
 
-def decidir(item, base, params):
-    """Devolve o item enriquecido com qtd, tipo, status e motivo."""
-    meses, limite, teste = params['meses'], params['limite_frete_pct'], params['qtd_teste']
-    vendas, aptas, pend = item['vendas'], item['aptas'], item['pendentes']
+def calcular_qtd(item, params):
+    """(quantidade, tipo) pela regra da planilha de controle; tipo = 'Reposição' | 'Teste' | ''."""
+    meses, teste = params['meses'], params['qtd_teste']
+    vendas, aptas, pend, sug = item['vendas'], item['aptas'], item['pendentes'], item['sugeridas']
     total = aptas + pend
-    sug = item['sugeridas']
-
     necessidade = (D(vendas) * meses - D(pend) - D(aptas)).to_integral_value(rounding=ROUND_CEILING)
     qtd, tipo = max(0, int(necessidade)), 'Reposição'
     if sug is not None and sug > qtd:
@@ -235,9 +200,28 @@ def decidir(item, base, params):
         qtd, tipo = teste, 'Teste'
     elif sug is not None and 0 < sug < teste:
         qtd, tipo = max(qtd, teste), 'Teste'
+    return qtd, (tipo if qtd else '')
+
+
+def pendencias(itens, params):
+    """Produtos para os quais vale buscar frete e custo: precisam de envio e o ML não impede."""
+    saida = []
+    for i in itens:
+        qtd, _ = calcular_qtd(i, params)
+        if qtd > 0 and not _impedimento(i['obs']):
+            saida.append({'codigo_ml': i['codigo_ml'], 'sku': i['sku'], 'mlbs': i['mlbs']})
+    return saida
+
+
+def decidir(item, base, params):
+    """Devolve o item enriquecido com qtd, tipo, status e motivo."""
+    meses, limite, teste = params['meses'], params['limite_frete_pct'], params['qtd_teste']
+    vendas, aptas, pend = item['vendas'], item['aptas'], item['pendentes']
+    total = aptas + pend
+    qtd, tipo = calcular_qtd(item, params)
 
     reg = dict(item)
-    b = (base or {}).get(item['mlbu']) or {}
+    b = (base or {}).get(item['codigo_ml']) or {}
     frete, custo = b.get('frete'), b.get('custo')
     impacto = None
     if frete is not None and custo is not None and custo > 0 and frete >= 0:
@@ -252,10 +236,11 @@ def decidir(item, base, params):
     if imp:
         return dict(reg, status=ST_IMPEDIDO, motivo=imp)
     if not b:
-        return dict(reg, status=ST_SEM_DADOS, motivo='Produto não está na base de frete/custo')
+        return dict(reg, status=ST_SEM_DADOS, motivo='Frete e custo não foram buscados para este produto')
     if impacto is None:
         faltam = [n for n, v in (('frete', frete), ('custo', custo)) if v is None or (n == 'custo' and v <= 0)]
-        return dict(reg, status=ST_SEM_DADOS, motivo='Sem %s válido na base' % ' e '.join(faltam or ['frete/custo']))
+        detalhe = ' (%s)' % b['erro'] if b.get('erro') else ''
+        return dict(reg, status=ST_SEM_DADOS, motivo='Sem %s válido%s' % (' e '.join(faltam or ['frete/custo']), detalhe))
     if D(str(impacto)) >= limite:
         return dict(reg, status=ST_FRETE, motivo='Frete de R$ %s é %s%% do custo (limite %s%%)' % (_br(frete), _br(impacto, 1), _br(limite, 0)))
     motivo = ('Sem estoque no Full: envio-teste de %d un.' % teste if tipo == 'Teste'

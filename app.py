@@ -16,6 +16,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, sen
 from werkzeug.security import check_password_hash
 
 import envios
+import fontes
 
 log = logging.getLogger('expedicao')
 FUSO = ZoneInfo('America/Sao_Paulo')
@@ -136,28 +137,76 @@ def _arquivo(campo):
     return BytesIO(dados), f.filename
 
 
-@app.post('/api/envios/base')
-def api_base():
-    """Lê a planilha de controle (aba anuncios) e devolve frete e custo por produto."""
+def _params_form():
+    return envios.validar_parametros({k: request.form.get(k) for k in envios.PADRAO})
+
+
+def _erro_fonte(exc):
+    if isinstance(exc, fontes.FonteIndisponivel):
+        return jsonify(ok=False, error=str(exc)), 503
+    return _erro(exc)
+
+
+@app.post('/api/envios/ler')
+def api_ler():
+    """Lê o relatório e diz de quais produtos vale buscar frete e custo (só os que precisam de envio)."""
     try:
-        arq, nome = _arquivo('arquivo')
-        base = envios.ler_base(arq)
-        return jsonify(ok=True, nome=nome, linhas=base['linhas'], sem_valor=base['sem_valor'], itens=base['itens'])
+        arq, nome = _arquivo('relatorio')
+        params = _params_form()
+        itens = envios.ler_relatorio(arq)
+        pend = envios.pendencias(itens, params)
+        return jsonify(ok=True, arquivo=nome, produtos=len(itens), pendencias=pend,
+                       skus=sorted({p['sku'] for p in pend if p['sku']}))
     except Exception as exc:
         return _erro(exc)
+
+
+@app.post('/api/envios/custos')
+def api_custos():
+    try:
+        corpo = request.get_json(silent=True) or {}
+        skus = corpo.get('skus')
+        if not isinstance(skus, list) or not 1 <= len(skus) <= 200 or not all(isinstance(x, str) and 0 < len(x) <= 80 for x in skus):
+            raise envios.ArquivoInvalido('Lista de SKUs inválida.')
+        return jsonify(ok=True, custos=fontes.custos(skus))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/envios/fretes')
+def api_fretes():
+    try:
+        corpo = request.get_json(silent=True) or {}
+        conta = corpo.get('conta')
+        itens = corpo.get('itens')
+        if conta not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        if not isinstance(itens, list) or not 1 <= len(itens) <= 10:
+            raise envios.ArquivoInvalido('Envie de 1 a 10 produtos por vez.')
+        limpos = []
+        for i in itens:
+            cod = str((i or {}).get('codigo_ml') or '').strip() if isinstance(i, dict) else ''
+            mlbs = [str(m).strip() for m in (i.get('mlbs') or [])[:5]] if isinstance(i, dict) else []
+            if not cod or len(cod) > 40 or not all(m.startswith('MLB') and m[3:].isdigit() for m in mlbs):
+                raise envios.ArquivoInvalido('Produto inválido na lista.')
+            limpos.append({'codigo_ml': cod, 'mlbs': mlbs})
+        resultados, pendentes = fontes.fretes(conta, limpos)
+        return jsonify(ok=True, fretes=resultados, pendentes=pendentes)
+    except Exception as exc:
+        return _erro_fonte(exc)
 
 
 @app.post('/api/envios/calcular')
 def api_calcular():
     try:
         arq, nome = _arquivo('relatorio')
-        params = envios.validar_parametros({k: request.form.get(k) for k in envios.PADRAO})
+        params = _params_form()
         try:
             base = json.loads(request.form.get('base') or '{}')
         except ValueError:
-            raise envios.ArquivoInvalido('Base de frete e custo inválida. Envie a base de novo.')
-        if not isinstance(base, dict) or not base:
-            raise envios.ArquivoInvalido('Envie primeiro a base de frete e custo (passo 2).')
+            raise envios.ArquivoInvalido('Frete e custo inválidos. Calcule de novo.')
+        if not isinstance(base, dict):
+            raise envios.ArquivoInvalido('Frete e custo inválidos. Calcule de novo.')
         itens = envios.ler_relatorio(arq)
         linhas = envios.calcular(itens, base, params)
         return jsonify(ok=True, arquivo=nome, linhas=linhas, contagens=envios.contagens(linhas),

@@ -10,10 +10,11 @@ python -m unittest discover -s tests -v
 ```
 
 ## Arquitetura
-- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/api/envios/{base,calcular,exportar}`, geração dos .xlsx.
-- `envios.py` — toda a regra de negócio e a leitura dos arquivos (relatório do ML e base de frete/custo). Sem Flask.
+- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/api/envios/{ler,custos,fretes,calcular,exportar}`, geração dos .xlsx.
+- `envios.py` — toda a regra de negócio e a leitura dos arquivos (relatório do ML). Sem Flask.
+- `fontes.py` — custo (Apps Script da planilha de custos, `catalogo_custos`) e frete (API do ML: `/items/{mlb}` + `/users/{seller}/shipping_options/free`, `list_cost`). Somente leitura.
 - `templates/` + `static/envios.js` — tela. Sem `innerHTML` (CSP `default-src 'self'`; nada de script inline).
-- Nada é gravado no servidor. A base de frete/custo fica no `localStorage` do navegador.
+- Nada é gravado no servidor nem no navegador. Fluxo: ler → custos (lotes de 100) → fretes (lotes de 6) → calcular.
 
 ## Regras de negócio (não mudar sem pedir)
 - Necessidade = ARREDONDA_PARA_CIMA(vendas30 × meses − pendente − aptas), nunca negativa.
@@ -24,4 +25,4 @@ python -m unittest discover -s tests -v
 
 ## Convenções
 - Trabalhe em branches e abra PR; quem faz o merge é o dono. Não mexer na `main` direto.
-- Variáveis: `EXP_SECRET_KEY`, `EXP_LOGIN_USER`, `EXP_LOGIN_PASSWORD_HASH`, `PORT`, `RENDER`.
+- Variáveis: `EXP_SECRET_KEY`, `EXP_LOGIN_USER`, `EXP_LOGIN_PASSWORD_HASH`, `PORT`, `RENDER`, `EXP_SHEETS_URL`, `EXP_SHEETS_KEY`, `EXP_TOKEN_URL_ML19`, `EXP_TOKEN_URL_ML44`.

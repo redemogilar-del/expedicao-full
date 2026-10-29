@@ -49,8 +49,8 @@ def _numero(v):
     return n if n == n and abs(n) != float('inf') else None
 
 
-def _consultar_custos(url, chave, lista):
-    """{sku_pedido: custo_bruto} para uma lista de SKUs (em lotes)."""
+def _consultar_itens(url, chave, lista):
+    """{sku_pedido: {custo, margem, margem_full, ...}} (valores crus da planilha) para uma lista de SKUs, em lotes."""
     saida = {}
     for i in range(0, len(lista), LOTE_CUSTOS):
         lote = lista[i:i + LOTE_CUSTOS]
@@ -64,9 +64,24 @@ def _consultar_custos(url, chave, lista):
             raise FonteIndisponivel('A planilha de custos respondeu de um jeito inesperado. Confira o Apps Script.')
         for sku, valor in dados['items'].items():
             if isinstance(valor, dict):
-                saida[sku] = _numero(valor.get('custo'))
+                saida[sku] = valor
     return saida
 
+
+def _consultar_custos(url, chave, lista):
+    """{sku_pedido: custo_bruto} para uma lista de SKUs (em lotes)."""
+    return {sku: _numero(v.get('custo')) for sku, v in _consultar_itens(url, chave, lista).items()}
+
+
+def _percentual(v):
+    """Margem da planilha ('20%', '20,5 %', 0.2 ou 20) em pontos percentuais. Vazio ou inválido = None."""
+    if v is None or isinstance(v, bool):
+        return None
+    txt = str(v).strip()
+    n = _numero(txt.replace('%', ''))
+    if n is None or n < 0 or n >= 1000:
+        return None
+    return n if '%' in txt or n >= 1 else n * 100        # 0,2 (fração) vira 20; 20 e 20% ficam 20
 
 def _variacoes(sku):
     """Grafias parecidas (ex.: _5kg no ML e _5Kg no Bling)."""
@@ -104,6 +119,35 @@ def custos(skus):
             certos = [c for k, c in alt.items() if k.casefold() == sku.casefold()]
             if len(certos) == 1 and certos[0] is not None and certos[0] > 0:
                 saida[sku] = certos[0]
+    return saida
+
+
+def cadastro(skus):
+    """{sku: {'custo', 'margem', 'margem_full'}} da planilha (custo em R$, margens em %). Ausente = None, nunca zero.
+
+    Mesma busca de custos(): se o SKU não existe, tenta grafias parecidas e só aceita uma única correspondência.
+    """
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha de custos não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    lista = sorted({str(s).strip() for s in skus if str(s or '').strip()})
+    achados = _consultar_itens(url, chave, lista)
+    faltam = [s for s in lista if s not in achados]
+    if faltam:
+        candidatos = set()
+        for sku in faltam:
+            candidatos |= _variacoes(sku)
+        candidatos -= set(lista)
+        alt = _consultar_itens(url, chave, sorted(candidatos)) if candidatos else {}
+        for sku in faltam:
+            certos = [v for k, v in alt.items() if k.casefold() == sku.casefold()]
+            if len(certos) == 1:
+                achados[sku] = certos[0]
+    saida = {}
+    for sku in lista:
+        v = achados.get(sku) or {}
+        c = _numero(v.get('custo'))
+        saida[sku] = {'custo': c if c is not None and c > 0 else None, 'margem': _percentual(v.get('margem')), 'margem_full': _percentual(v.get('margem_full'))}
     return saida
 
 
@@ -249,3 +293,213 @@ def fretes(conta, itens, espera_max=24):
             pendentes.append(cod)
     ex.shutdown(wait=False)
     return saida, pendentes
+
+
+# ---------------------------------------------------------------- pedidos (candidatos ao Full)
+import re as _re
+_MLB = _re.compile(r'^MLB\d{6,14}$')
+LOGISTICA = {'fulfillment': 'Full', 'self_service': 'Flex', 'drop_off': 'Agência/coleta', 'xd_drop_off': 'Agência/coleta',
+             'cross_docking': 'Coleta', 'default': 'Envio padrão'}
+
+
+def pedidos_pagina(conta, inicio, fim, offset=0):
+    """Uma página (até 50 pedidos pagos) do período [inicio, fim] (AAAA-MM-DD, horário de Brasília).
+
+    Devolve {'itens': [{mlb, titulo, sku, unidades, pedidos, valor}], 'total', 'proximo', 'concluido'}.
+    Só leitura. Pedidos cancelados não entram.
+    """
+    tk = token(conta)
+    vendedor = _vendedor(conta, tk)
+    params = {'seller': vendedor, 'order.date_created.from': inicio + 'T00:00:00.000-03:00', 'order.date_created.to': fim + 'T23:59:59.999-03:00',
+              'order.status': 'paid', 'sort': 'date_asc', 'limit': 50, 'offset': int(offset)}
+    try:
+        dados = _ml(tk, '/orders/search', params)
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os pedidos do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or not isinstance(dados.get('results'), list):
+        raise FonteIndisponivel('O Mercado Livre respondeu os pedidos de um jeito inesperado.')
+    agreg = {}
+    for ped in dados['results']:
+        if not isinstance(ped, dict) or str(ped.get('status') or '') in ('cancelled', 'invalid'):
+            continue
+        for oi in ped.get('order_items') or []:
+            it = (oi or {}).get('item') or {}
+            mlb = str(it.get('id') or '')
+            if not _MLB.match(mlb):
+                continue
+            try:
+                qtd = int(oi.get('quantity') or 0)
+            except (TypeError, ValueError):
+                qtd = 0
+            preco = _numero(oi.get('unit_price')) or 0.0
+            a = agreg.setdefault(mlb, {'mlb': mlb, 'titulo': str(it.get('title') or '')[:200], 'sku': str(it.get('seller_sku') or it.get('seller_custom_field') or '').strip()[:80],
+                                       'unidades': 0, 'ped': set(), 'valor': 0.0})
+            a['unidades'] += max(0, qtd)
+            a['valor'] += max(0, qtd) * preco
+            a['ped'].add(ped.get('id'))
+            if not a['sku']:
+                a['sku'] = str(it.get('seller_sku') or it.get('seller_custom_field') or '').strip()[:80]
+    itens = [{'mlb': a['mlb'], 'titulo': a['titulo'], 'sku': a['sku'], 'unidades': a['unidades'], 'pedidos': len(a['ped']), 'valor': round(a['valor'], 2)} for a in agreg.values()]
+    pag = dados.get('paging') or {}
+    total = int(pag.get('total') or 0)
+    proximo = int(offset) + len(dados['results'])
+    return {'itens': itens, 'total': total, 'proximo': proximo, 'concluido': not dados['results'] or proximo >= total}
+
+
+def itens_info(conta, ids):
+    """{mlb: {status, preco, estoque, logistica, rotulo, sku, link}} para até 20 anúncios."""
+    ids = [i for i in ids if _MLB.match(str(i))][:20]
+    if not ids:
+        return {}
+    tk = token(conta)
+    try:
+        dados = _ml(tk, '/items', {'ids': ','.join(ids), 'attributes': 'id,status,price,available_quantity,seller_custom_field,shipping,permalink'})
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os anúncios do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    saida = {}
+    for x in dados if isinstance(dados, list) else []:
+        corpo = (x or {}).get('body') if isinstance(x, dict) else None
+        if not isinstance(corpo, dict) or x.get('code') != 200 or not _MLB.match(str(corpo.get('id') or '')):
+            continue
+        log = str(((corpo.get('shipping') or {}).get('logistic_type')) or '')
+        saida[corpo['id']] = {'status': str(corpo.get('status') or ''), 'preco': _numero(corpo.get('price')), 'estoque': corpo.get('available_quantity') if isinstance(corpo.get('available_quantity'), int) else None,
+                              'logistica': log, 'rotulo': LOGISTICA.get(log, log or '—'), 'sku': str(corpo.get('seller_custom_field') or '').strip()[:80],
+                              'link': str(corpo.get('permalink') or '') if str(corpo.get('permalink') or '').startswith('https://') else ''}
+    return saida
+
+
+# ---------------------------------------------------------------- vendas com tarifa e frete (aba Vendas do dia)
+FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
+
+
+def _frete_vendedor(dados, vendedor):
+    """Frete debitado do vendedor no envio (nunca o pago pelo comprador). None se a resposta não traz o valor."""
+    if not isinstance(dados, dict):
+        return None
+    for rem in dados.get('senders') or []:
+        if not isinstance(rem, dict):
+            continue
+        uid = rem.get('user_id') or rem.get('id')
+        if uid and str(uid) != str(vendedor):
+            continue
+        for campo in ('cost', 'shipping_cost'):
+            v = _numero(rem.get(campo))
+            if v is not None:
+                return abs(v)
+    for campo in ('seller_cost', 'seller_shipping_cost'):
+        v = _numero(dados.get(campo))
+        if v is not None:
+            return abs(v)
+    return None
+
+
+def _grupo_envio(logistica, status):
+    if logistica == 'fulfillment':
+        return 'full'
+    return 'enviado' if str(status or '').lower() in FINAIS_ENVIO else 'a_enviar'
+
+
+def _envio_do_pedido(tk, vendedor, ped):
+    """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
+    env = (ped.get('shipping') or {}).get('id')
+    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'divisor': 1, 'erro': ''}
+    if not env:
+        saida['erro'] = 'Pedido sem envio'
+        return saida
+    try:
+        sh = _ml(tk, '/shipments/%s' % env)
+        if isinstance(sh, dict):
+            saida['status_envio'] = str(sh.get('status') or '')
+            saida['logistica'] = str(sh.get('logistic_type') or (sh.get('logistic') or {}).get('type') or '')
+    except RuntimeError as exc:
+        saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
+    try:
+        saida['frete'] = _frete_vendedor(_ml(tk, '/shipments/%s/costs' % env), vendedor)
+        if saida['frete'] is None:
+            saida['erro'] = saida['erro'] or 'Frete não informado pelo Mercado Livre'
+    except RuntimeError as exc:
+        saida['erro'] = saida['erro'] or 'Frete não consultado (%s)' % str(exc)[:40]
+    pack = ped.get('pack_id')
+    if pack and saida['frete'] is not None:
+        try:
+            ped_pack = _ml(tk, '/packs/%s' % pack)
+            n = len((ped_pack or {}).get('orders') or [])
+            if n > 1:
+                saida['divisor'] = n
+            elif n == 0:
+                saida['frete'], saida['erro'] = None, 'Carrinho não conferido'
+        except RuntimeError:
+            saida['frete'], saida['erro'] = None, 'Carrinho não conferido'
+    return saida
+
+
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20):
+    """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
+
+    Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
+    quantidade, venda, tarifa (None se o ML não informou), frete (parte do vendedor; None se desconhecido),
+    grupo (a_enviar | enviado | full), logistica, status_envio, obs.
+    """
+    tk = token(conta)
+    vendedor = _vendedor(conta, tk)
+    params = {'seller': vendedor, 'order.date_created.from': inicio + 'T00:00:00.000-03:00', 'order.date_created.to': fim + 'T23:59:59.999-03:00',
+              'order.status': 'paid', 'sort': 'date_asc', 'limit': int(limite), 'offset': int(offset)}
+    try:
+        dados = _ml(tk, '/orders/search', params)
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os pedidos do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or not isinstance(dados.get('results'), list):
+        raise FonteIndisponivel('O Mercado Livre respondeu os pedidos de um jeito inesperado.')
+    pedidos = [p for p in dados['results'] if isinstance(p, dict)]
+    ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p), ativos))
+    itens = []
+    for ped, env in zip(ativos, envios):
+        regs = [r for r in (ped.get('order_items') or []) if isinstance(r, dict)]
+        totais = []
+        for r in regs:
+            try:
+                q = int(r.get('quantity') or 0)
+            except (TypeError, ValueError):
+                q = 0
+            totais.append((q, round(max(0, q) * (_numero(r.get('unit_price')) or 0.0), 2)))
+        soma = sum(t for _, t in totais)
+        frete_pedido = None if env['frete'] is None else env['frete'] / env['divisor']
+        for r, (q, venda) in zip(regs, totais):
+            it = r.get('item') or {}
+            mlb = str(it.get('id') or '')
+            if not _MLB.match(mlb) or q <= 0:
+                continue
+            fee = _numero(r.get('sale_fee'))
+            obs = env['erro']
+            if env['divisor'] > 1:
+                obs = (obs + '; ' if obs else '') + 'Carrinho com %d pedidos: frete dividido igualmente' % env['divisor']
+            itens.append({
+                'conta': conta, 'pedido': str(ped.get('id') or ''), 'data': str(ped.get('date_created') or '')[:16].replace('T', ' '),
+                'mlb': mlb, 'sku': str(it.get('seller_sku') or it.get('seller_custom_field') or r.get('seller_sku') or '').strip()[:80],
+                'titulo': str(it.get('title') or '')[:200], 'quantidade': q, 'venda': venda,
+                'tarifa': None if fee is None else round(abs(fee) * q, 2),
+                'frete': None if frete_pedido is None else round(frete_pedido * (venda / soma if soma > 0 else 1.0 / max(1, len(regs))), 2),
+                'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'obs': obs,
+            })
+    pag = dados.get('paging') or {}
+    total = int(pag.get('total') or 0)
+    proximo = int(offset) + len(pedidos)
+    return {'itens': itens, 'total': total, 'proximo': proximo, 'concluido': not pedidos or proximo >= total}
+
+
+def salvar_relatorio(payload):
+    """Grava o relatório do dia na planilha (Apps Script, ação 'vendas_relatorio'). Devolve {'abas': [...]}."""
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    try:
+        r = _SESS.post(url, json=dict(payload, chave=chave, acao='vendas_relatorio'), timeout=(5, 55), allow_redirects=True)
+        r.raise_for_status()
+        dados = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise FonteIndisponivel('Não consegui gravar na planilha agora (%s). Nada foi perdido: tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or dados.get('ok') is not True:
+        raise FonteIndisponivel('A planilha ainda não aceita o relatório do dia. Falta colocar o trecho novo (V8) no Apps Script.')
+    return {'abas': [str(a) for a in dados.get('abas') or []]}

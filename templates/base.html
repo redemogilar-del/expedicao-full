@@ -7,19 +7,28 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
+{% set conteudo %}{% block corpo %}{% endblock %}{% endset %}
 {% if abas %}
-<header class="topo">
-  <div class="marca"><span class="logo">M</span><span>Expedição <b>Mogilar</b></span></div>
-  <nav class="abas">
+<div class="layout">
+  <nav class="menu" id="menu" aria-label="Menu principal">
+    <div class="menu-topo">
+      <div class="marca"><span class="logo">M</span><span class="rotulo">Expedição <b>Mogilar</b></span></div>
+      <button type="button" class="menu-botao" id="menuBotao" aria-label="Encolher ou abrir o menu" title="Encolher / abrir o menu" aria-expanded="true">«</button>
+    </div>
+    <p class="menu-titulo rotulo">OPERAÇÃO</p>
     {% for chave, nome, pronta in abas %}
-      {% if pronta %}<a href="/{{ chave }}" class="aba{{ ' on' if chave == ativa }}">{{ nome }}</a>
-      {% else %}<a href="/{{ chave }}" class="aba breve{{ ' on' if chave == ativa }}">{{ nome }} <small>em breve</small></a>{% endif %}
+      <a href="/{{ chave }}" class="menu-item{{ ' on' if chave == ativa }}{{ '' if pronta else ' breve' }}" title="{{ nome }}">
+        <span class="icone">{{ nome[0] }}</span><span class="rotulo">{{ nome }}{% if not pronta %} <small>em breve</small>{% endif %}</span>
+      </a>
     {% endfor %}
+    <a class="menu-item sair" href="/sair" title="Sair"><span class="icone">⎋</span><span class="rotulo">Sair</span></a>
   </nav>
-  <a class="sair" href="/sair">Sair</a>
-</header>
+  <main class="conteudo">{{ conteudo }}</main>
+</div>
+<script src="{{ url_for('static', filename='menu.js') }}"></script>
+{% else %}
+<main>{{ conteudo }}</main>
 {% endif %}
-<main>{% block corpo %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
 </body>
 </html>

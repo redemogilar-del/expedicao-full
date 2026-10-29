@@ -533,3 +533,26 @@ def salvar_relatorio(payload):
     if not isinstance(dados, dict) or dados.get('ok') is not True:
         raise FonteIndisponivel('A planilha ainda não aceita o relatório do dia. Falta colocar o trecho novo (V8) no Apps Script.')
     return {'abas': [str(a) for a in dados.get('abas') or []]}
+
+
+def atualizar_referencia(conta, itens):
+    """Avisa a planilha de preços (mesma ação do painel antigo) que o preço do anúncio mudou. Só tenta; falha não desfaz nada.
+
+    itens: [{'mlb', 'preco_referencia_anterior', 'preco_atual_ml'}], até 5. Devolve {mlb: texto}."""
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    saida = {}
+    for i in range(0, len(itens), 5):
+        lote = itens[i:i + 5]
+        try:
+            r = _SESS.post(url, json={'chave': chave, 'acao': 'catalogo_atualizar_precos_referencia', 'conta': conta, 'itens': lote}, timeout=(5, 35), allow_redirects=True)
+            r.raise_for_status()
+            dados = r.json()
+            if not isinstance(dados, dict) or dados.get('ok') is not True:
+                raise ValueError('resposta inesperada')
+            por_id = {x.get('mlb'): x.get('status') for x in dados.get('resultados', []) if isinstance(x, dict)}
+            for x in lote:
+                saida[x['mlb']] = str(por_id.get(x['mlb']) or 'sem confirmação da planilha')
+        except (requests.RequestException, ValueError) as exc:
+            for x in lote:
+                saida[x['mlb']] = 'não atualizada: ' + str(exc)[:60]
+    return saida

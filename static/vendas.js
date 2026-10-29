@@ -11,9 +11,11 @@ const brl = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleStr
 const pct = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
 const ROT = {prejuizo: 'Prejuízo', abaixo: 'Abaixo da margem', dentro: 'Dentro da margem', sem_dados: 'Sem dados'};
 const ENV = {a_enviar: 'A enviar', enviado: 'Já enviado', full: 'Full'};
+const CONFIRMACAO = 'APLICAR_PRECO_VENDAS';
 
-let RAW = [], CAD = {}, LINHAS = [], MARCA = new Set(), PERIODO = '', DIA = '';
-let grupo = 'a_enviar', classe = 'todas', busca = '';
+let RAW = [], CAD = {}, LINHAS = [], MARCA = new Set(), PRECO = new Set(), OVR = {}, INFO = {}, PEND = new Set();
+let PERIODO = '', DIA = '', VERSAO = 0;
+let aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
 
 function mensagem(texto, tipo){ const m = $('vMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, p){
@@ -33,6 +35,7 @@ async function comTentativas(fn, n = 3){
   throw ultimo;
 }
 const parametros = () => ({imposto_pct: $('vImposto').value, margem_padrao: $('vMargem').value});
+const chaveSku = r => r.sku || r.mlb;
 
 // ---------- busca ----------
 async function buscar(){
@@ -40,7 +43,7 @@ async function buscar(){
   if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
   $('vBuscar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
-    RAW = []; MARCA = new Set();
+    RAW = []; MARCA = new Set(); PRECO = new Set(); OVR = {}; INFO = {}; PEND = new Set(); VERSAO++;
     for (const conta of contas) {
       let off = 0, total = 0;
       for (;;) {
@@ -59,80 +62,224 @@ async function buscar(){
     PERIODO = de === ate ? de.split('-').reverse().join('/') : de.split('-').reverse().join('/') + ' a ' + ate.split('-').reverse().join('/'); DIA = ate;
     progresso('Calculando o lucro…', 95);
     await recalcular();
-    grupo = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = '';
-    if (!LINHAS.some(r => r.grupo === 'a_enviar')) grupo = 'todos';
+    aba = 'mogilar'; sub = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = '';
+    if (!LINHAS.some(r => r.grupo !== 'full' && r.grupo === 'a_enviar')) sub = 'todos';
     $('vResultado').hidden = false; desenhar(); progresso(null);
     $('vResultado').scrollIntoView({behavior: 'smooth'});
   } catch (err) { progresso(null); mensagem(err.message, 'erro'); }
   $('vBuscar').disabled = false;
 }
+// cadastro da planilha + o que foi digitado na tela (custo e margem mínima valem para o SKU inteiro)
+function cadastroEfetivo(){
+  const c = JSON.parse(JSON.stringify(CAD));
+  for (const [k, o] of Object.entries(OVR)) {
+    const b = c[k] || {custo: null, margem: null, margem_full: null};
+    if (o.custo !== undefined) b.custo = o.custo;
+    if (o.meta !== undefined) { b.margem = o.meta; b.margem_full = o.meta; }
+    c[k] = b;
+  }
+  return c;
+}
 async function recalcular(){
-  const d = await json('/api/vendas/calcular', {linhas: RAW, cadastro: CAD, parametros: parametros()});
+  const d = await json('/api/vendas/calcular', {linhas: RAW, cadastro: cadastroEfetivo(), parametros: parametros()});
   LINHAS = d.linhas.map((r, i) => Object.assign(r, {_i: i}));
 }
 let temporizador = null;
-for (const id of ['vImposto', 'vMargem']) $(id).oninput = () => {
+function recalcularDepois(){
   if (!RAW.length) return;
   clearTimeout(temporizador);
   temporizador = setTimeout(async () => { try { mensagem(''); await recalcular(); desenhar(); } catch (e) { mensagem(e.message, 'erro'); } }, 500);
-};
+}
+for (const id of ['vImposto', 'vMargem']) $(id).oninput = recalcularDepois;
 
-// ---------- tela ----------
-const noGrupo = r => grupo === 'todos' || r.grupo === grupo;
+// ---------- escopo da tela ----------
+const daAba = r => aba === 'full' ? r.grupo === 'full' : r.grupo !== 'full';
+const noSub = r => aba === 'full' || sub === 'todos' || r.grupo === sub;
 const podeMarcar = r => r.grupo === 'a_enviar';
+const chaveInfo = r => [r.conta, r.mlb, r.custo_unit, r.meta, $('vImposto').value].join('|');
+const precisaPreco = r => (r.classe === 'abaixo' || r.classe === 'prejuizo') && r.custo_unit;
 function visiveis(){
   const q = busca.trim().toLowerCase();
-  return LINHAS.filter(r => noGrupo(r) && (classe === 'todas' || r.classe === classe) &&
-    (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q)));
+  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || r.classe === classe) && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q)));
 }
+const infoDe = r => INFO[chaveInfo(r)];
+const selecionavel = r => { const i = infoDe(r); return !!(i && i.acao === 'subir'); };
+
+// ---------- tela ----------
 function desenhar(){
-  const esc = LINHAS.filter(noGrupo), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let lucro = 0, venda = 0, prej = 0, deixou = 0;
-  esc.forEach(r => { c[r.classe]++; if (r.classe !== 'sem_dados') { lucro += r.lucro; venda += r.venda; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; } });
+  const esc = LINHAS.filter(r => daAba(r) && noSub(r)), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let prej = 0, deixou = 0;
+  esc.forEach(r => { c[r.classe]++; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; });
   const marcados = LINHAS.filter(r => MARCA.has(r._i));
-  $('vCartoes').replaceChildren(
-    el('div', {class:'card'}, el('b', {}, num(esc.length)), el('span', {}, 'itens vendidos (nesta visão)')),
+  const cartoes = [
+    el('div', {class:'card'}, el('b', {}, num(esc.length)), el('span', {}, 'itens vendidos (nesta lista)')),
     el('div', {class:'card destaque'}, el('b', {}, num(c.dentro)), el('span', {}, 'dentro da margem')),
     el('div', {class:'card'}, el('b', {}, num(c.abaixo)), el('span', {}, 'abaixo da margem · deixou de ganhar ' + brl(deixou))),
     el('div', {class:'card risco'}, el('b', {}, num(c.prejuizo)), el('span', {}, 'com prejuízo · perdeu ' + brl(prej))),
-    el('div', {class:'card'}, el('b', {}, num(c.sem_dados)), el('span', {}, 'sem dados (custo, tarifa ou frete)')),
-    el('div', {class:'card'}, el('b', {}, brl(lucro)), el('span', {}, 'lucro de ' + brl(venda) + ' vendidos (só com dados)')),
-    el('div', {class:'card risco'}, el('b', {}, num(marcados.length)), el('span', {}, 'marcados para não enviar')));
-  const gb = $('vGrupos'); gb.replaceChildren();
-  for (const [k, nome] of [['a_enviar', 'A enviar (não Full)'], ['enviado', 'Já enviados'], ['full', 'Full'], ['todos', 'Todos']])
-    gb.append(el('button', {class: k === grupo ? 'on' : '', onclick: () => { grupo = k; desenhar(); }}, nome + ' (' + (k === 'todos' ? LINHAS.length : LINHAS.filter(r => r.grupo === k).length) + ')'));
+    el('div', {class:'card'}, el('b', {}, num(c.sem_dados)), el('span', {}, 'sem dados (digite o custo ou a margem na linha)'))];
+  if (aba === 'mogilar') cartoes.push(el('div', {class:'card risco'}, el('b', {}, num(marcados.length)), el('span', {}, 'marcados para não enviar')));
+  $('vCartoes').replaceChildren(...cartoes);
+  const ab = $('vAbas'); ab.replaceChildren();
+  for (const [k, nome, n] of [['mogilar', 'Vendas Mogilar (não Full)', LINHAS.filter(r => r.grupo !== 'full').length], ['full', 'Vendas Full', LINHAS.filter(r => r.grupo === 'full').length]])
+    ab.append(el('button', {class: k === aba ? 'on' : '', onclick: () => { aba = k; classe = 'todas'; desenhar(); }}, nome + ' (' + n + ')'));
+  const gb = $('vGrupos'); gb.replaceChildren(); gb.hidden = aba === 'full';
+  if (aba !== 'full') for (const [k, nome] of [['a_enviar', 'A enviar'], ['enviado', 'Já enviados'], ['todos', 'Todas']])
+    gb.append(el('button', {class: k === sub ? 'on' : '', onclick: () => { sub = k; desenhar(); }}, nome + ' (' + (k === 'todos' ? LINHAS.filter(r => r.grupo !== 'full').length : LINHAS.filter(r => r.grupo === k).length) + ')'));
   const cb = $('vClasses'); cb.replaceChildren();
   for (const [k, nome] of [['todas', 'Todas'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
     cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : (c[k] || 0)) + ')'));
+  cabecalho();
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
   $('vVazio').hidden = lista.length > 0;
-  const marc = lista.filter(podeMarcar); $('vTodos').checked = marc.length > 0 && marc.every(r => MARCA.has(r._i)); $('vTodos').disabled = !marc.length;
+  const th = $('vTodos'); if (th) { const m = lista.filter(podeMarcar); th.checked = m.length > 0 && m.every(r => MARCA.has(r._i)); th.disabled = !m.length; }
+  const tp = $('vTodosPreco'); if (tp) { const m = lista.filter(selecionavel); tp.checked = m.length > 0 && m.every(r => PRECO.has(r._i)); tp.disabled = !m.length; }
+  const nao = aba === 'mogilar';
+  for (const id of ['vMarcarRuins', 'vLimpar', 'vBaixarNao']) $(id).hidden = !nao;
   $('vBaixarNao').disabled = !marcados.length; $('vBaixarNao').textContent = 'Baixar lista “Não enviar” (' + marcados.length + ')';
   $('vMarcarRuins').disabled = !lista.some(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo'));
+  const sel = LINHAS.filter(r => PRECO.has(r._i) && selecionavel(r));
+  $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
+  buscarPrecos();
+}
+function cabecalho(){
+  const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
+  const cols = [];
+  if (aba === 'mogilar') cols.push(el('th', {class:'chk'}, Object.assign(el('input', {type:'checkbox', id:'vTodos', title:'Marcar/desmarcar “não enviar” em tudo que está na tela'}), {onchange: e => { visiveis().filter(podeMarcar).forEach(r => { if (e.target.checked) MARCA.add(r._i); else MARCA.delete(r._i); }); desenhar(); }})));
+  cols.push(t('Situação'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('SKU'), t('Status do envio'), t('Produto'),
+    t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
+    t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
+    el('th', {class:'chk', title:'Marcar para atualizar o preço no Mercado Livre'}, Object.assign(el('input', {type:'checkbox', id:'vTodosPreco', title:'Marcar/desmarcar atualização de preço em tudo que pode'}), {onchange: e => { visiveis().filter(selecionavel).forEach(r => { if (e.target.checked) PRECO.add(r._i); else PRECO.delete(r._i); }); desenhar(); }})),
+    t('Envio'));
+  $('vCab').replaceChildren(...cols);
+}
+function campoEditavel(r, campo){
+  const k = chaveSku(r), editado = OVR[k] && OVR[k][campo] !== undefined;
+  const atual = campo === 'custo' ? r.custo_unit : r.meta;
+  const i = el('input', {type:'number', min:0, step:'0.01', value: atual === null || atual === undefined ? '' : atual, placeholder: '—', class: editado ? 'editado' : '', title: editado ? 'Valor digitado por você (a planilha não foi alterada)' : (campo === 'meta' && r.meta_origem === 'padrão' ? 'Margem padrão: digite a margem deste produto' : 'Valor da planilha')});
+  i.onchange = () => {
+    const txt = String(i.value).replace(',', '.').trim(), v = Number(txt);
+    OVR[k] = OVR[k] || {};
+    if (txt === '') delete OVR[k][campo]; else if (Number.isFinite(v) && v >= 0 && !(campo === 'custo' && v === 0)) OVR[k][campo] = v; else { mensagem('Digite um número válido.', 'erro'); desenhar(); return; }
+    if (!Object.keys(OVR[k]).length) delete OVR[k];
+    mensagem(''); recalcular().then(() => { INFO = {}; desenhar(); }).catch(e => mensagem(e.message, 'erro'));
+  };
+  return i;
 }
 function linha(r){
-  const cb = el('input', {type:'checkbox', checked: MARCA.has(r._i), disabled: !podeMarcar(r), title: podeMarcar(r) ? 'Não enviar este pedido' : 'Só dá para marcar o que ainda será enviado por você'});
-  cb.onchange = () => { if (cb.checked) MARCA.add(r._i); else MARCA.delete(r._i); desenhar(); };
+  const cels = [];
+  if (aba === 'mogilar') {
+    const cb = el('input', {type:'checkbox', checked: MARCA.has(r._i), disabled: !podeMarcar(r), title: podeMarcar(r) ? 'Não enviar este pedido' : 'Só dá para marcar o que ainda será enviado por você'});
+    cb.onchange = () => { if (cb.checked) MARCA.add(r._i); else MARCA.delete(r._i); desenhar(); };
+    cels.push(el('td', {class:'chk'}, cb));
+  }
   const sinal = v => v === null || v === undefined ? '' : (v < 0 ? 'n neg' : 'n pos');
-  return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''},
-    el('td', {class:'chk'}, cb),
+  const info = infoDe(r);
+  let precoAtual = '—', precoNovo = '—', cbPreco = null;
+  if (precisaPreco(r)) {
+    if (info) {
+      precoAtual = info.preco_atual !== undefined && info.preco_atual !== null ? brl(info.preco_atual) : '—';
+      if (info.acao === 'subir') precoNovo = el('span', {class:'neg-claro', title: info.mensagem}, brl(info.preco_novo), el('div', {class:'mlbs'}, '+' + pct(info.variacao_pct) + ' → margem ' + pct(info.margem_nova)));
+      else precoNovo = el('span', {class:'mlbs', title: info.mensagem}, info.acao === 'ok' ? 'já atinge a margem' : 'bloqueado: ' + info.mensagem);
+    } else precoNovo = el('span', {class:'mlbs'}, PEND.has(chaveInfo(r)) ? 'calculando…' : '…');
+  } else if (r.classe === 'sem_dados') precoNovo = el('span', {class:'mlbs'}, 'digite o custo');
+  if (selecionavel(r)) {
+    cbPreco = el('input', {type:'checkbox', checked: PRECO.has(r._i), title: 'Atualizar o preço deste anúncio no Mercado Livre'});
+    cbPreco.onchange = () => { if (cbPreco.checked) PRECO.add(r._i); else PRECO.delete(r._i); desenhar(); };
+  }
+  cels.push(
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
-    el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'), el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')), el('td', {}, r.titulo.slice(0, 70), el('div', {class:'mlbs'}, r.mlb + (r.obs ? ' · ' + r.obs : ''))),
-    el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)),
-    el('td', {class:'n'}, brl(r.imposto)), el('td', {class:'n'}, brl(r.custo_total)), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
-    el('td', {class:'n', title: r.meta_origem === 'padrão' ? 'margem padrão' : 'margem da planilha'}, pct(r.meta) + (r.meta_origem === 'padrão' ? '*' : '')), el('td', {}, ENV[r.grupo] || r.grupo));
+    el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'),
+    el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
+    el('td', {}, r.titulo.slice(0, 70), el('div', {class:'mlbs'}, r.mlb + (r.obs ? ' · ' + r.obs : ''))),
+    el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)), el('td', {class:'n'}, brl(r.imposto)),
+    el('td', {class:'n'}, campoEditavel(r, 'custo')), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
+    el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {class:'chk'}, cbPreco), el('td', {}, ENV[r.grupo] || r.grupo));
+  return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''}, ...cels);
 }
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
-$('vTodos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { if (e.target.checked) MARCA.add(r._i); else MARCA.delete(r._i); }); desenhar(); };
 $('vMarcarRuins').onclick = () => {
   const a = visiveis().filter(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo')); a.forEach(r => MARCA.add(r._i)); desenhar();
   mensagem(a.length + ' vendas marcadas para não enviar. Desmarque na lista as que quiser enviar mesmo assim.', 'ok');
 };
 $('vLimpar').onclick = () => { MARCA = new Set(); desenhar(); mensagem(''); };
 
+// ---------- preço necessário (somente leitura, calculado aos poucos para as vendas da lista aberta) ----------
+let calculando = false;
+async function buscarPrecos(){
+  if (calculando) return;
+  const versao = VERSAO, imposto = parametros();
+  const falta = new Map();
+  for (const r of LINHAS) if (daAba(r) && precisaPreco(r)) { const k = chaveInfo(r); if (!INFO[k] && !falta.has(k)) falta.set(k, r); }
+  if (!falta.size) return;
+  calculando = true;
+  try {
+    const porConta = {};
+    for (const [k, r] of falta) { PEND.add(k); (porConta[r.conta] = porConta[r.conta] || []).push({k, mlb: r.mlb, custo: r.custo_unit, meta: r.meta}); }
+    for (const conta of Object.keys(porConta)) {
+      const lista = porConta[conta];
+      for (let i = 0; i < lista.length; i += 6) {
+        if (versao !== VERSAO) return;
+        const lote = lista.slice(i, i + 6);
+        try {
+          const d = await comTentativas(() => json('/api/vendas/preco-alvo', {conta, parametros: imposto, itens: lote.map(x => ({mlb: x.mlb, custo: x.custo, meta: x.meta}))}), 2);
+          if (versao !== VERSAO) return;
+          for (const x of lote) { INFO[x.k] = d.resultados[x.mlb] || {acao: 'bloqueado', mensagem: 'sem resposta'}; PEND.delete(x.k); }
+        } catch (e) {
+          for (const x of lote) { INFO[x.k] = {acao: 'bloqueado', mensagem: e.message}; PEND.delete(x.k); }
+        }
+        redesenharLinhas();
+      }
+    }
+  } finally { calculando = false; }
+  if (versao === VERSAO) { const ainda = LINHAS.some(r => daAba(r) && precisaPreco(r) && !INFO[chaveInfo(r)]); if (ainda) buscarPrecos(); }
+}
+function redesenharLinhas(){ if (!$('vResultado').hidden) desenhar(); }
+
+// ---------- atualizar preço no Mercado Livre ----------
+let ALVOS = [];
+function alvosSelecionados(){
+  const por = new Map();
+  for (const r of LINHAS) {
+    if (!PRECO.has(r._i) || !selecionavel(r)) continue;
+    const k = r.conta + '|' + r.mlb, i = infoDe(r), ant = por.get(k);
+    if (!ant || r.meta > ant.meta) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku, custo: r.custo_unit, meta: r.meta, info: i});
+  }
+  return [...por.values()];
+}
+$('vPreco').onclick = () => {
+  ALVOS = alvosSelecionados(); if (!ALVOS.length) return;
+  $('vPrecoLista').replaceChildren(...ALVOS.map(a => el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.sku || '—'), el('td', {class:'n'}, brl(a.info.preco_atual)), el('td', {class:'n neg-claro'}, brl(a.info.preco_novo)),
+    el('td', {class:'n'}, '+' + pct(a.info.variacao_pct)), el('td', {class:'n'}, pct(a.info.margem_nova)))));
+  $('vLiberarCx').hidden = !ALVOS.some(a => a.info.requer_liberacao); $('vLiberar').checked = false; $('vEntendi').checked = false; $('vPrecoOk').disabled = true;
+  $('vPrecoRes').hidden = true; $('vPainelPreco').hidden = false; $('vPainelPreco').scrollIntoView({behavior:'smooth', block:'center'});
+};
+$('vEntendi').onchange = () => { $('vPrecoOk').disabled = !$('vEntendi').checked; };
+$('vPrecoCancela').onclick = () => { $('vPainelPreco').hidden = true; };
+$('vPrecoOk').onclick = async () => {
+  const b = $('vPrecoOk'); b.disabled = true; $('vPrecoCancela').disabled = true;
+  const res = $('vPrecoRes'); res.hidden = false; res.className = 'aviso'; res.textContent = 'Atualizando…';
+  const linhasRes = []; let ok = 0;
+  try {
+    for (const conta of ['ML19', 'ML44']) {
+      const lista = ALVOS.filter(a => a.conta === conta);
+      for (let i = 0; i < lista.length; i += 5) {
+        const lote = lista.slice(i, i + 5);
+        res.textContent = 'Atualizando ' + conta + ' (' + (i + lote.length) + ' de ' + lista.length + ')…';
+        const d = await json('/api/vendas/preco-aplicar', {conta, confirmacao: CONFIRMACAO, parametros: parametros(), liberar_acima_limite: $('vLiberar').checked,
+          itens: lote.map(a => ({mlb: a.mlb, custo: a.custo, meta: a.meta, preco_atual_visto: a.info.preco_atual, preco_novo_visto: a.info.preco_novo}))});
+        for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem + (r.planilha ? ' (planilha de preços: ' + r.planilha + ')' : '')); }
+        ok += d.atualizados;
+        for (const r of d.resultados) if (r.status === 'OK') for (const l of LINHAS) if (l.conta === conta && l.mlb === r.mlb) PRECO.delete(l._i);
+      }
+    }
+    res.className = 'aviso ' + (ok === ALVOS.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + ALVOS.length + ' preços atualizados.'), ...linhasRes.map(t => el('div', {}, t)));
+  } catch (e) { res.className = 'aviso erro'; res.replaceChildren(el('b', {}, 'Parei: ' + e.message), ...linhasRes.map(t => el('div', {}, t))); }
+  INFO = {}; $('vPrecoCancela').disabled = false; $('vPrecoCancela').textContent = 'Fechar'; desenhar();
+};
+
 // ---------- relatórios ----------
 const corpoRelatorio = tipo => ({tipo, dia: DIA, periodo: PERIODO, parametros: parametros(),
-  linhas: LINHAS.map(r => ({conta: r.conta, pedido: r.pedido, data: r.data, mlb: r.mlb, sku: r.sku, titulo: r.titulo, grupo: r.grupo, logistica: r.logistica, status_envio: r.status_envio, obs: r.obs,
+  linhas: LINHAS.map(r => ({conta: r.conta, pedido: r.pedido, data: r.data, mlb: r.mlb, sku: r.sku, titulo: r.titulo, grupo: r.grupo, logistica: r.logistica, status_envio: r.status_envio, substatus: r.substatus, status_rotulo: r.status_rotulo, obs: r.obs,
     meta_origem: r.meta_origem, quantidade: r.quantidade, venda: r.venda, tarifa: r.tarifa, frete: r.frete, custo_unit: r.custo_unit, meta: r.meta, nao_enviar: MARCA.has(r._i)}))});
 async function baixar(tipo, botao){
   botao.disabled = true;

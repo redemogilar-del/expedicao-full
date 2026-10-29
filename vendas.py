@@ -62,10 +62,8 @@ def analisar(linha, cad, params):
     if meta is None:
         meta, origem = float(params['margem_padrao']), 'padrão'
     faltam = []
-    if not str(linha.get('sku') or '').strip():
-        faltam.append('SKU do anúncio')
-    elif custo is None or custo <= 0:
-        faltam.append('custo na planilha')
+    if custo is None or custo <= 0:
+        faltam.append('custo na planilha' if str(linha.get('sku') or '').strip() else 'SKU do anúncio (ou digite o custo)')
     if venda is None or venda <= 0 or qtd <= 0:
         faltam.append('valor da venda')
     if tarifa is None:
@@ -96,7 +94,7 @@ def analisar(linha, cad, params):
 
 def calcular(linhas, cadastro, params):
     """(linhas analisadas, resumo). O cadastro vem de fontes.cadastro: {sku: {custo, margem, margem_full}}."""
-    saida = [analisar(l, cadastro.get(str(l.get('sku') or '').strip()), params) for l in linhas]
+    saida = [analisar(l, cadastro.get(str(l.get('sku') or '').strip()) or cadastro.get(str(l.get('mlb') or '').strip()), params) for l in linhas]   # sem SKU: custo/margem digitados na tela vêm pelo MLB
     return saida, resumo(saida)
 
 

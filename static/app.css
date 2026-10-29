@@ -97,3 +97,9 @@ tr.naoenviar td{background:var(--verm-fundo)}
 .progresso #vBarra{height:100%;background:var(--destaque,#ffc933);opacity:.35;transition:width .3s}
 
 .e-full{background:var(--cinza-fundo);color:var(--suave)}.e-enviado{background:var(--verde-fundo);color:var(--verde)}.e-a_enviar{background:var(--ambar-fundo)}
+.abas-lista{margin:6px 0 10px}.abas-lista button{font-size:15px;padding:9px 16px}
+td input.editado{border-color:var(--amarelo-esc);background:var(--ambar-fundo);color:#14213d}
+td input[type=number]{width:84px}
+.neg-claro{color:var(--verm);font-weight:700}
+.painel-preco{border-color:var(--amarelo-esc);margin:12px 0}.painel-preco .mini{max-height:240px;margin:8px 0}.painel-preco label{margin:6px 0}
+.inline-campo input[type=checkbox]{width:auto}

@@ -20,6 +20,7 @@
 <div id="vProg" class="progresso" hidden><div id="vBarra"></div><span id="vTxt"></span></div>
 
 <section id="vResultado" hidden>
+  <div class="filtros abas-lista" id="vAbas"></div>
   <div class="cartoes" id="vCartoes"></div>
   <div class="barra">
     <div class="filtros" id="vGrupos"></div>
@@ -27,16 +28,26 @@
   </div>
   <div class="barra">
     <div class="filtros" id="vClasses"></div>
-    <button class="secundario" id="vMarcarRuins">Marcar para não enviar: abaixo da margem e prejuízo (que estão na tela)</button>
-    <button class="secundario" id="vLimpar">Desmarcar tudo</button>
   </div>
+  <div class="barra">
+    <button class="secundario" id="vMarcarRuins">Marcar para não enviar: abaixo da margem e prejuízo (que estão na tela)</button>
+    <button class="secundario" id="vLimpar">Desmarcar “não enviar”</button>
+    <button class="primario" id="vPreco" disabled>Atualizar preço no Mercado Livre</button>
+  </div>
+  <p class="suave pequeno" id="vDica">Custo e margem mínima podem ser digitados na própria linha (vale para todas as vendas do mesmo SKU; só nesta tela, a planilha não muda). O preço necessário é calculado com a tarifa e o frete reais do Mercado Livre naquele preço.</p>
+
+  <div id="vPainelPreco" class="cartao painel-preco" hidden>
+    <h2>Confirmar atualização de preço no Mercado Livre</h2>
+    <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>SKU</th><th class="n">Preço atual</th><th class="n">Novo preço</th><th class="n">Aumento</th><th class="n">Margem depois</th></tr></thead><tbody id="vPrecoLista"></tbody></table></div>
+    <label class="inline-campo" id="vLiberarCx" hidden><input type="checkbox" id="vLiberar"> Liberar aumentos acima de 15% (há itens com aumento grande)</label>
+    <label class="inline-campo"><input type="checkbox" id="vEntendi"> Entendo que isso muda o preço de verdade no Mercado Livre</label>
+    <p id="vPrecoRes" class="aviso" hidden></p>
+    <div class="acoes"><button class="primario" id="vPrecoOk" disabled>Confirmar e atualizar no Mercado Livre</button><button class="secundario" id="vPrecoCancela">Cancelar</button></div>
+  </div>
+
   <div class="tabela-caixa">
     <table id="vTabela">
-      <thead><tr>
-        <th class="chk"><input type="checkbox" id="vTodos" title="Marcar/desmarcar não enviar em tudo que está na tela"></th>
-        <th>Situação</th><th class="n" title="Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima">Prejuízo / deixou de ganhar</th><th>Conta</th><th>Pedido</th><th>SKU</th><th>Status do envio</th><th>Produto</th><th class="n">Qtd</th><th class="n">Venda</th><th class="n">Tarifa ML</th><th class="n">Frete</th>
-        <th class="n">Imposto</th><th class="n">Custo</th><th class="n">Lucro</th><th class="n">Margem</th><th class="n">Mínima</th><th>Envio</th>
-      </tr></thead>
+      <thead><tr id="vCab"></tr></thead>
       <tbody id="vCorpo"></tbody>
     </table>
     <p id="vVazio" class="suave centro" hidden>Nada nesta lista.</p>

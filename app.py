@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 
 import envios
 import fontes
+import precos
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -758,5 +759,118 @@ def api_vendas_salvar():
                    'cab': CAB_DIA, 'linhas': [_linha_dia(l) for l in linhas],
                    'cab_nao_enviar': CAB_NAO, 'nao_enviar': [_linha_nao(l) for l in marcadas]}
         return jsonify(ok=True, **fontes.salvar_relatorio(payload))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+# ------------------------------------------------------------------ Preço necessário e atualização de preço no ML
+def _decimal_ou_none(v):
+    try:
+        d = precos.D(str(v))
+    except Exception:
+        return None
+    return d if d.is_finite() else None
+
+
+@app.post('/api/vendas/preco-alvo')
+def api_vendas_preco_alvo():
+    """Preço necessário para chegar na margem, por anúncio (somente leitura)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        itens = c.get('itens')
+        if not isinstance(itens, list) or not 1 <= len(itens) <= 6:
+            raise envios.ArquivoInvalido('Envie de 1 a 6 anúncios por vez.')
+        params = _params_vendas(c)
+        pedidos = []
+        for x in itens:
+            mlb = str((x or {}).get('mlb') or '').strip().upper() if isinstance(x, dict) else ''
+            if not fontes._MLB.match(mlb):
+                raise envios.ArquivoInvalido('Anúncio inválido.')
+            pedidos.append((mlb, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta'))))
+        tk = fontes.token(c['conta'])
+        vendedor = fontes._vendedor(c['conta'], tk)
+
+        def um(p):
+            mlb, custo, meta = p
+            try:
+                return mlb, precos.analisar(tk, vendedor, precos.buscar_item(tk, mlb), custo, meta, params['imposto_pct'])
+            except precos.Bloqueio as exc:
+                return mlb, {'mlb': mlb, 'acao': 'bloqueado', 'mensagem': str(exc)}
+            except Exception as exc:
+                log.exception('Falha ao calcular o preço de %s', mlb)
+                return mlb, {'mlb': mlb, 'acao': 'bloqueado', 'mensagem': 'Não consegui calcular agora (%s)' % str(exc)[:60]}
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            res = dict(ex.map(um, pedidos))
+        return jsonify(ok=True, somente_leitura=True, resultados=res)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/preco-aplicar')
+def api_vendas_preco_aplicar():
+    """Altera o preço dos anúncios marcados. Recalcula tudo na hora e nunca confia no que o navegador mostrou."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        if c.get('confirmacao') != precos.CONFIRMACAO:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para alterar preço.')
+        itens = c.get('itens')
+        if not isinstance(itens, list) or not 1 <= len(itens) <= precos.MAX_APLICAR:
+            raise envios.ArquivoInvalido('Envie de 1 a %d anúncios por vez.' % precos.MAX_APLICAR)
+        params = _params_vendas(c)
+        liberar = c.get('liberar_acima_limite') is True
+        pedidos, vistos = [], set()
+        for x in itens:
+            if not isinstance(x, dict):
+                raise envios.ArquivoInvalido('Item inválido.')
+            mlb = str(x.get('mlb') or '').strip().upper()
+            custo, meta = _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta'))
+            visto_atual, visto_novo = _decimal_ou_none(x.get('preco_atual_visto')), _decimal_ou_none(x.get('preco_novo_visto'))
+            if not fontes._MLB.match(mlb) or mlb in vistos or None in (custo, meta, visto_atual, visto_novo) or visto_atual <= 0 or visto_novo <= 0:
+                raise envios.ArquivoInvalido('Item inválido ou repetido.')
+            vistos.add(mlb)
+            pedidos.append((mlb, custo, meta, visto_atual, visto_novo))
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+        resultados, aplicados = [], []
+        for mlb, custo, meta, visto_atual, visto_novo in pedidos:
+            r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
+            try:
+                item = precos.buscar_item(tk, mlb)
+                a = precos.analisar(tk, vendedor, item, custo, meta, params['imposto_pct'])
+                if a['acao'] != 'subir':
+                    raise precos.Bloqueio('Não precisa mais de ajuste: ' + a['mensagem'])
+                atual, novo = precos.D(str(a['preco_atual'])), precos.D(str(a['preco_novo']))
+                if abs(atual - visto_atual) > precos.D('0.009'):
+                    raise precos.Bloqueio('O preço mudou no Mercado Livre desde que você viu. Calcule de novo.')
+                if abs(novo / visto_novo - 1) * 100 > precos.DIVERGENCIA_MAX_PCT:
+                    raise precos.Bloqueio('Custo, tarifa ou frete mudaram desde que você viu. Calcule de novo.')
+                if a['requer_liberacao'] and not liberar:
+                    raise precos.Bloqueio('Aumento acima de %s%% exige a liberação extra.' % precos.LIMITE_VARIACAO_PCT)
+                if not precos.reservar(conta, mlb):
+                    raise precos.Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
+                ok, lido = precos.enviar_preco(tk, item, novo)
+                r.update(status='OK' if ok else 'PENDENTE', preco_anterior=a['preco_atual'], preco_novo=a['preco_novo'], verificado=lido,
+                         mensagem='Preço alterado e confirmado no Mercado Livre.' if ok else 'Enviado, mas o Mercado Livre ainda não confirmou. Confira no anúncio.')
+                log.info('PREÇO %s %s: %s -> %s (lido %s) %s', conta, mlb, atual, novo, lido, r['status'])
+                if ok:
+                    aplicados.append({'mlb': mlb, 'preco_referencia_anterior': float(atual), 'preco_atual_ml': float(novo)})
+            except precos.Bloqueio as exc:
+                r['mensagem'] = str(exc)
+            except Exception as exc:
+                log.exception('Falha ao alterar o preço de %s', mlb)
+                r.update(status='ERRO', mensagem=str(exc)[:200])
+            resultados.append(r)
+        if aplicados:
+            plan = fontes.atualizar_referencia(conta, aplicados)
+            for r in resultados:
+                if r['mlb'] in plan:
+                    r['planilha'] = plan[r['mlb']]
+        return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, atualizados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)

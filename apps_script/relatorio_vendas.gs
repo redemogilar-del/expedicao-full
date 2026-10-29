@@ -38,7 +38,7 @@ function vendasRelatorio_(b) {
   // 3) uma linha por dia no desempenho
   const cab = [
     'Data', 'Período', 'Itens', 'Unidades', 'Dentro da margem', 'Abaixo da margem',
-    'Prejuízo', 'Sem dados', 'Vendido (R$)', 'Lucro (R$)', 'Não enviar',
+    'Prejuízo', 'Sem dados', 'Vendido (R$)', 'Lucro (R$)', 'Prejuízo total (R$)', 'Deixou de ganhar (R$)', 'Não enviar',
     'Imposto (%)', 'Margem padrão (%)', 'Atualizado em'
   ];
 
@@ -48,7 +48,7 @@ function vendasRelatorio_(b) {
 
   const linha = [
     dia, String(b.periodo || ''), r.itens, r.unidades, r.dentro, r.abaixo,
-    r.prejuizo, r.sem_dados, r.venda, r.lucro, r.nao_enviar,
+    r.prejuizo, r.sem_dados, r.venda, r.lucro, r.prejuizo_rs, r.deixou_rs, r.nao_enviar,
     p.imposto_pct, p.margem_padrao,
     Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm')
   ];

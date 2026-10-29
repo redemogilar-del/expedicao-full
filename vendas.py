@@ -73,7 +73,7 @@ def analisar(linha, cad, params):
     if frete is None:
         faltam.append('frete')
     reg.update({'custo_unit': custo if custo and custo > 0 else None, 'meta': meta, 'meta_origem': origem,
-                'repasse': None, 'imposto': None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados',
+                'repasse': None, 'imposto': None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados', 'perda': None, 'perda_tipo': '',
                 'pendencias': ', '.join(faltam)})
     if faltam:
         return reg
@@ -84,6 +84,13 @@ def analisar(linha, cad, params):
     margem = lucro / custo_total * 100
     reg.update({'repasse': _dois(repasse), 'imposto': _dois(imposto), 'custo_total': _dois(custo_total), 'lucro': _dois(lucro), 'margem': _dois(margem)})
     reg['classe'] = 'prejuizo' if lucro < 0 else ('abaixo' if margem < D(str(meta)) else 'dentro')
+    # perda em dinheiro: prejuízo (lucro negativo) ou o que deixou de ganhar para chegar na margem mínima
+    if reg['classe'] == 'prejuizo':
+        reg['perda'], reg['perda_tipo'] = _dois(-lucro), 'prejuizo'
+    elif reg['classe'] == 'abaixo':
+        reg['perda'], reg['perda_tipo'] = _dois(custo_total * D(str(meta)) / 100 - lucro), 'deixou'
+    else:
+        reg['perda'] = 0.0
     return reg
 
 
@@ -95,11 +102,15 @@ def calcular(linhas, cadastro, params):
 
 def resumo(linhas):
     r = {c: 0 for c in CLASSES}
-    r.update({'linhas': len(linhas), 'venda': 0.0, 'lucro': 0.0, 'unidades': 0})
+    r.update({'linhas': len(linhas), 'venda': 0.0, 'lucro': 0.0, 'unidades': 0, 'prejuizo_rs': 0.0, 'deixou_rs': 0.0})
     for l in linhas:
         r[l['classe']] += 1
         r['unidades'] += int(l.get('quantidade') or 0)
         if l['classe'] != 'sem_dados':
             r['venda'] += l['venda']; r['lucro'] += l['lucro']
-    r['venda'], r['lucro'] = _dois(r['venda']), _dois(r['lucro'])
+            if l['perda_tipo'] == 'prejuizo':
+                r['prejuizo_rs'] += l['perda']
+            elif l['perda_tipo'] == 'deixou':
+                r['deixou_rs'] += l['perda']
+    r['venda'], r['lucro'], r['prejuizo_rs'], r['deixou_rs'] = _dois(r['venda']), _dois(r['lucro']), _dois(r['prejuizo_rs']), _dois(r['deixou_rs'])
     return r

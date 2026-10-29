@@ -104,13 +104,13 @@ const noSub = r => aba === 'full' || sub === 'todos' || r.grupo === sub;
 const podeMarcar = r => r.grupo === 'a_enviar';
 const chaveInfo = r => [r.conta, r.mlb, r.custo_unit, r.meta, r.imposto_pct].join('|');
 const precisaPreco = r => (r.classe === 'abaixo' || r.classe === 'prejuizo') && r.custo_unit && r.imposto_pct !== null && r.imposto_pct !== undefined;
-const RANK = {prejuizo: 0, abaixo: 1, dentro: 2, sem_dados: 3};
-// prejuízo (maior primeiro) → abaixo da margem (maior perda primeiro) → dentro da margem (do menor ao maior lucro) → sem dados
+const RANK = {sem_dados: 0, prejuizo: 1, abaixo: 2, dentro: 3};
+// sem dados (para a pessoa completar custo/margem; agrupados por SKU) → prejuízo (maior primeiro) → abaixo da margem (maior perda primeiro) → dentro da margem (do menor ao maior lucro)
 function ordem(a, b){
   if (RANK[a.classe] !== RANK[b.classe]) return RANK[a.classe] - RANK[b.classe];
   if (a.classe === 'prejuizo' || a.classe === 'abaixo') return (b.perda || 0) - (a.perda || 0);
   if (a.classe === 'dentro') return a.lucro - b.lucro;
-  return String(a.pedido).localeCompare(String(b.pedido));
+  return String(a.sku || a.mlb).localeCompare(String(b.sku || b.mlb)) || String(a.pedido).localeCompare(String(b.pedido));
 }
 function visiveis(){
   const q = busca.trim().toLowerCase();
@@ -196,7 +196,7 @@ function linha(r){
       if (info.acao === 'subir') precoNovo = el('span', {class:'neg-claro', title: info.mensagem}, brl(info.preco_novo), el('div', {class:'mlbs'}, '+' + pct(info.variacao_pct) + ' → margem ' + pct(info.margem_nova)));
       else precoNovo = el('span', {class:'mlbs', title: info.mensagem}, info.acao === 'ok' ? 'já atinge a margem' : 'bloqueado: ' + info.mensagem);
     } else precoNovo = el('span', {class:'mlbs'}, PEND.has(chaveInfo(r)) ? 'calculando…' : '…');
-  } else if (r.classe === 'sem_dados') precoNovo = el('span', {class:'mlbs'}, 'digite o custo');
+  } else if (r.classe === 'sem_dados') precoNovo = el('span', {class:'mlbs'}, /custo|SKU/.test(r.pendencias || '') ? 'digite o custo' : 'falta: ' + (r.pendencias || 'dado'));
   if (selecionavel(r)) {
     cbPreco = el('input', {type:'checkbox', checked: PRECO.has(r._i), title: 'Atualizar o preço deste anúncio no Mercado Livre'});
     cbPreco.onchange = () => { if (cbPreco.checked) PRECO.add(r._i); else PRECO.delete(r._i); desenhar(); };

@@ -48,6 +48,12 @@
     </div>
     <input type="search" id="busca" placeholder="Buscar SKU, produto, MLB…">
   </div>
+  <div class="barra" id="barraGrupos" hidden>
+    <div class="filtros" id="grupos"></div>
+    <button class="primario" id="marcarAptos">Marcar todos os aptos para Full</button>
+    <button class="secundario" id="baixarAptos">Baixar relatório dos aptos</button>
+    <button class="secundario" id="baixarNaoAptos">Baixar relatório dos não aptos</button>
+  </div>
   <div class="barra" id="barraTeste" hidden>
     <span class="aviso inline" id="avisoTeste"></span>
     <label class="inline-campo">Qtd dos testes<input type="number" id="qtdTesteTopo" min="1" max="100000" step="1" placeholder="ex.: 3"></label>

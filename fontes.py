@@ -107,6 +107,22 @@ def custos(skus):
     return saida
 
 
+def aptos_full():
+    """SKUs da aba 'Aptos Para FULL' da planilha (via Apps Script, ação 'aptos_full'), em minúsculas e sem espaços nas pontas."""
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha de custos não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    try:
+        r = _SESS.post(url, json={'chave': chave, 'acao': 'aptos_full'}, timeout=(5, 25), allow_redirects=True)
+        r.raise_for_status()
+        dados = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise FonteIndisponivel('Não consegui ler a aba Aptos Para FULL agora (%s).' % str(exc)[:80])
+    if not isinstance(dados, dict) or dados.get('ok') is not True or not isinstance(dados.get('skus'), list):
+        raise FonteIndisponivel('A planilha ainda não entrega a lista da aba Aptos Para FULL. Falta colocar o trecho novo no Apps Script (peça o passo a passo).')
+    return sorted({str(x).strip().lower() for x in dados['skus'] if str(x or '').strip()})
+
+
 # ---------------------------------------------------------------- frete
 def token(conta):
     if conta not in CONTAS:

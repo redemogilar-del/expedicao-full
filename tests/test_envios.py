@@ -189,6 +189,31 @@ class TestSite(unittest.TestCase):
         self.assertIn('Anúncio não ativo', {l['codigo_ml']: l['motivo'] for l in d['linhas']}['DDD'])
         self.assertEqual(st['EEE'][0], 'nao_precisa')
 
+    def test_aptos_endpoint_e_relatorios_por_grupo(self):
+        self.entrar()
+        with mock.patch.object(fontes, 'aptos_full', lambda: ['s1']):
+            self.assertEqual(self.c.post('/api/envios/aptos').get_json()['skus'], ['s1'])
+        with mock.patch.object(fontes, 'aptos_full', side_effect=fontes.FonteIndisponivel('sem lista')):
+            self.assertEqual(self.c.post('/api/envios/aptos').status_code, 503)
+        import openpyxl
+        base = self.linhas_exp()
+        linhas = [dict(base[0], apto=True), dict(base[1], apto=True, incluir=False), dict(base[2], apto=False, incluir=True), dict(base[3], apto=None)]
+        r = self.c.post('/api/envios/exportar', json={'tipo': 'aptos', 'linhas': linhas})
+        self.assertEqual(r.status_code, 200)
+        ws = openpyxl.load_workbook(io.BytesIO(r.data)).active
+        self.assertEqual(ws.title, 'Aptos para Full')
+        dados = [l for l in ws.iter_rows(min_row=2, values_only=True)]
+        self.assertEqual([l[2] for l in dados[:-1]], ['A', 'B'])                  # só os aptos, marcados ou não
+        self.assertEqual([l[1] for l in dados[:-1]], ['Sim', 'Não'])
+        r = self.c.post('/api/envios/exportar', json={'tipo': 'nao_aptos', 'linhas': linhas})
+        self.assertEqual([l[2] for l in list(openpyxl.load_workbook(io.BytesIO(r.data)).active.iter_rows(min_row=2, values_only=True))[:-1]], ['C'])
+        r = self.c.post('/api/envios/exportar', json={'tipo': 'envio', 'linhas': linhas})                  # planilha de envio: aptos e não aptos marcados
+        wb = openpyxl.load_workbook(io.BytesIO(r.data))
+        enviar = [(l[0], l[8]) for l in wb['Enviar'].iter_rows(min_row=2, max_row=3, values_only=True)]
+        self.assertEqual(sorted(enviar), [('A', 'Sim'), ('C', 'Não')])
+        sem = [dict(l, apto=None) for l in linhas]
+        self.assertEqual(self.c.post('/api/envios/exportar', json={'tipo': 'aptos', 'linhas': sem}).status_code, 400)
+
     def test_custos_endpoint(self):
         self.entrar()
         with mock.patch.object(fontes, 'custos', lambda skus: {s: 10.0 for s in skus}):

@@ -326,7 +326,8 @@ $('vBuscar').onclick = buscar;
 
 // ---------- resumo do que ficou para fazer na mão ----------
 function pendenciasManuais(){
-  const vistos = new Map();
+  const vistos = new Map(), onde = new Map();
+  for (const r of LINHAS) { const k = r.conta + '|' + r.mlb, n = r.grupo === 'full' ? 'Aba Full' : 'Aba Mogilar · ' + (ENV[r.grupo] || r.grupo); if (!onde.has(k)) onde.set(k, new Set()); onde.get(k).add(n); }
   for (const r of LINHAS) {
     if (!['prejuizo', 'abaixo', 'sem_dados'].includes(r.classe)) continue;
     const k = r.conta + '|' + r.mlb; if (vistos.has(k)) continue;
@@ -343,7 +344,7 @@ function pendenciasManuais(){
       else if (i.acao === 'subir') item = Object.assign(base, {tipo: 'Ainda não atualizado', motivo: 'Preço sugerido calculado. Marque e atualize na tela, ou ajuste direto no Mercado Livre.', preco_atual: i.preco_atual, preco_necessario: i.preco_novo});
       else continue;     // 'ok': o anúncio já atinge a margem, nada a fazer
     }
-    vistos.set(k, item);
+    item.onde = [...onde.get(k)].join(' e '); vistos.set(k, item);
   }
   const ordemTipo = {'Não atualizado': 0, 'Não calculado': 1, 'Ainda não atualizado': 2};
   return [...vistos.values()].sort((a, b) => ordemTipo[a.tipo] - ordemTipo[b.tipo]);
@@ -354,7 +355,7 @@ function resumoManual(){
   const c = {}; MANUAL.forEach(m => c[m.tipo] = (c[m.tipo] || 0) + 1);
   $('vManualTxt').textContent = MANUAL.length ? Object.entries(c).map(([k, n]) => n + ' ' + k.toLowerCase()).join(' · ') + '. Esses anúncios precisam de ajuste de preço direto no Mercado Livre (ou de um dado a mais aqui).' : 'Nada pendente: tudo que estava abaixo da margem já foi calculado e atualizado.';
   $('vManualCorpo').replaceChildren(...MANUAL.map(m => el('tr', {}, el('td', {}, el('span', {class: 'tag ' + (m.tipo === 'Não atualizado' ? 'v-prejuizo' : m.tipo === 'Não calculado' ? 'v-abaixo' : 'v-sem_dados')}, m.tipo)),
-    el('td', {}, m.conta), el('td', {}, m.mlb), el('td', {}, m.sku || '—'), el('td', {}, m.produto.slice(0, 60)), el('td', {}, m.situacao), el('td', {class:'n'}, brl(m.preco_atual)), el('td', {class:'n'}, brl(m.preco_necessario)), el('td', {}, m.motivo))));
+    el('td', {}, m.conta), el('td', {}, m.mlb), el('td', {}, m.sku || '—'), el('td', {}, m.produto.slice(0, 60)), el('td', {}, m.onde || ''), el('td', {}, m.situacao), el('td', {class:'n'}, brl(m.preco_atual)), el('td', {class:'n'}, brl(m.preco_necessario)), el('td', {}, m.motivo))));
   $('vManualBaixar').disabled = !MANUAL.length;
 }
 $('vManualBaixar').onclick = async () => {

@@ -46,7 +46,8 @@ class TestRegraLucro(unittest.TestCase):
             self.assertIn(falta, r['pendencias'])
         self.assertIn('custo', v.analisar(venda(), {'custo': None}, P)['pendencias'])
         self.assertIn('custo', v.analisar(venda(), None, P)['pendencias'])
-        self.assertIn('SKU', v.analisar(venda(sku=''), {'custo': 30.0}, P)['pendencias'])
+        self.assertIn('SKU', v.analisar(venda(sku=''), {'custo': None}, P)['pendencias'])
+        self.assertEqual(v.analisar(venda(sku=''), {'custo': 30.0}, P)['classe'], 'abaixo')          # custo digitado na tela dispensa o SKU
 
     def test_margem_padrao_e_full(self):
         self.assertEqual((v.analisar(venda(), {'custo': 30.0}, P)['meta'], v.analisar(venda(), {'custo': 30.0}, P)['meta_origem']), (20.0, 'padrão'))

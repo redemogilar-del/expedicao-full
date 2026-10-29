@@ -49,13 +49,23 @@ def _numero(v):
     return n if n == n and abs(n) != float('inf') else None
 
 
+def _post_planilha(url, corpo, leitura=40):
+    """POST no Apps Script. A primeira chamada depois de uma versão nova (ou de um tempo parado) costuma demorar:
+    se estourar o tempo ou a conexão cair, espera um pouco e tenta mais uma vez."""
+    try:
+        return _SESS.post(url, json=corpo, timeout=(5, leitura), allow_redirects=True)
+    except (requests.Timeout, requests.ConnectionError):
+        time.sleep(2)
+        return _SESS.post(url, json=corpo, timeout=(5, leitura), allow_redirects=True)
+
+
 def _consultar_itens(url, chave, lista):
     """{sku_pedido: {custo, margem, margem_full, ...}} (valores crus da planilha) para uma lista de SKUs, em lotes."""
     saida = {}
     for i in range(0, len(lista), LOTE_CUSTOS):
         lote = lista[i:i + LOTE_CUSTOS]
         try:
-            r = _SESS.post(url, json={'chave': chave, 'acao': 'catalogo_custos', 'skus': lote}, timeout=(5, 25), allow_redirects=True)
+            r = _post_planilha(url, {'chave': chave, 'acao': 'catalogo_custos', 'skus': lote})
             r.raise_for_status()
             dados = r.json()
         except (requests.RequestException, ValueError) as exc:
@@ -582,7 +592,7 @@ def impostos_conta(conta):
     if not url.startswith('https://script.google.com/') or not chave:
         raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
     try:
-        r = _SESS.post(url, json={'chave': chave, 'acao': 'catalogo_taxas', 'conta': conta}, timeout=(5, 25), allow_redirects=True)
+        r = _post_planilha(url, {'chave': chave, 'acao': 'catalogo_taxas', 'conta': conta})
         r.raise_for_status()
         dados = r.json()
     except (requests.RequestException, ValueError) as exc:

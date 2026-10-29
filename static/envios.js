@@ -92,7 +92,7 @@ $('calcular').onclick = async () => {
     const fd2 = formParams(new FormData()); fd2.append('relatorio', ARQ); fd2.append('base', JSON.stringify(base));
     const d = await postar('/api/envios/calcular', fd2);
     ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
-    SKUSEL = null; fecharPop();
+    SKUSEL = null; SEL = new Set(); ultimoSel = -1; fecharPop();
     LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
     filtro = 'enviar'; busca = ''; $('busca').value = '';
     mensagem(''); $('resultado').hidden = false; desenhar();
@@ -103,6 +103,8 @@ $('calcular').onclick = async () => {
 
 // ---------- tela de resultado ----------
 const podeMarcar = r => (r.status === 'enviar' || r.status === 'frete_alto' || r.status === 'sem_dados') && r.qtd_calc > 0;
+const escopo = () => SKUSEL ? LINHAS.filter(r => SKUSEL.has(r.sku || '')) : LINHAS;   // linhas dos SKUs escolhidos (todas, se não há filtro)
+let SEL = new Set(), ultimoSel = -1;   // seleção por caixinha (código ML)
 function visiveis(){
   const q = busca.trim().toLowerCase();
   return LINHAS.filter(r => (filtro === 'todos' || r.status === filtro || (filtro === 'marcados' && r.incluir)) &&
@@ -111,16 +113,17 @@ function visiveis(){
 }
 function resumoSku(){
   const m = new Map();
-  for (const r of LINHAS) if (r.incluir && r.qtd > 0) { const t = m.get(r.sku) || {sku: r.sku || '(sem SKU)', qtd: 0}; t.qtd += r.qtd; m.set(r.sku, t); }
+  for (const r of escopo()) if (r.incluir && r.qtd > 0) { const t = m.get(r.sku) || {sku: r.sku || '(sem SKU)', qtd: 0}; t.qtd += r.qtd; m.set(r.sku, t); }
   return [...m.values()].sort((a, b) => a.sku.localeCompare(b.sku));
 }
 function desenhar(){
-  const marc = LINHAS.filter(r => r.incluir && r.qtd > 0), un = marc.reduce((s, r) => s + r.qtd, 0), skus = resumoSku();
-  const cont = {}; LINHAS.forEach(r => cont[r.status] = (cont[r.status] || 0) + 1);
-  const testes = LINHAS.filter(r => r.status === 'enviar' && r.tipo === 'Teste');
+  const esc = escopo(), marc = esc.filter(r => r.incluir && r.qtd > 0), un = marc.reduce((s, r) => s + r.qtd, 0), skus = resumoSku();
+  const geralUn = LINHAS.filter(r => r.incluir && r.qtd > 0).reduce((s, r) => s + r.qtd, 0), geral = SKUSEL ? ' (geral: ' + num(geralUn) + ')' : '';
+  const cont = {}; esc.forEach(r => cont[r.status] = (cont[r.status] || 0) + 1);
+  const testes = esc.filter(r => r.status === 'enviar' && r.tipo === 'Teste');
   const cards = $('cartoes'); cards.replaceChildren(
     el('div', {class:'card destaque'}, el('b', {}, num(marc.length)), el('span', {}, 'produtos marcados para enviar')),
-    el('div', {class:'card destaque'}, el('b', {}, num(un)), el('span', {}, 'unidades no total')),
+    el('div', {class:'card destaque'}, el('b', {}, num(un)), el('span', {}, 'unidades no total' + (SKUSEL ? ' dos SKUs escolhidos' + geral : ''))),
     el('div', {class:'card'}, el('b', {}, num(skus.length)), el('span', {}, 'SKUs diferentes (produção)')),
     el('div', {class:'card'}, el('b', {}, num(cont.frete_alto || 0)), el('span', {}, 'barrados por frete alto')),
     el('div', {class:'card'}, el('b', {}, num(cont.sem_dados || 0)), el('span', {}, 'sem frete ou custo')),
@@ -128,7 +131,7 @@ function desenhar(){
   const fb = $('filtros'); fb.replaceChildren();
   const abas = [['enviar', 'Enviar'], ['marcados', 'Marcados'], ['frete_alto', 'Frete alto'], ['sem_dados', 'Sem frete/custo'], ['impedido', 'Impedidos'], ['nao_precisa', 'Não precisa'], ['todos', 'Todos']];
   for (const [k, nome] of abas) {
-    const n = k === 'todos' ? LINHAS.length : k === 'marcados' ? marc.length : (cont[k] || 0);
+    const n = k === 'todos' ? esc.length : k === 'marcados' ? marc.length : (cont[k] || 0);
     fb.append(el('button', {class: k === filtro ? 'on' : '', onclick: () => { filtro = k; desenhar(); }}, nome + ' (' + n + ')'));
   }
   const pend = testes.filter(r => !r.incluir).length;
@@ -141,7 +144,8 @@ function desenhar(){
   const cs = $('corpoSku'); cs.replaceChildren(...skus.map(t => el('tr', {}, el('td', {}, t.sku), el('td', {class:'n'}, num(t.qtd)))));
   $('totSku').textContent = num(un);
   $('baixarEnvio').disabled = $('baixarSku').disabled = marc.length === 0;
-  rotuloSku();
+  rotuloSku(); barraSelecao(lista);
+  $('notaSku').textContent = SKUSEL ? 'Filtro de SKUs ativo: as planilhas terão só os ' + SKUSEL.size + ' SKUs escolhidos.' : '';
 }
 function linha(r){
   const cb = el('input', {type:'checkbox', checked: r.incluir, disabled: !podeMarcar(r)});
@@ -150,17 +154,42 @@ function linha(r){
   q.onchange = () => { const v = Math.max(0, Math.min(100000, Math.round(Number(q.value) || 0))); r.qtd = v; if (v === 0) r.incluir = false; desenhar(); };
   const ml = r.mlbs && r.mlbs.length ? el('div', {class:'mlbs'}, r.mlbs.slice(0, 3).join(', ') + (r.mlbs.length > 3 ? ' +' + (r.mlbs.length - 3) : '')) : null;
   const imp = r.impacto_pct === null || r.impacto_pct === undefined ? '—' : brl(r.frete) + ' / ' + brl(r.custo) + ' = ' + r.impacto_pct.toLocaleString('pt-BR') + '%';
-  return el('tr', {class: (r.incluir ? 'marcado' : '') + (!r.incluir && r.status !== 'enviar' ? ' fora' : '')},
-    el('td', {class:'chk'}, cb), el('td', {}, el('span', {class:'tag t-' + r.status}, ROTULOS[r.status])),
+  const sel = el('input', {type:'checkbox', checked: SEL.has(r.codigo_ml), title:'Selecionar (Shift para um intervalo)'});
+  sel.onclick = ev => selecionar(r, sel.checked, ev.shiftKey);
+  return el('tr', {class: (SEL.has(r.codigo_ml) ? 'sel ' : '') + (r.incluir ? 'marcado' : '') + (!r.incluir && r.status !== 'enviar' ? ' fora' : '')},
+    el('td', {class:'chk sel'}, sel), el('td', {class:'chk'}, cb), el('td', {}, el('span', {class:'tag t-' + r.status}, ROTULOS[r.status])),
     el('td', {}, r.sku), el('td', {}, r.produto.slice(0, 70), ml), el('td', {}, r.codigo_ml),
     el('td', {class:'n'}, num(r.vendas)), el('td', {class:'n', title:'Aptas + recebimento pendente'}, num(r.estoque_total)),
     el('td', {class:'n'}, r.cobertura_dias === null || r.cobertura_dias === undefined ? '—' : num(r.cobertura_dias)),
     el('td', {class:'n'}, imp), el('td', {class:'n'}, q), el('td', {}, r.tipo || ''), el('td', {}, r.motivo),
     el('td', {}, r.urgencia && r.urgencia !== '-' ? r.urgencia + (r.prazo && r.prazo !== '-' ? ' (' + r.prazo + ')' : '') : ''));
 }
+function selecionar(r, marcado, intervalo){
+  const lista = visiveis(), i = lista.indexOf(r);
+  const alvo = intervalo && ultimoSel >= 0 && ultimoSel < lista.length ? lista.slice(Math.min(i, ultimoSel), Math.max(i, ultimoSel) + 1) : [r];
+  alvo.forEach(x => { if (marcado) SEL.add(x.codigo_ml); else SEL.delete(x.codigo_ml); });
+  ultimoSel = i; desenhar();
+}
+const selecionadas = () => LINHAS.filter(r => SEL.has(r.codigo_ml));
+function barraSelecao(lista){
+  const n = selecionadas().length; $('barraSel').hidden = n === 0;
+  $('txtSel').textContent = n + ' selecionado' + (n === 1 ? '' : 's');
+  const c = $('selTodos'); c.checked = lista.length > 0 && lista.every(r => SEL.has(r.codigo_ml)); c.disabled = !lista.length;
+}
+$('selTodos').onchange = e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r.codigo_ml); else SEL.delete(r.codigo_ml); }); desenhar(); };
+$('selMarcar').onclick = () => { const a = selecionadas().filter(podeMarcar); a.forEach(r => { r.incluir = true; }); desenhar(); mensagem(a.length + ' produtos marcados para enviar.' + (a.length < selecionadas().length ? ' Os demais não podem ser marcados (impedidos ou sem quantidade).' : ''), 'ok'); };
+$('selDesmarcar').onclick = () => { selecionadas().forEach(r => { r.incluir = false; }); desenhar(); };
+$('selLimpar').onclick = () => { SEL.clear(); ultimoSel = -1; desenhar(); };
+$('selAplicar').onclick = () => {
+  const v = Math.round(Number($('selQtd').value));
+  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade (de 1 a 100000) antes de aplicar.', 'erro'); return; }
+  const a = selecionadas().filter(r => r.status === 'enviar' || r.status === 'frete_alto' || r.status === 'sem_dados');
+  if (!a.length) { mensagem('Nenhum dos selecionados pode receber quantidade.', 'erro'); return; }
+  a.forEach(r => { r.qtd = v; r.incluir = true; }); desenhar(); mensagem(a.length + ' produtos marcados com ' + v + ' unidade(s) cada.', 'ok');
+};
 $('busca').oninput = e => { busca = e.target.value; desenhar(); };
 $('todos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { r.incluir = e.target.checked; }); desenhar(); };
-const testes = () => LINHAS.filter(r => r.status === 'enviar' && r.tipo === 'Teste');
+const testes = () => escopo().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
 $('marcarTestes').onclick = () => { testes().forEach(r => r.incluir = true); desenhar(); };
 $('marcarTestesUrg').onclick = () => { testes().forEach(r => { r.incluir = r.urgencia === 'Urgente'; }); desenhar(); };
 $('limparTestes').onclick = () => { testes().forEach(r => r.incluir = false); desenhar(); };
@@ -209,7 +238,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharPop();
 async function baixar(tipo){
   const botao = tipo === 'envio' ? $('baixarEnvio') : $('baixarSku'); botao.disabled = true;
   try {
-    const linhas = LINHAS.map(r => ({incluir: r.incluir, qtd: r.qtd, qtd_calc: r.qtd_calc, status: r.status, tipo: r.tipo, codigo_ml: r.codigo_ml, mlbu: r.mlbu, sku: r.sku,
+    const linhas = escopo().map(r => ({incluir: r.incluir, qtd: r.qtd, qtd_calc: r.qtd_calc, status: r.status, tipo: r.tipo, codigo_ml: r.codigo_ml, mlbu: r.mlbu, sku: r.sku,
       produto: r.produto, mlbs: r.mlbs, motivo: r.motivo, vendas: r.vendas, estoque_total: r.estoque_total, frete: r.frete, custo: r.custo,
       impacto_pct: r.impacto_pct, urgencia: r.urgencia, prazo: r.prazo}));
     const resp = await fetch('/api/envios/exportar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tipo, linhas, parametros: PARAMS, arquivo: ARQUIVO})});

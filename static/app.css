@@ -65,3 +65,7 @@ select{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius
 .pop-fim{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 button.link{background:none;border:0;padding:0;color:var(--destaque,#ffc933);text-decoration:underline;cursor:pointer;font:inherit}
 .inline-campo{display:flex;align-items:center;gap:6px;font-size:13px}.inline-campo input{width:90px}
+
+th.sel,td.sel{width:26px;padding-left:6px;padding-right:2px}
+td.sel input,th.sel input{width:14px;height:14px;margin:0}
+tr.sel{outline:1px solid var(--destaque,#ffc933);outline-offset:-1px}

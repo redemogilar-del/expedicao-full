@@ -233,3 +233,76 @@ def fretes(conta, itens, espera_max=24):
             pendentes.append(cod)
     ex.shutdown(wait=False)
     return saida, pendentes
+
+
+# ---------------------------------------------------------------- pedidos (candidatos ao Full)
+import re as _re
+_MLB = _re.compile(r'^MLB\d{6,14}$')
+LOGISTICA = {'fulfillment': 'Full', 'self_service': 'Flex', 'drop_off': 'Agência/coleta', 'xd_drop_off': 'Agência/coleta',
+             'cross_docking': 'Coleta', 'default': 'Envio padrão'}
+
+
+def pedidos_pagina(conta, inicio, fim, offset=0):
+    """Uma página (até 50 pedidos pagos) do período [inicio, fim] (AAAA-MM-DD, horário de Brasília).
+
+    Devolve {'itens': [{mlb, titulo, sku, unidades, pedidos, valor}], 'total', 'proximo', 'concluido'}.
+    Só leitura. Pedidos cancelados não entram.
+    """
+    tk = token(conta)
+    vendedor = _vendedor(conta, tk)
+    params = {'seller': vendedor, 'order.date_created.from': inicio + 'T00:00:00.000-03:00', 'order.date_created.to': fim + 'T23:59:59.999-03:00',
+              'order.status': 'paid', 'sort': 'date_asc', 'limit': 50, 'offset': int(offset)}
+    try:
+        dados = _ml(tk, '/orders/search', params)
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os pedidos do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or not isinstance(dados.get('results'), list):
+        raise FonteIndisponivel('O Mercado Livre respondeu os pedidos de um jeito inesperado.')
+    agreg = {}
+    for ped in dados['results']:
+        if not isinstance(ped, dict) or str(ped.get('status') or '') in ('cancelled', 'invalid'):
+            continue
+        for oi in ped.get('order_items') or []:
+            it = (oi or {}).get('item') or {}
+            mlb = str(it.get('id') or '')
+            if not _MLB.match(mlb):
+                continue
+            try:
+                qtd = int(oi.get('quantity') or 0)
+            except (TypeError, ValueError):
+                qtd = 0
+            preco = _numero(oi.get('unit_price')) or 0.0
+            a = agreg.setdefault(mlb, {'mlb': mlb, 'titulo': str(it.get('title') or '')[:200], 'sku': str(it.get('seller_sku') or it.get('seller_custom_field') or '').strip()[:80],
+                                       'unidades': 0, 'ped': set(), 'valor': 0.0})
+            a['unidades'] += max(0, qtd)
+            a['valor'] += max(0, qtd) * preco
+            a['ped'].add(ped.get('id'))
+            if not a['sku']:
+                a['sku'] = str(it.get('seller_sku') or it.get('seller_custom_field') or '').strip()[:80]
+    itens = [{'mlb': a['mlb'], 'titulo': a['titulo'], 'sku': a['sku'], 'unidades': a['unidades'], 'pedidos': len(a['ped']), 'valor': round(a['valor'], 2)} for a in agreg.values()]
+    pag = dados.get('paging') or {}
+    total = int(pag.get('total') or 0)
+    proximo = int(offset) + len(dados['results'])
+    return {'itens': itens, 'total': total, 'proximo': proximo, 'concluido': not dados['results'] or proximo >= total}
+
+
+def itens_info(conta, ids):
+    """{mlb: {status, preco, estoque, logistica, rotulo, sku, link}} para até 20 anúncios."""
+    ids = [i for i in ids if _MLB.match(str(i))][:20]
+    if not ids:
+        return {}
+    tk = token(conta)
+    try:
+        dados = _ml(tk, '/items', {'ids': ','.join(ids), 'attributes': 'id,status,price,available_quantity,seller_custom_field,shipping,permalink'})
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os anúncios do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    saida = {}
+    for x in dados if isinstance(dados, list) else []:
+        corpo = (x or {}).get('body') if isinstance(x, dict) else None
+        if not isinstance(corpo, dict) or x.get('code') != 200 or not _MLB.match(str(corpo.get('id') or '')):
+            continue
+        log = str(((corpo.get('shipping') or {}).get('logistic_type')) or '')
+        saida[corpo['id']] = {'status': str(corpo.get('status') or ''), 'preco': _numero(corpo.get('price')), 'estoque': corpo.get('available_quantity') if isinstance(corpo.get('available_quantity'), int) else None,
+                              'logistica': log, 'rotulo': LOGISTICA.get(log, log or '—'), 'sku': str(corpo.get('seller_custom_field') or '').strip()[:80],
+                              'link': str(corpo.get('permalink') or '') if str(corpo.get('permalink') or '').startswith('https://') else ''}
+    return saida

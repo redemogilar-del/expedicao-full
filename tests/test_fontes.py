@@ -111,5 +111,52 @@ class TestFrete(unittest.TestCase):
             fontes.token('ML19')
 
 
+def pedido(pid, itens, status='paid'):
+    return {'id': pid, 'status': status, 'order_items': [{'item': {'id': m, 'title': 'T ' + m, 'seller_sku': sku}, 'quantity': q, 'unit_price': p} for m, sku, q, p in itens]}
+
+
+class TestPedidos(unittest.TestCase):
+    def com_ml(self, resposta):
+        return mock.patch.multiple(fontes, token=lambda c: 'tk', _vendedor=lambda c, tk: '99', _ml=lambda tk, caminho, params=None: resposta(caminho, params))
+
+    def test_soma_por_anuncio_e_ignora_cancelados(self):
+        def resp(caminho, params):
+            self.assertEqual(caminho, '/orders/search'); self.assertEqual(params['order.status'], 'paid'); self.assertEqual(params['limit'], 50)
+            return {'paging': {'total': 3, 'offset': 0}, 'results': [
+                pedido(1, [('MLB111111111', 'A', 2, 10.0)]), pedido(2, [('MLB111111111', 'A', 1, 12.0), ('MLB222222222', '', 5, 3.0)]),
+                pedido(3, [('MLB111111111', 'A', 9, 10.0)], status='cancelled')]}
+        with self.com_ml(resp):
+            r = fontes.pedidos_pagina('ML19', '2026-10-01', '2026-10-03')
+        por = {i['mlb']: i for i in r['itens']}
+        self.assertEqual((por['MLB111111111']['unidades'], por['MLB111111111']['pedidos'], por['MLB111111111']['valor']), (3, 2, 32.0))
+        self.assertEqual(por['MLB222222222']['unidades'], 5)
+        self.assertTrue(r['concluido']); self.assertEqual(r['proximo'], 3)
+
+    def test_paginacao_e_mlb_invalido(self):
+        def resp(caminho, params):
+            return {'paging': {'total': 120}, 'results': [pedido(i, [('MLB333333333', 'S', 1, 5.0), ('XYZ', 'S', 1, 5.0)]) for i in range(50)]}
+        with self.com_ml(resp):
+            r = fontes.pedidos_pagina('ML19', '2026-10-01', '2026-10-03', 50)
+        self.assertEqual(len(r['itens']), 1); self.assertEqual(r['proximo'], 100); self.assertFalse(r['concluido'])
+
+    def test_falha_do_ml_vira_mensagem(self):
+        def resp(caminho, params):
+            raise RuntimeError('HTTP 500')
+        with self.com_ml(resp):
+            with self.assertRaises(fontes.FonteIndisponivel):
+                fontes.pedidos_pagina('ML19', '2026-10-01', '2026-10-03')
+
+    def test_itens_info_marca_full_e_ignora_erros(self):
+        def resp(caminho, params):
+            self.assertEqual(caminho, '/items')
+            return [{'code': 200, 'body': {'id': 'MLB111111111', 'status': 'active', 'price': 10, 'available_quantity': 4, 'seller_custom_field': 'A', 'shipping': {'logistic_type': 'fulfillment'}, 'permalink': 'https://x'}},
+                    {'code': 404, 'body': {'id': 'MLB222222222'}},
+                    {'code': 200, 'body': {'id': 'MLB333333333', 'status': 'paused', 'shipping': {'logistic_type': 'xd_drop_off'}}}]
+        with self.com_ml(resp):
+            r = fontes.itens_info('ML19', ['MLB111111111', 'MLB222222222', 'MLB333333333', 'lixo'])
+        self.assertEqual(r['MLB111111111']['rotulo'], 'Full'); self.assertEqual(r['MLB333333333']['rotulo'], 'Agência/coleta')
+        self.assertNotIn('MLB222222222', r)
+
+
 if __name__ == '__main__':
     unittest.main()

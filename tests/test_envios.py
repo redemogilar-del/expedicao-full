@@ -189,6 +189,27 @@ class TestSite(unittest.TestCase):
         self.assertIn('Anúncio não ativo', {l['codigo_ml']: l['motivo'] for l in d['linhas']}['DDD'])
         self.assertEqual(st['EEE'][0], 'nao_precisa')
 
+    def test_candidatos_endpoints(self):
+        self.entrar()
+        self.assertEqual(self.c.get('/candidatos').status_code, 200)
+        with mock.patch.object(fontes, 'pedidos_pagina', lambda conta, de, ate, off: {'itens': [], 'total': 0, 'proximo': 0, 'concluido': True}):
+            d = self.c.post('/api/candidatos/pedidos', json={'conta': 'ML44', 'de': '2026-10-01', 'ate': '2026-10-03', 'offset': 0}).get_json()
+        self.assertTrue(d['ok'])
+        for ruim in ({'conta': 'XX', 'de': '2026-10-01', 'ate': '2026-10-03'}, {'conta': 'ML19', 'de': 'ontem', 'ate': '2026-10-03'},
+                     {'conta': 'ML19', 'de': '2026-10-05', 'ate': '2026-10-03'}, {'conta': 'ML19', 'de': '2026-01-01', 'ate': '2026-10-03'},
+                     {'conta': 'ML19', 'de': '2026-10-01', 'ate': '2026-10-03', 'offset': -1}):
+            self.assertEqual(self.c.post('/api/candidatos/pedidos', json=ruim).status_code, 400)
+        with mock.patch.object(fontes, 'itens_info', lambda conta, ids: {i: {} for i in ids}):
+            self.assertTrue(self.c.post('/api/candidatos/itens', json={'conta': 'ML19', 'ids': ['MLB123456789']}).get_json()['ok'])
+        self.assertEqual(self.c.post('/api/candidatos/itens', json={'conta': 'ML19', 'ids': ['http://x']}).status_code, 400)
+        linha = {'conta': 'ML19', 'sku': '=CMD()', 'produto': 'P', 'mlbs': 'MLB1', 'envio': 'Flex', 'situacao': 'Ativo', 'unidades': 3, 'pedidos': 2, 'valor': 30, 'preco_medio': 10, 'por_dia': 0.1, 'custo': 4, 'custo_total': 12, 'estoque': 5}
+        r = self.c.post('/api/candidatos/exportar', json={'linhas': [linha], 'periodo': 'x'})
+        self.assertEqual(r.status_code, 200)
+        import openpyxl
+        ws = openpyxl.load_workbook(io.BytesIO(r.data)).active
+        self.assertEqual(ws['B2'].value, "'=CMD()"); self.assertEqual(ws['G2'].value, 3)
+        self.assertEqual(self.c.post('/api/candidatos/exportar', json={'linhas': []}).status_code, 400)
+
     def test_custos_endpoint(self):
         self.entrar()
         with mock.patch.object(fontes, 'custos', lambda skus: {s: 10.0 for s in skus}):

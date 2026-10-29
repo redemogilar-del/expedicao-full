@@ -10,9 +10,9 @@ python -m unittest discover -s tests -v
 ```
 
 ## Arquitetura
-- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/api/envios/{ler,custos,fretes,calcular,exportar}`, geração dos .xlsx.
+- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/candidatos` (`/api/candidatos/{pedidos,itens,exportar}`), `/api/envios/{ler,custos,fretes,calcular,exportar}`, geração dos .xlsx.
 - `envios.py` — toda a regra de negócio e a leitura dos arquivos (relatório do ML). Sem Flask.
-- `fontes.py` — custo (Apps Script da planilha de custos, `catalogo_custos`) e frete (API do ML: `/items/{mlb}` + `/users/{seller}/shipping_options/free`, `list_cost`). Somente leitura.
+- `fontes.py` — custo (Apps Script da planilha de custos, `catalogo_custos`) e frete (API do ML: `/items/{mlb}` + `/users/{seller}/shipping_options/free`, `list_cost`). Somente leitura. Também `pedidos_pagina` (`/orders/search`, pagos, 50 por página) e `itens_info` (`/items?ids=`, tipo de envio atual) para a aba Candidatos.
 - `templates/` + `static/envios.js` — tela. Sem `innerHTML` (CSP `default-src 'self'`; nada de script inline).
 - Nada é gravado no servidor nem no navegador. Fluxo: ler → custos (lotes de 100) → fretes (lotes de 6) → calcular.
 

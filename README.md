@@ -12,6 +12,9 @@ Nada é gravado no servidor e nada é alterado no Mercado Livre: o painel só l�
 5. Os produtos de **envio-teste** (sem estoque e sem vendas no Full) começam desmarcados: marque os que o Mercado Livre sugeriu.
 6. Ajuste quantidades se precisar e baixe **a planilha de envio** e **o resumo por SKU**.
 
+## Aba Candidatos ao Full
+Lê os pedidos pagos do período (ML19, ML44 ou as duas), soma por anúncio e mostra os que **venderam fora do Full**, com unidades, faturamento, preço médio, vendas/dia, custo (planilha de custos) e estoque. Dá para somar por SKU, filtrar, ordenar e baixar a planilha. O "fora do Full" usa o tipo de envio que o anúncio tem **hoje**: anúncio que já é Full não aparece. Só leitura.
+
 ## Regras (iguais às da planilha de controle)
 - Necessidade = vendas dos últimos 30 dias × meses de estoque (padrão 1,5) − recebimento pendente − aptas para venda, arredondado para cima.
 - Produto sem nenhum estoque no Full (aptas + pendente = 0): envia no mínimo o envio-teste (padrão 3). Se o ML sugere menos que isso, arredonda para o teste.

@@ -34,7 +34,7 @@ app.config.update(
 USUARIO = os.environ.get('EXP_LOGIN_USER', '')
 SENHA_HASH = os.environ.get('EXP_LOGIN_PASSWORD_HASH', '')
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-ABAS = [('envios', 'Envios Full', True), ('vendas', 'Vendas do dia', False)]
+ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', False)]
 
 
 def _configurado():
@@ -111,6 +111,11 @@ def inicio():
 @app.get('/envios')
 def envios_pagina():
     return render_template('envios.html', abas=ABAS, ativa='envios', padrao=envios.PADRAO)
+
+
+@app.get('/candidatos')
+def candidatos_pagina():
+    return render_template('candidatos.html', abas=ABAS, ativa='candidatos')
 
 
 @app.get('/vendas')
@@ -337,6 +342,92 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml=''):
     buf.seek(0)
     nome = '%s_%s.xlsx' % ('envio_full' if tipo == 'envio' else 'resumo_por_sku', agora.strftime('%Y-%m-%d_%H%M'))
     return buf, nome
+
+
+def _data(v):
+    try:
+        d = datetime.strptime(str(v), '%Y-%m-%d')
+    except ValueError:
+        raise envios.ArquivoInvalido('Data inválida.')
+    return d
+
+
+@app.post('/api/candidatos/pedidos')
+def api_cand_pedidos():
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        de, ate = _data(c.get('de')), _data(c.get('ate'))
+        if ate < de or (ate - de).days > 31:
+            raise envios.ArquivoInvalido('Período inválido (máximo de 31 dias por consulta).')
+        off = c.get('offset', 0)
+        if not isinstance(off, int) or isinstance(off, bool) or not 0 <= off <= 20000:
+            raise envios.ArquivoInvalido('Posição inválida.')
+        r = fontes.pedidos_pagina(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off)
+        return jsonify(ok=True, **r)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/candidatos/itens')
+def api_cand_itens():
+    try:
+        c = request.get_json(silent=True) or {}
+        ids = c.get('ids')
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 20 or not all(isinstance(i, str) and fontes._MLB.match(i) for i in ids):
+            raise envios.ArquivoInvalido('Lista de anúncios inválida.')
+        return jsonify(ok=True, itens=fontes.itens_info(c['conta'], ids))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/candidatos/exportar')
+def api_cand_exportar():
+    try:
+        c = request.get_json(silent=True) or {}
+        bruto = c.get('linhas')
+        if not isinstance(bruto, list) or not 1 <= len(bruto) <= 20000:
+            raise envios.ArquivoInvalido('Nada para exportar.')
+        linhas = []
+        for r in bruto:
+            if not isinstance(r, dict):
+                raise envios.ArquivoInvalido('Dados inválidos.')
+            linhas.append({k: (_seguro(str(r.get(k) or ''))[:200] if k in ('conta', 'sku', 'produto', 'mlbs', 'envio', 'situacao') else _num(r.get(k)))
+                           for k in ('conta', 'sku', 'produto', 'mlbs', 'envio', 'situacao', 'unidades', 'pedidos', 'valor', 'preco_medio', 'por_dia', 'custo', 'custo_total', 'estoque')})
+        buf, nome = _gerar_xlsx_candidatos(linhas, str(c.get('periodo') or '')[:60])
+        return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
+    except Exception as exc:
+        return _erro(exc)
+
+
+def _gerar_xlsx_candidatos(linhas, periodo):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook(); ws = wb.active; ws.title = 'Candidatos ao Full'
+    cab = ['Conta', 'SKU', 'Produto', 'MLBs', 'Envio atual', 'Situação', 'Unidades', 'Pedidos', 'Faturamento (R$)', 'Preço médio (R$)', 'Vendas/dia', 'Custo unit. (R$)', 'Custo total (R$)', 'Estoque do anúncio']
+    ws.append(cab)
+    for r in linhas:
+        ws.append([r['conta'], r['sku'], r['produto'], r['mlbs'], r['envio'], r['situacao'], r['unidades'], r['pedidos'], r['valor'], r['preco_medio'], r['por_dia'], r['custo'], r['custo_total'], r['estoque']])
+    for c in ws[1]:
+        c.font = Font(name='Arial', bold=True, color='FFFFFF'); c.fill = PatternFill('solid', fgColor='1F3A5F'); c.alignment = Alignment(wrap_text=True, vertical='center')
+    for linha in ws.iter_rows(min_row=2):
+        for c in linha:
+            c.font = Font(name='Arial', size=10)
+        for i in (8, 9, 10, 12, 13):
+            linha[i].number_format = '#,##0.00'
+    for i, w in enumerate([8, 22, 50, 28, 18, 12, 10, 10, 16, 16, 11, 14, 15, 12], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = 'A2'; ws.auto_filter.ref = ws.dimensions
+    ws2 = wb.create_sheet('Parâmetros')
+    ws2.append(['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')]); ws2.append(['Período', periodo])
+    ws2.append(['Observação', 'Vendas de anúncios que não são Full hoje. Envio atual = tipo de envio do anúncio agora; custo da planilha de custos.'])
+    ws2.column_dimensions['A'].width = 14; ws2.column_dimensions['B'].width = 90
+    buf = BytesIO(); wb.save(buf); buf.seek(0)
+    return buf, 'candidatos_full_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
 
 
 @app.post('/api/envios/exportar')

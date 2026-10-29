@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block titulo %}Candidatos ao Full — Expedição Mogilar{% endblock %}
+{% block corpo %}
+<h1>Candidatos ao Full</h1>
+<p class="suave">Anúncios que <b>venderam fora do Full</b> no período, para você analisar quais valem a pena colocar no Full. Os anúncios que já são Full não aparecem. Nada é alterado no Mercado Livre.</p>
+
+<section class="cartao">
+  <div class="regras">
+    <label>Conta<select id="cConta"><option value="ML19">ML19</option><option value="ML44">ML44</option><option value="AMBAS">As duas</option></select></label>
+    <label>Período<select id="cDias"><option value="7">Últimos 7 dias</option><option value="15">Últimos 15 dias</option><option value="30" selected>Últimos 30 dias</option><option value="60">Últimos 60 dias</option><option value="90">Últimos 90 dias</option></select></label>
+  </div>
+  <p class="suave pequeno">O painel lê os pedidos pagos do período (pode levar alguns minutos), o tipo de envio de cada anúncio e o custo na planilha de custos.</p>
+  <button class="primario" id="cBuscar">Buscar vendas</button>
+</section>
+
+<p id="cMsg" class="aviso" hidden role="status"></p>
+<div id="cProg" class="progresso" hidden><div id="cBarra"></div><span id="cTxt"></span></div>
+
+<section id="cResultado" hidden>
+  <div class="cartoes" id="cCartoes"></div>
+  <div class="barra">
+    <label class="inline-campo">Mínimo de unidades<input type="number" id="cMin" min="1" max="100000" step="1" value="1"></label>
+    <label class="inline-campo"><input type="checkbox" id="cSku"> Somar por SKU</label>
+    <label class="inline-campo"><input type="checkbox" id="cAtivos" checked> Só anúncios ativos</label>
+    <label class="inline-campo"><select id="cFiltroConta"><option value="">Todas as contas</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
+    <input type="search" id="cBusca" placeholder="Buscar SKU, produto, MLB…">
+  </div>
+  <div class="tabela-caixa">
+    <table id="cTabela">
+      <thead><tr id="cCab"></tr></thead>
+      <tbody id="cCorpo"></tbody>
+    </table>
+    <p id="cVazio" class="suave centro" hidden>Nada nesta lista.</p>
+  </div>
+  <div class="acoes"><button class="primario" id="cBaixar">Baixar planilha (o que está na tela)</button></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='candidatos.js') }}"></script>{% endblock %}

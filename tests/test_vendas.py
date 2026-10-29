@@ -222,12 +222,15 @@ class TestEndpointsVendas(unittest.TestCase):
         lin = [dict(base, pedido='1', frete=5, nao_enviar=False), dict(base, pedido='2', frete=60, nao_enviar=False), dict(base, pedido='3', frete=1, nao_enviar=False)]
         r = self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin, 'parametros': {'imposto_pct': 8}})
         self.assertEqual(r.status_code, 200)
-        dados = list(openpyxl.load_workbook(io.BytesIO(r.data))['Prejuízo'].iter_rows(min_row=2, values_only=True))
-        self.assertEqual([d[4] for d in dados], ['2'])                                  # só o que tem prejuízo (frete 60: lucro −43)
+        dados = list(openpyxl.load_workbook(io.BytesIO(r.data))['Prejuízo e abaixo da margem'].iter_rows(min_row=2, values_only=True))
+        self.assertEqual([d[4] for d in dados], ['2'])                                  # frete 60 = prejuízo; frete 5 e 1 = dentro da margem (fora do Excel)
         lin2 = [dict(base, pedido='1', frete=50, nao_enviar=False), dict(base, pedido='2', frete=70, nao_enviar=False)]
-        dados = list(openpyxl.load_workbook(io.BytesIO(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin2, 'parametros': {'imposto_pct': 8}}).data))['Prejuízo'].iter_rows(min_row=2, values_only=True))
+        dados = list(openpyxl.load_workbook(io.BytesIO(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin2, 'parametros': {'imposto_pct': 8}}).data))['Prejuízo e abaixo da margem'].iter_rows(min_row=2, values_only=True))
         self.assertEqual([d[4] for d in dados], ['2', '1'])                              # maior prejuízo primeiro
-        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': [dict(base, nao_enviar=False)], 'parametros': {'imposto_pct': 8}}).status_code, 400)
+        lin3 = [dict(base, pedido='D', frete=5, nao_enviar=False), dict(base, pedido='A1', frete=8, nao_enviar=False), dict(base, pedido='A2', frete=14, nao_enviar=False), dict(base, pedido='P', frete=50, nao_enviar=False)]
+        dados = list(openpyxl.load_workbook(io.BytesIO(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin3, 'parametros': {'imposto_pct': 8}}).data))['Prejuízo e abaixo da margem'].iter_rows(min_row=2, values_only=True))
+        self.assertEqual([(d[1], d[4]) for d in dados], [('Prejuízo', 'P'), ('Abaixo da margem', 'A2'), ('Abaixo da margem', 'A1')])   # prejuízo primeiro, depois abaixo (maior perda antes); dentro fica de fora
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': [dict(base, frete=5, nao_enviar=False)], 'parametros': {'imposto_pct': 8}}).status_code, 400)
         m = self.c.post('/api/vendas/exportar-manual', json={'periodo': 'x', 'itens': [{'tipo': 'Não calculado', 'conta': 'ML19', 'mlb': 'MLB1', 'sku': '=X', 'produto': 'P', 'situacao': 'Prejuízo', 'preco_atual': 10, 'preco_necessario': None, 'motivo': 'Preços diferentes por variação'}]})
         self.assertEqual(m.status_code, 200)
         ws = openpyxl.load_workbook(io.BytesIO(m.data))['Fazer na mão']

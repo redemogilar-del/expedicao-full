@@ -19,7 +19,7 @@ Lê os pedidos pagos do período (ML19, ML44 ou as duas), soma por anúncio e mo
 A aba **Aptos Para FULL** da planilha "Banco de Dados ML Hub" (coluna A, SKU) define o que é apto. O painel separa o resultado em *Aptos* e *Não aptos* (comparando o SKU sem diferenciar maiúsculas), tem o botão **Marcar todos os aptos para Full** e baixa um relatório de cada grupo. A planilha de envio leva tudo que estiver marcado (aptos e não aptos incluídos à mão), com a coluna "Apto para Full". Precisa do trecho `apps_script/aptos_full.gs` no Apps Script da planilha.
 
 ## Planilhas geradas
-Em todas as abas, a **coluna A é o MLB** (o primeiro anúncio do produto; os demais ficam na coluna "MLBs") e a **coluna B é a quantidade**, com cor diferente e a quantidade em negrito, para copiar e colar no painel do Mercado Livre. No resumo por SKU, A é o SKU. O relatório de aptos (e o de não aptos) também traz a aba "Resumo por SKU" com o que está marcado no grupo.
+Em todas as abas, a **coluna A é o MLB** (o primeiro anúncio do produto; os demais ficam na coluna "MLBs") e a **coluna B é a quantidade**, com cor diferente e a quantidade em negrito, para copiar e colar no painel do Mercado Livre. No resumo por SKU, A é o SKU. Os relatórios de aptos e de não aptos trazem só o que está marcado para enviar naquele grupo, com a aba "Resumo por SKU".
 
 ## Aba Vendas do dia
 Puxa os pedidos pagos do dia (ML19, ML44 ou as duas) com **tarifa do ML** e **frete do vendedor** de cada item e calcula o lucro:

@@ -298,36 +298,36 @@ def _apto_txt(r):
 
 
 def _gerar_xlsx_grupo(linhas, grupo, coleta=None):
-    """Relatório separado: todos os produtos do grupo (aptos ou não aptos para Full), marcados ou não,
-    mais a aba 'Resumo por SKU' do que está marcado nesse grupo."""
+    """Relatório separado: só os produtos do grupo (aptos ou não aptos para Full) que estão marcados para enviar,
+    mais a aba 'Resumo por SKU' desses produtos."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
     quer = grupo == 'aptos'
-    sel = sorted([r for r in linhas if r['apto'] is quer], key=lambda x: (x['sku'], x['codigo_ml']))
-    marcados = [r for r in sel if r['incluir']]
+    sel = sorted([r for r in linhas if r['apto'] is quer and r['incluir'] and r['qtd'] > 0], key=lambda x: (x['sku'], x['codigo_ml']))
+    marcados = sel
     agora = datetime.now(FUSO)
     coleta = coleta or {}
     wb = Workbook(); ws = wb.active; ws.title = ('Aptos para Full' if quer else 'Não aptos para Full')
-    ws.append(['MLB', 'Quantidade para envio', 'Marcado para enviar', 'Situação', 'Código ML', 'SKU', 'Produto', 'MLBs (anúncios)', 'Vendas 30 dias', 'Estoque no Full', 'Frete (R$)', 'Custo (R$)',
+    ws.append(['MLB', 'Quantidade para envio', 'Situação', 'Código ML', 'SKU', 'Produto', 'MLBs (anúncios)', 'Vendas 30 dias', 'Estoque no Full', 'Frete (R$)', 'Custo (R$)',
                'Frete / custo (%)', 'Qtd calculada', 'Tipo', 'Motivo'])
     for c in ws[1]:
         c.font, c.fill, c.alignment = Font(name='Arial', bold=True, color='FFFFFF'), PatternFill('solid', fgColor='1F3A5F'), Alignment(vertical='center', wrap_text=True)
     for r in sel:
-        ws.append([_seguro(_mlb_envio(r)), r['qtd'] if r['incluir'] else 0, 'Sim' if r['incluir'] else 'Não', envios.ROTULOS[r['status']], _seguro(r['codigo_ml']), _seguro(r['sku']), _seguro(r['produto']),
+        ws.append([_seguro(_mlb_envio(r)), r['qtd'], envios.ROTULOS[r['status']], _seguro(r['codigo_ml']), _seguro(r['sku']), _seguro(r['produto']),
                    _seguro(', '.join(r['mlbs'])), r['vendas'], r['estoque_total'], _num(r['frete']), _num(r['custo']), _num(r['impacto_pct']), r['qtd_calc'], r['tipo'], _seguro(r['motivo'])])
-    ws.append(['TOTAL', sum(r['qtd'] for r in marcados), len(marcados)])
+    ws.append(['TOTAL', sum(r['qtd'] for r in marcados)])
     for c in ws[ws.max_row]:
         c.font = Font(name='Arial', bold=True)
     for linha in ws.iter_rows(min_row=2, max_row=ws.max_row - 1):
         for c in linha:
             c.font = Font(name='Arial', size=10)
-        for i in (10, 11):
+        for i in (9, 10):
             linha[i].number_format = '#,##0.00'
-        linha[12].number_format = '0.0'
-    for i, w in enumerate([18, 14, 12, 18, 14, 22, 52, 34, 12, 12, 12, 12, 14, 12, 12, 60], 1):
+        linha[11].number_format = '0.0'
+    for i, w in enumerate([18, 14, 18, 14, 22, 52, 34, 12, 12, 12, 12, 14, 12, 12, 60], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = 'A2'; ws.auto_filter.ref = 'A1:%s%d' % (get_column_letter(16), ws.max_row - 1)
+    ws.freeze_panes = 'A2'; ws.auto_filter.ref = 'A1:%s%d' % (get_column_letter(15), ws.max_row - 1)
     _destacar_ab(ws, 1)
     # aba de resumo por SKU (só o que está marcado neste grupo)
     resumo = envios.resumo_sku(marcados)
@@ -548,7 +548,7 @@ def api_exportar():
         if tipo in ('aptos', 'nao_aptos'):
             buf, nome, n = _gerar_xlsx_grupo(linhas, tipo, coleta)
             if not n:
-                raise envios.ArquivoInvalido('Não há produtos neste grupo.')
+                raise envios.ArquivoInvalido('Nenhum produto %s está marcado para enviar.' % ('apto' if tipo == 'aptos' else 'não apto'))
             return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
         buf, nome = _gerar_xlsx(linhas, params, tipo, str(corpo.get('arquivo') or '')[:120], coleta)
         return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)

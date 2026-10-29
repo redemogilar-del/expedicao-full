@@ -57,11 +57,21 @@
     <button class="secundario" id="limparTestes">Desmarcar testes</button>
   </div>
 
+  <div class="barra" id="barraSel" hidden>
+    <b id="txtSel"></b>
+    <button class="secundario" id="selMarcar">Marcar para enviar</button>
+    <button class="secundario" id="selDesmarcar">Desmarcar</button>
+    <label class="inline-campo">Qtd<input type="number" id="selQtd" min="1" max="100000" step="1" placeholder="ex.: 3"></label>
+    <button class="secundario" id="selAplicar">Aplicar quantidade e marcar</button>
+    <button class="link" id="selLimpar" type="button">Limpar seleção</button>
+  </div>
+
   <div class="duas">
     <div class="tabela-caixa">
       <table id="tabela">
         <thead><tr>
-          <th class="chk"><input type="checkbox" id="todos" title="Marcar/desmarcar tudo que está na tela"></th>
+          <th class="chk sel"><input type="checkbox" id="selTodos" title="Selecionar tudo que está na tela"></th>
+          <th class="chk" title="Marcar para enviar"><input type="checkbox" id="todos" title="Marcar/desmarcar tudo que está na tela"></th>
           <th>Situação</th><th>SKU</th><th>Produto</th><th>Código ML</th><th class="n">Vendas 30d</th><th class="n">No Full</th>
           <th class="n">Cobre (dias)</th><th class="n">Frete / custo</th><th class="n">Qtd</th><th>Tipo</th><th>Motivo</th><th>Urgência ML</th>
         </tr></thead>
@@ -76,6 +86,7 @@
     </aside>
   </div>
 
+  <p class="suave pequeno" id="notaSku"></p>
   <div class="acoes">
     <button class="primario" id="baixarEnvio">Baixar planilha de envio (MLBs + quantidades)</button>
     <button class="secundario" id="baixarSku">Baixar resumo por SKU (produção)</button>

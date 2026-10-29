@@ -12,6 +12,9 @@ Nada é gravado no servidor e nada é alterado no Mercado Livre: o painel só l�
 5. Os produtos de **envio-teste** (sem estoque e sem vendas no Full) começam desmarcados: marque os que o Mercado Livre sugeriu.
 6. Ajuste quantidades se precisar e baixe **a planilha de envio** e **o resumo por SKU**.
 
+## Aptos para Full
+A aba **Aptos Para FULL** da planilha "Banco de Dados ML Hub" (coluna A, SKU) define o que é apto. O painel separa o resultado em *Aptos* e *Não aptos* (comparando o SKU sem diferenciar maiúsculas), tem o botão **Marcar todos os aptos para Full** e baixa um relatório de cada grupo. A planilha de envio leva tudo que estiver marcado (aptos e não aptos incluídos à mão), com a coluna "Apto para Full". Precisa do trecho `apps_script/aptos_full.gs` no Apps Script da planilha.
+
 ## Regras (iguais às da planilha de controle)
 - Necessidade = vendas dos últimos 30 dias × meses de estoque (padrão 1,5) − recebimento pendente − aptas para venda, arredondado para cima.
 - Produto sem nenhum estoque no Full (aptas + pendente = 0): envia no mínimo o envio-teste (padrão 3). Se o ML sugere menos que isso, arredonda para o teste.

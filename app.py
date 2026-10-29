@@ -566,7 +566,7 @@ if __name__ == '__main__':
 
 
 # ------------------------------------------------------------------ Vendas do dia (lucro por venda)
-_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'obs', 'meta_origem')
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem')
 
 
 def _params_vendas(c):
@@ -656,29 +656,30 @@ def _motivo_nao_enviar(l):
     return 'Marcado pelo operador (%s)' % (l['pendencias'] or 'sem dados')
 
 
-CAB_DIA = ['Não enviar', 'Situação', 'Conta', 'Pedido', 'Data', 'SKU', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Tarifa ML (R$)', 'Frete vendedor (R$)', 'Repasse (R$)',
-           'Imposto (R$)', 'Custo total (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Envio', 'Observação']
+CAB_DIA = ['Não enviar', 'Situação', 'Prejuízo / deixou de ganhar (R$)', 'Conta', 'Pedido', 'Data', 'SKU', 'Status do envio', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Tarifa ML (R$)',
+           'Frete vendedor (R$)', 'Repasse (R$)', 'Imposto (R$)', 'Custo total (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Tipo de envio', 'Observação']
 ENVIO_ROTULO = {'a_enviar': 'A enviar', 'enviado': 'Já enviado', 'full': 'Full'}
 
 
 def _linha_dia(l):
-    return [_seguro('SIM' if l['nao_enviar'] else ''), vendas.ROTULOS[l['classe']], l['conta'], l['pedido'], l['data'], _seguro(l['sku']), l['mlb'], _seguro(l['titulo']),
-            l['quantidade'], l['venda'], l['tarifa'], l['frete'], l['repasse'], l['imposto'], l['custo_total'], l['lucro'], l['margem'], l['meta'],
+    return [_seguro('SIM' if l['nao_enviar'] else ''), vendas.ROTULOS[l['classe']], l['perda'] or None, l['conta'], l['pedido'], l['data'], _seguro(l['sku']), _seguro(l['status_rotulo']), l['mlb'],
+            _seguro(l['titulo']), l['quantidade'], l['venda'], l['tarifa'], l['frete'], l['repasse'], l['imposto'], l['custo_total'], l['lucro'], l['margem'], l['meta'],
             ENVIO_ROTULO.get(l['grupo'], l['grupo']), _seguro(l['pendencias'] or l['obs'])]
 
 
-CAB_NAO = ['Pedido', 'Conta', 'Data', 'SKU', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Motivo']
+CAB_NAO = ['Pedido', 'Conta', 'Data', 'SKU', 'Status do envio', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Prejuízo / deixou de ganhar (R$)', 'Motivo']
 
 
 def _linha_nao(l):
-    return [l['pedido'], l['conta'], l['data'], _seguro(l['sku']), l['mlb'], _seguro(l['titulo']), l['quantidade'], l['venda'], l['lucro'], l['margem'], l['meta'], _motivo_nao_enviar(l)]
+    return [l['pedido'], l['conta'], l['data'], _seguro(l['sku']), _seguro(l['status_rotulo']), l['mlb'], _seguro(l['titulo']), l['quantidade'], l['venda'], l['lucro'], l['margem'], l['meta'],
+            l['perda'] or None, _motivo_nao_enviar(l)]
 
 
 def _resumo_linhas(linhas, params, periodo):
     r = vendas.resumo(linhas)
     return [['Período', periodo], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')], ['Vendas analisadas (itens)', r['linhas']], ['Unidades', r['unidades']],
             ['Dentro da margem', r['dentro']], ['Abaixo da margem', r['abaixo']], ['Prejuízo', r['prejuizo']], ['Sem dados', r['sem_dados']],
-            ['Vendido, só com dados (R$)', r['venda']], ['Lucro, só com dados (R$)', r['lucro']], ['Marcados para não enviar', sum(1 for l in linhas if l['nao_enviar'])],
+            ['Vendido, só com dados (R$)', r['venda']], ['Lucro, só com dados (R$)', r['lucro']], ['Prejuízo total (R$)', r['prejuizo_rs']], ['Deixou de ganhar nas abaixo da margem (R$)', r['deixou_rs']], ['Marcados para não enviar', sum(1 for l in linhas if l['nao_enviar'])],
             ['Imposto (% da venda)', float(params['imposto_pct'])], ['Margem mínima padrão (%)', float(params['margem_padrao'])],
             ['Regra', 'Lucro = venda − tarifa ML − frete − imposto − custo. Margem = lucro ÷ custo. Dado ausente não entra na conta ("Sem dados").']]
 
@@ -694,10 +695,10 @@ def api_vendas_exportar():
             marcadas = [l for l in linhas if l['nao_enviar']]
             if not marcadas:
                 raise envios.ArquivoInvalido('Marque pelo menos uma venda para não enviar.')
-            buf = _gerar_xlsx_vendas('Não enviar', CAB_NAO, [_linha_nao(l) for l in marcadas], [8, 8, 17, 22, 15, 50, 6, 12, 12, 12, 12, 60], (7, 8, 9, 10), _resumo_linhas(linhas, params, periodo))
+            buf = _gerar_xlsx_vendas('Não enviar', CAB_NAO, [_linha_nao(l) for l in marcadas], [8, 8, 17, 22, 20, 15, 50, 6, 12, 12, 12, 12, 16, 60], (8, 9, 10, 11, 12, 13), _resumo_linhas(linhas, params, periodo))
             nome = 'nao_enviar_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         elif tipo == 'dia':
-            buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 7, 17, 16, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (9, 10, 11, 12, 13, 14, 15, 16, 17), _resumo_linhas(linhas, params, periodo))
+            buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
             nome = 'vendas_do_dia_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         else:
             raise envios.ArquivoInvalido('Tipo de relatório inválido.')
@@ -753,7 +754,7 @@ def api_vendas_salvar():
         marcadas = [l for l in linhas if l['nao_enviar']]
         payload = {'dia': dia, 'periodo': _periodo(c), 'parametros': {k: float(v) for k, v in params.items()},
                    'resumo': {'itens': r['linhas'], 'unidades': r['unidades'], 'dentro': r['dentro'], 'abaixo': r['abaixo'], 'prejuizo': r['prejuizo'], 'sem_dados': r['sem_dados'],
-                              'venda': r['venda'], 'lucro': r['lucro'], 'nao_enviar': len(marcadas)},
+                              'venda': r['venda'], 'lucro': r['lucro'], 'prejuizo_rs': r['prejuizo_rs'], 'deixou_rs': r['deixou_rs'], 'nao_enviar': len(marcadas)},
                    'cab': CAB_DIA, 'linhas': [_linha_dia(l) for l in linhas],
                    'cab_nao_enviar': CAB_NAO, 'nao_enviar': [_linha_nao(l) for l in marcadas]}
         return jsonify(ok=True, **fontes.salvar_relatorio(payload))

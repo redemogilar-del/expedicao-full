@@ -86,14 +86,14 @@ function visiveis(){
     (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q)));
 }
 function desenhar(){
-  const esc = LINHAS.filter(noGrupo), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let lucro = 0, venda = 0;
-  esc.forEach(r => { c[r.classe]++; if (r.classe !== 'sem_dados') { lucro += r.lucro; venda += r.venda; } });
+  const esc = LINHAS.filter(noGrupo), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let lucro = 0, venda = 0, prej = 0, deixou = 0;
+  esc.forEach(r => { c[r.classe]++; if (r.classe !== 'sem_dados') { lucro += r.lucro; venda += r.venda; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; } });
   const marcados = LINHAS.filter(r => MARCA.has(r._i));
   $('vCartoes').replaceChildren(
     el('div', {class:'card'}, el('b', {}, num(esc.length)), el('span', {}, 'itens vendidos (nesta visão)')),
     el('div', {class:'card destaque'}, el('b', {}, num(c.dentro)), el('span', {}, 'dentro da margem')),
-    el('div', {class:'card'}, el('b', {}, num(c.abaixo)), el('span', {}, 'abaixo da margem')),
-    el('div', {class:'card risco'}, el('b', {}, num(c.prejuizo)), el('span', {}, 'com prejuízo')),
+    el('div', {class:'card'}, el('b', {}, num(c.abaixo)), el('span', {}, 'abaixo da margem · deixou de ganhar ' + brl(deixou))),
+    el('div', {class:'card risco'}, el('b', {}, num(c.prejuizo)), el('span', {}, 'com prejuízo · perdeu ' + brl(prej))),
     el('div', {class:'card'}, el('b', {}, num(c.sem_dados)), el('span', {}, 'sem dados (custo, tarifa ou frete)')),
     el('div', {class:'card'}, el('b', {}, brl(lucro)), el('span', {}, 'lucro de ' + brl(venda) + ' vendidos (só com dados)')),
     el('div', {class:'card risco'}, el('b', {}, num(marcados.length)), el('span', {}, 'marcados para não enviar')));
@@ -116,7 +116,8 @@ function linha(r){
   return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''},
     el('td', {class:'chk'}, cb),
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
-    el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'), el('td', {}, r.titulo.slice(0, 70), el('div', {class:'mlbs'}, r.mlb + (r.obs ? ' · ' + r.obs : ''))),
+    el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
+    el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'), el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')), el('td', {}, r.titulo.slice(0, 70), el('div', {class:'mlbs'}, r.mlb + (r.obs ? ' · ' + r.obs : ''))),
     el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)),
     el('td', {class:'n'}, brl(r.imposto)), el('td', {class:'n'}, brl(r.custo_total)), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
     el('td', {class:'n', title: r.meta_origem === 'padrão' ? 'margem padrão' : 'margem da planilha'}, pct(r.meta) + (r.meta_origem === 'padrão' ? '*' : '')), el('td', {}, ENV[r.grupo] || r.grupo));

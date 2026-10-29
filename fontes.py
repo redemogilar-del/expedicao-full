@@ -393,6 +393,34 @@ def _frete_vendedor(dados, vendedor):
     return None
 
 
+def rotulo_envio(status, substatus=''):
+    """Situação do envio em palavras da expedição (Gerar NF, Gerar etiqueta…). Desconhecido aparece como veio do ML, sem inventar."""
+    st, sub = str(status or '').lower(), str(substatus or '').lower()
+    if st == 'delivered':
+        return 'Entregue'
+    if st in ('shipped', 'in_transit', 'out_for_delivery'):
+        return 'Enviado'
+    if st in ('cancelled', 'canceled'):
+        return 'Cancelado'
+    if st in ('not_delivered', 'returned'):
+        return 'Não entregue / devolvido'
+    if st == 'ready_to_ship':
+        if sub == 'invoice_pending':
+            return 'Gerar NF'
+        if sub == 'ready_to_print':
+            return 'Gerar etiqueta'
+        if sub == 'printed':
+            return 'Etiqueta impressa'
+        if sub in ('ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'picked_up', 'dropped_off'):
+            return 'Pronto para coleta'
+        return 'Pronto para envio' + (' (%s)' % sub if sub else '')
+    if st == 'handling':
+        return 'Preparando' + (' (%s)' % sub if sub else '')
+    if st == 'pending':
+        return 'Aguardando' + (' (%s)' % sub if sub else '')
+    return (st + (' / ' + sub if sub else '')) if st else 'Não consultado'
+
+
 def _grupo_envio(logistica, status):
     if logistica == 'fulfillment':
         return 'full'
@@ -402,7 +430,7 @@ def _grupo_envio(logistica, status):
 def _envio_do_pedido(tk, vendedor, ped):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
-    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'divisor': 1, 'erro': ''}
+    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': ''}
     if not env:
         saida['erro'] = 'Pedido sem envio'
         return saida
@@ -410,6 +438,7 @@ def _envio_do_pedido(tk, vendedor, ped):
         sh = _ml(tk, '/shipments/%s' % env)
         if isinstance(sh, dict):
             saida['status_envio'] = str(sh.get('status') or '')
+            saida['substatus'] = str(sh.get('substatus') or '')
             saida['logistica'] = str(sh.get('logistic_type') or (sh.get('logistic') or {}).get('type') or '')
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
@@ -481,7 +510,8 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20):
                 'titulo': str(it.get('title') or '')[:200], 'quantidade': q, 'venda': venda,
                 'tarifa': None if fee is None else round(abs(fee) * q, 2),
                 'frete': None if frete_pedido is None else round(frete_pedido * (venda / soma if soma > 0 else 1.0 / max(1, len(regs))), 2),
-                'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'obs': obs,
+                'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'substatus': env['substatus'],
+                'status_rotulo': rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado', 'obs': obs,
             })
     pag = dados.get('paging') or {}
     total = int(pag.get('total') or 0)

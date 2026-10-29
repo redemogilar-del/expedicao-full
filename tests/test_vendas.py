@@ -53,6 +53,17 @@ class TestRegraLucro(unittest.TestCase):
         r = v.analisar(venda(grupo='full'), {'custo': 30.0, 'margem': 10.0, 'margem_full': 5.0}, P)
         self.assertEqual((r['meta'], r['meta_origem']), (5.0, 'planilha'))
 
+    def test_perda_em_dinheiro(self):
+        pre = v.analisar(venda(frete=50.0), {'custo': 30.0, 'margem': 20.0}, P)
+        self.assertEqual((pre['perda'], pre['perda_tipo']), (33.0, 'prejuizo'))
+        abx = v.analisar(venda(), {'custo': 30.0, 'margem': 20.0}, P)                  # lucro 7; para 20% de 60 = 12 -> deixou 5
+        self.assertEqual((abx['perda'], abx['perda_tipo']), (5.0, 'deixou'))
+        ok = v.analisar(venda(), {'custo': 30.0, 'margem': 10.0}, P)
+        self.assertEqual((ok['perda'], ok['perda_tipo']), (0.0, ''))
+        self.assertIsNone(v.analisar(venda(frete=None), {'custo': 30.0}, P)['perda'])
+        r = v.calcular([venda(frete=50.0), venda()], {'A': {'custo': 30.0, 'margem': 20.0}}, P)[1]
+        self.assertEqual((r['prejuizo_rs'], r['deixou_rs']), (33.0, 5.0))
+
     def test_parametros(self):
         for ruim in ({'imposto_pct': 'abc'}, {'imposto_pct': -1}, {'imposto_pct': 61}, {'margem_padrao': 'x'}):
             with self.assertRaises(v.ParametroInvalido):
@@ -83,6 +94,13 @@ class TestFontesVendas(unittest.TestCase):
             r = fontes.cadastro(['A', 'B'])
         self.assertEqual(r['A'], {'custo': 12.5, 'margem': 25.0, 'margem_full': None})
         self.assertEqual(r['B'], {'custo': None, 'margem': None, 'margem_full': None})
+
+    def test_rotulo_envio(self):
+        casos = [('ready_to_ship', 'invoice_pending', 'Gerar NF'), ('ready_to_ship', 'ready_to_print', 'Gerar etiqueta'), ('ready_to_ship', 'printed', 'Etiqueta impressa'),
+                 ('ready_to_ship', 'ready_for_pickup', 'Pronto para coleta'), ('shipped', '', 'Enviado'), ('delivered', '', 'Entregue'), ('cancelled', '', 'Cancelado'),
+                 ('handling', '', 'Preparando'), ('algo_novo', 'x', 'algo_novo / x'), ('', '', 'Não consultado')]
+        for st, sub, esperado in casos:
+            self.assertEqual(fontes.rotulo_envio(st, sub), esperado)
 
     def test_frete_do_vendedor(self):
         self.assertEqual(fontes._frete_vendedor({'senders': [{'user_id': 1, 'cost': 12.3}, {'user_id': 99, 'cost': 5}]}, '99'), 5.0)
@@ -152,7 +170,7 @@ class TestEndpointsVendas(unittest.TestCase):
 
     def linhas(self):
         base = {'conta': 'ML19', 'pedido': '1', 'data': '2026-10-29 09:00', 'mlb': 'MLB1', 'sku': 'A', 'titulo': 'P', 'grupo': 'a_enviar', 'obs': '', 'meta_origem': 'planilha',
-                'quantidade': 2, 'venda': 100, 'tarifa': 15, 'frete': 10, 'custo_unit': 30, 'meta': 20}
+                'quantidade': 2, 'venda': 100, 'tarifa': 15, 'frete': 10, 'custo_unit': 30, 'meta': 20, 'status_rotulo': 'Aguardando'}
         return [dict(base, nao_enviar=True), dict(base, pedido='2', frete=1, nao_enviar=False), dict(base, pedido='3', tarifa=None, sku='=CMD()')]
 
     def test_exige_login(self):
@@ -181,7 +199,9 @@ class TestEndpointsVendas(unittest.TestCase):
         ws = openpyxl.load_workbook(io.BytesIO(r.data))['Não enviar']
         dados = list(ws.iter_rows(min_row=2, values_only=True))
         self.assertEqual([d[0] for d in dados], ['1'])                                   # só o marcado
-        self.assertEqual(dados[0][8], 7.0); self.assertIn('abaixo do mínimo de 20.00%', dados[0][11])
+        self.assertEqual(dados[0][9], 7.0); self.assertIn('abaixo do mínimo de 20.00%', dados[0][13])
+        self.assertEqual(dados[0][12], 5.0)                                              # deixou de ganhar: 60 × 20% − 7 = 5
+        self.assertEqual(dados[0][4], 'Aguardando')
         sem = [dict(l, nao_enviar=False) for l in self.linhas()]
         self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'nao_enviar', 'linhas': sem}).status_code, 400)
 
@@ -191,8 +211,8 @@ class TestEndpointsVendas(unittest.TestCase):
         r = self.c.post('/api/vendas/exportar', json={'tipo': 'dia', 'linhas': lin})
         ws = openpyxl.load_workbook(io.BytesIO(r.data))['Vendas do dia']
         dados = list(ws.iter_rows(min_row=2, values_only=True))
-        self.assertEqual([d[1] for d in dados], ['Abaixo da margem', 'Dentro da margem', 'Sem dados']); self.assertEqual(dados[0][15], 7.0)
-        self.assertEqual(dados[2][5], "'=CMD()"); self.assertEqual((dados[0][0], dados[1][0]), ('SIM', None))
+        self.assertEqual([d[1] for d in dados], ['Abaixo da margem', 'Dentro da margem', 'Sem dados']); self.assertEqual(dados[0][17], 7.0); self.assertEqual(dados[0][2], 5.0)
+        self.assertEqual(dados[2][6], "'=CMD()"); self.assertEqual((dados[0][0], dados[1][0]), ('SIM', None)); self.assertEqual(dados[1][2], None)
         self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'xx', 'linhas': lin}).status_code, 400)
 
     def test_salvar(self):

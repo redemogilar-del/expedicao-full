@@ -24,6 +24,27 @@ def cotacao(valor, moeda='BRL'):
     return {'coverage': {'all_country': {'currency_id': moeda, 'list_cost': valor}}}
 
 
+class TestTentaDeNovo(unittest.TestCase):
+    def setUp(self):
+        os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'
+
+    def test_custos_tenta_de_novo_se_a_planilha_demorar(self):
+        chamadas = []
+        def falso(url, json=None, **kw):
+            chamadas.append(1)
+            if len(chamadas) == 1:
+                raise fontes.requests.Timeout('Read timed out')
+            return Resp({'ok': True, 'items': {'A': {'custo': '10'}}})
+        with mock.patch.object(fontes._SESS, 'post', falso), mock.patch.object(fontes.time, 'sleep', lambda s: None):
+            self.assertEqual(fontes._consultar_itens(os.environ['EXP_SHEETS_URL'], 'k', ['A']), {'A': {'custo': '10'}})
+        self.assertEqual(len(chamadas), 2)
+
+    def test_falha_duas_vezes_vira_aviso_claro(self):
+        with mock.patch.object(fontes._SESS, 'post', side_effect=fontes.requests.Timeout('Read timed out')), mock.patch.object(fontes.time, 'sleep', lambda s: None):
+            with self.assertRaises(fontes.FonteIndisponivel):
+                fontes._consultar_itens(os.environ['EXP_SHEETS_URL'], 'k', ['A'])
+
+
 class TestImpostos(unittest.TestCase):
     def setUp(self):
         os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'

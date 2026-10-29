@@ -718,11 +718,12 @@ def api_vendas_exportar():
             buf = _gerar_xlsx_vendas('Não enviar', CAB_NAO, [_linha_nao(l) for l in marcadas], [8, 8, 17, 22, 20, 15, 50, 6, 12, 12, 12, 12, 16, 60], (8, 9, 10, 11, 12, 13), _resumo_linhas(linhas, params, periodo))
             nome = 'nao_enviar_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         elif tipo == 'prejuizo':
-            neg = sorted([l for l in linhas if l['classe'] == 'prejuizo'], key=lambda l: -l['perda'])
+            # prejuízo primeiro (maior perda antes), depois abaixo da margem (quem mais deixou de ganhar antes)
+            neg = sorted([l for l in linhas if l['classe'] in ('prejuizo', 'abaixo')], key=lambda l: (l['classe'] != 'prejuizo', -l['perda']))
             if not neg:
-                raise envios.ArquivoInvalido('Nenhuma venda com prejuízo nesta lista.')
-            buf = _gerar_xlsx_vendas('Prejuízo', CAB_DIA, [_linha_dia(l) for l in neg], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
-            nome = 'vendas_com_prejuizo_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
+                raise envios.ArquivoInvalido('Nenhuma venda com prejuízo ou abaixo da margem nesta lista.')
+            buf = _gerar_xlsx_vendas('Prejuízo e abaixo da margem', CAB_DIA, [_linha_dia(l) for l in neg], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
+            nome = 'prejuizo_e_abaixo_da_margem_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         elif tipo == 'dia':
             buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
             nome = 'vendas_do_dia_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')

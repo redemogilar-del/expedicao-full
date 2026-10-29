@@ -152,7 +152,7 @@ function desenhar(){
   $('vMarcarRuins').disabled = !lista.some(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo'));
   const sel = LINHAS.filter(r => PRECO.has(r._i) && selecionavel(r));
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
-  const negs = LINHAS.filter(r => r.classe === 'prejuizo').length; $('vBaixarNeg').disabled = !negs; $('vBaixarNeg').textContent = 'Baixar Excel dos prejuízos (' + negs + ')';
+  const negs = LINHAS.filter(r => r.classe === 'prejuizo' || r.classe === 'abaixo').length; $('vBaixarNeg').disabled = !negs; $('vBaixarNeg').textContent = 'Baixar Excel dos prejuízos e abaixo da margem (' + negs + ')';
   resumoManual();
   buscarPrecos();
 }
@@ -160,7 +160,7 @@ function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
   const cols = [];
   if (aba === 'mogilar') cols.push(el('th', {class:'chk'}, Object.assign(el('input', {type:'checkbox', id:'vTodos', title:'Marcar/desmarcar “não enviar” em tudo que está na tela'}), {onchange: e => { visiveis().filter(podeMarcar).forEach(r => { if (e.target.checked) MARCA.add(r._i); else MARCA.delete(r._i); }); desenhar(); }})));
-  cols.push(t('Situação'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('SKU'), t('Status do envio'), t('Produto'),
+  cols.push(t('Situação'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
     t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
     t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
     el('th', {class:'chk', title:'Marcar para atualizar o preço no Mercado Livre'}, Object.assign(el('input', {type:'checkbox', id:'vTodosPreco', title:'Marcar/desmarcar atualização de preço em tudo que pode'}), {onchange: e => { visiveis().filter(selecionavel).forEach(r => { if (e.target.checked) PRECO.add(r._i); else PRECO.delete(r._i); }); desenhar(); }})),
@@ -206,7 +206,8 @@ function linha(r){
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
     el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'),
     el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
-    el('td', {}, r.titulo.slice(0, 70), el('div', {class:'mlbs'}, r.mlb + (r.obs ? ' · ' + r.obs : ''))),
+    el('td', {}, r.mlb),
+    el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),
     el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)), el('td', {class:'n'}, brl(r.imposto)),
     el('td', {class:'n'}, campoEditavel(r, 'custo')), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
     el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {class:'chk'}, cbPreco), el('td', {}, ENV[r.grupo] || r.grupo));

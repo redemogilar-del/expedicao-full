@@ -19,6 +19,7 @@ python -m unittest discover -s tests -v
 ## Regras de negócio (não mudar sem pedir)
 - Necessidade = ARREDONDA_PARA_CIMA(vendas30 × meses − pendente − aptas), nunca negativa.
 - aptas + pendente = 0 ⇒ mínimo = envio-teste (3). Sugestão do ML menor que o teste ⇒ vira o teste.
+- Envio-teste já vem marcado na tela, com a quantidade do teste (sem botões de aplicar; a quantidade se edita na linha).
 - Frete/custo < limite (45%), estritamente menor. Dado ausente nunca vira zero.
 - Chave do produto = Código ML (o "Número de produto" pode ser `0` em anúncios fora do catálogo).
 - Valores com `=`, `+` ou `@` no início são escritos com apóstrofo no Excel (nada vira fórmula).

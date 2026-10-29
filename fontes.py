@@ -558,6 +558,22 @@ def atualizar_referencia(conta, itens):
     return saida
 
 
+def registrar_precos(conta, itens):
+    """Anota na aba 'Preços atualizados <conta>' da planilha o que foi alterado (Apps Script, ação 'vendas_precos'). Só tenta: falha não desfaz o preço. Devolve um texto curto."""
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        return 'não anotado na planilha (planilha não configurada)'
+    try:
+        r = _SESS.post(url, json={'chave': chave, 'acao': 'vendas_precos', 'conta': conta, 'itens': itens}, timeout=(5, 35), allow_redirects=True)
+        r.raise_for_status()
+        dados = r.json()
+        if not isinstance(dados, dict) or dados.get('ok') is not True:
+            return 'não anotado na planilha (falta atualizar o Apps Script)'
+        return 'anotado na aba "%s": %s novo(s), %s já estava(m) lá' % (dados.get('aba', ''), dados.get('novos', 0), dados.get('repetidos', 0))
+    except (requests.RequestException, ValueError) as exc:
+        return 'não anotado na planilha: ' + str(exc)[:60]
+
+
 def impostos_conta(conta):
     """Imposto/embalagem (% do valor da venda) da aba TaxasML da conta: {'normal': %, 'full': %}. Sempre lido na hora (sem cache): mudou na planilha, vale na próxima busca. Falha vira erro explicativo, nunca zero."""
     if conta not in CONTAS:

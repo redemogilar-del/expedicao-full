@@ -50,6 +50,23 @@ class TestImpostos(unittest.TestCase):
                 fontes.impostos_conta('ML19')
 
 
+class TestRegistrarPrecos(unittest.TestCase):
+    def setUp(self):
+        os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'
+
+    def test_anota_e_falha_sem_derrubar(self):
+        visto = {}
+        def falso(url, json=None, **kw):
+            visto.update(json); return Resp({'ok': True, 'aba': 'Preços atualizados ML19', 'novos': 1, 'repetidos': 0})
+        with mock.patch.object(fontes._SESS, 'post', falso):
+            txt = fontes.registrar_precos('ML19', [{'mlb': 'MLB1'}])
+        self.assertEqual((visto['acao'], visto['conta']), ('vendas_precos', 'ML19')); self.assertIn('Preços atualizados ML19', txt)
+        with mock.patch.object(fontes._SESS, 'post', return_value=Resp({'ok': False})):
+            self.assertIn('não anotado', fontes.registrar_precos('ML19', []))
+        with mock.patch.object(fontes._SESS, 'post', side_effect=fontes.requests.ConnectionError('x')):
+            self.assertIn('não anotado', fontes.registrar_precos('ML19', []))
+
+
 class TestCustos(unittest.TestCase):
     def setUp(self):
         os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'

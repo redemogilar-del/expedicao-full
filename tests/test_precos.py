@@ -16,6 +16,9 @@ import precos
 D = precos.D
 
 
+HISTORICO = []
+
+
 class FakeML:
     """ML de mentira: tarifa 16% do preço (+ R$ 6,50 fixos abaixo de R$ 79), frete fixo, preços guardados por anúncio."""
     def __init__(self, preco=40.0, frete=12.0, status='active', variacoes=None, tipo='gold_special', dono=99):
@@ -48,7 +51,8 @@ class FakeML:
 
     def patches(self):
         return [mock.patch.object(fontes, '_ml', self.ml), mock.patch.object(fontes._SESS, 'put', self.put), mock.patch.object(fontes, 'token', lambda c: 't'),
-                mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, 'atualizar_referencia', lambda conta, itens: {i['mlb']: 'ok' for i in itens})]
+                mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, 'atualizar_referencia', lambda conta, itens: {i['mlb']: 'ok' for i in itens}),
+                mock.patch.object(fontes, 'registrar_precos', lambda conta, itens: (HISTORICO.append((conta, itens)), 'anotado')[1])]
 
 
 class TestCalculoPreco(unittest.TestCase):
@@ -132,7 +136,7 @@ class TestEndpointsPreco(unittest.TestCase):
     def aplicar(self, fake, visto_atual=None, visto_novo=None, **extra):
         with self.com(fake):
             a = self.c.post('/api/vendas/preco-alvo', json=self.corpo_alvo()).get_json()['resultados']['MLB123456789']
-            item = {'mlb': 'MLB123456789', 'custo': 30, 'meta': 25, 'preco_atual_visto': visto_atual or a['preco_atual'], 'preco_novo_visto': visto_novo or a['preco_novo']}
+            item = {'mlb': 'MLB123456789', **({'sku': extra.pop('sku')} if 'sku' in extra else {}), **({'pedidos': extra.pop('pedidos')} if 'pedidos' in extra else {}), 'custo': 30, 'meta': 25, 'preco_atual_visto': visto_atual or a['preco_atual'], 'preco_novo_visto': visto_novo or a['preco_novo']}
             corpo = dict({'conta': 'ML19', 'parametros': {'imposto_pct': 8}, 'itens': [item], 'confirmacao': precos.CONFIRMACAO}, **extra)
             return a, self.c.post('/api/vendas/preco-aplicar', json=corpo)
 
@@ -142,6 +146,14 @@ class TestEndpointsPreco(unittest.TestCase):
         d = r.get_json()
         self.assertEqual((d['atualizados'], d['resultados'][0]['status'], d['resultados'][0]['planilha']), (1, 'OK', 'ok'))
         self.assertEqual(fake.puts[0][1], {'price': a['preco_novo']}); self.assertEqual(fake.preco, a['preco_novo'])
+        self.assertEqual(d['resultados'][0]['historico'], 'anotado')
+
+    def test_aplicar_anota_historico_com_pedidos(self):
+        HISTORICO.clear()
+        a, r = self.aplicar(FakeML(preco=70.0), sku='K1', pedidos=['10', '11'])
+        self.assertEqual(r.get_json()['atualizados'], 1)
+        conta, itens = HISTORICO[-1]
+        self.assertEqual((conta, itens[0]['mlb'], itens[0]['sku'], itens[0]['pedidos'], itens[0]['preco_anterior'], itens[0]['preco_novo']), ('ML19', 'MLB123456789', 'K1', ['10', '11'], 70.0, a['preco_novo']))
 
     def test_aplicar_exige_confirmacao_e_limites(self):
         fake = FakeML(preco=70.0)

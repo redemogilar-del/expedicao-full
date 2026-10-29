@@ -49,12 +49,8 @@ def _numero(v):
     return n if n == n and abs(n) != float('inf') else None
 
 
-def custos(skus):
-    """{sku: custo|None}. Custo ausente ou <= 0 vira None (nunca zero)."""
-    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
-    if not url.startswith('https://script.google.com/') or not chave:
-        raise FonteIndisponivel('A planilha de custos não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
-    lista = sorted({str(s).strip() for s in skus if str(s or '').strip()})
+def _consultar_custos(url, chave, lista):
+    """{sku_pedido: custo_bruto} para uma lista de SKUs (em lotes)."""
     saida = {}
     for i in range(0, len(lista), LOTE_CUSTOS):
         lote = lista[i:i + LOTE_CUSTOS]
@@ -66,9 +62,48 @@ def custos(skus):
             raise FonteIndisponivel('Não consegui ler a planilha de custos agora (%s). Tente de novo em instantes.' % str(exc)[:80])
         if not isinstance(dados, dict) or dados.get('ok') is not True or not isinstance(dados.get('items'), dict):
             raise FonteIndisponivel('A planilha de custos respondeu de um jeito inesperado. Confira o Apps Script.')
-        for sku in lote:
-            c = _numero((dados['items'].get(sku) or {}).get('custo'))
-            saida[sku] = c if c is not None and c > 0 else None
+        for sku, valor in dados['items'].items():
+            if isinstance(valor, dict):
+                saida[sku] = _numero(valor.get('custo'))
+    return saida
+
+
+def _variacoes(sku):
+    """Grafias parecidas (ex.: _5kg no ML e _5Kg no Bling)."""
+    v = {sku.upper(), sku.lower(), sku.title(), sku.swapcase()}
+    if sku.lower().endswith('kg'):
+        raiz = sku[:-2]
+        v.update(raiz + u for u in ('kg', 'Kg', 'KG', 'kG'))
+    v.discard(sku)
+    return v
+
+
+def custos(skus):
+    """{sku: custo|None}. Custo ausente ou <= 0 vira None (nunca zero).
+
+    Se o SKU não existe na planilha, tenta variações de maiúsculas/minúsculas; só aceita se houver
+    uma única correspondência (mais de uma seria palpite e fica sem custo).
+    """
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha de custos não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    lista = sorted({str(s).strip() for s in skus if str(s or '').strip()})
+    achados = _consultar_custos(url, chave, lista)
+    saida = {}
+    for sku in lista:
+        c = achados.get(sku)
+        saida[sku] = c if c is not None and c > 0 else None
+    faltam = [s for s in lista if s not in achados]
+    if faltam:
+        candidatos = set()
+        for sku in faltam:
+            candidatos |= _variacoes(sku)
+        candidatos -= set(lista)
+        alt = _consultar_custos(url, chave, sorted(candidatos)) if candidatos else {}
+        for sku in faltam:
+            certos = [c for k, c in alt.items() if k.casefold() == sku.casefold()]
+            if len(certos) == 1 and certos[0] is not None and certos[0] > 0:
+                saida[sku] = certos[0]
     return saida
 
 
@@ -134,8 +169,10 @@ def frete_mlb(tk, vendedor, mlb):
         item = _ml(tk, '/items/' + mlb)
         if not isinstance(item, dict) or item.get('id') != mlb:
             return None, 'Anúncio não identificado'
-        if item.get('status') != 'active':
-            return None, 'Anúncio não ativo'
+        # A cotação não depende de estoque: anúncio pausado ou sem estoque também é cotado
+        # (nada é alterado no Mercado Livre). Encerrado ou em revisão não cota.
+        if item.get('status') not in ('active', 'paused', 'inactive'):
+            return None, 'Anúncio %s (encerrado ou em revisão)' % item.get('status')
         sh = item.get('shipping') or {}
         if sh.get('mode') not in ('me1', 'me2'):
             return None, 'Modalidade de envio não suportada'

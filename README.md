@@ -9,7 +9,7 @@ Nada é gravado no servidor e nada é alterado no Mercado Livre: o painel só l�
 2. Entre no painel → **Envios Full** → passo 1: escolha o relatório.
 3. Passo 2: escolha a **conta** do Mercado Livre do relatório (ML19 ou ML44).
 4. Passo 3: confira as regras e clique em **Calcular envios**. O painel busca custo e frete sozinho (pode levar alguns minutos em relatórios grandes).
-5. Os produtos de **envio-teste** (sem estoque e sem vendas no Full) começam desmarcados: marque os que o Mercado Livre sugeriu.
+5. Os produtos de **envio-teste** (sem estoque, sem vendas ou com sugestão do ML de 1 ou 2 unidades) já vêm marcados, com a quantidade do teste (3 por padrão, campo "Unidades do envio-teste"). Para mudar uma quantidade, digite na própria linha.
 6. Ajuste quantidades se precisar e baixe **a planilha de envio** e **o resumo por SKU**.
 
 ## Aptos para Full

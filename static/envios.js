@@ -95,7 +95,7 @@ $('calcular').onclick = async () => {
     const d = await postar('/api/envios/calcular', fd2);
     ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
     SKUSEL = null; fecharPop();
-    LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
+    LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar'}));
     filtro = 'enviar'; busca = ''; $('busca').value = ''; grupo = 'todos';
     progresso('Conferindo a lista de aptos para Full…');
     try { const ap = await postar('/api/envios/aptos', new FormData()); APTOS = new Set(ap.skus); avisoAptos = ''; }
@@ -126,7 +126,6 @@ function desenhar(){
   const esc = escopo(), marc = esc.filter(r => r.incluir && r.qtd > 0), un = marc.reduce((s, r) => s + r.qtd, 0), skus = resumoSku();
   const geralUn = LINHAS.filter(r => r.incluir && r.qtd > 0).reduce((s, r) => s + r.qtd, 0), geral = SKUSEL ? ' (geral: ' + num(geralUn) + ')' : '';
   const cont = {}; esc.forEach(r => cont[r.status] = (cont[r.status] || 0) + 1);
-  const testes = esc.filter(r => r.status === 'enviar' && r.tipo === 'Teste');
   const cards = $('cartoes'); cards.replaceChildren(
     el('div', {class:'card destaque'}, el('b', {}, num(marc.length)), el('span', {}, 'produtos marcados para enviar')),
     el('div', {class:'card destaque'}, el('b', {}, num(un)), el('span', {}, 'unidades no total' + (SKUSEL ? ' dos SKUs escolhidos' + geral : ''))),
@@ -147,9 +146,6 @@ function desenhar(){
       gb.append(el('button', {class: k === grupo ? 'on' : '', onclick: () => { grupo = k; desenhar(); }}, nome + ' (' + n + ')'));
     $('baixarAptos').disabled = !na; $('baixarNaoAptos').disabled = !nn; $('marcarAptos').disabled = !na;
   }
-  const pend = testes.filter(r => !r.incluir).length;
-  $('barraTeste').hidden = !testes.length;
-  $('avisoTeste').textContent = testes.length + ' produtos são envio-teste (sem estoque no Full ou sem vendas em 30 dias). Eles começam desmarcados: marque os que o Mercado Livre sugeriu ou digite a quantidade e aplique.' + (pend < testes.length ? ' ' + (testes.length - pend) + ' já marcados.' : '');
   const lista = visiveis(), corpo = $('corpo'); corpo.replaceChildren();
   for (const r of lista) corpo.append(linha(r));
   $('vazio').hidden = lista.length > 0;
@@ -157,7 +153,7 @@ function desenhar(){
   const cs = $('corpoSku'); cs.replaceChildren(...skus.map(t => el('tr', {}, el('td', {}, t.sku), el('td', {class:'n'}, num(t.qtd)))));
   $('totSku').textContent = num(un);
   $('baixarEnvio').disabled = $('baixarSku').disabled = marc.length === 0;
-  rotuloSku(); barraSelecao(lista);
+  rotuloSku();
   $('notaSku').textContent = SKUSEL ? 'Filtro de SKUs ativo: as planilhas terão só os ' + SKUSEL.size + ' SKUs escolhidos.' : '';
 }
 function linha(r){
@@ -175,34 +171,8 @@ function linha(r){
     el('td', {class:'n'}, imp), el('td', {class:'n'}, q), el('td', {}, r.tipo || ''), el('td', {}, r.motivo),
     el('td', {}, r.urgencia && r.urgencia !== '-' ? r.urgencia + (r.prazo && r.prazo !== '-' ? ' (' + r.prazo + ')' : '') : ''));
 }
-function barraSelecao(lista){
-  const n = lista.filter(r => r.incluir).length; $('barraSel').hidden = n === 0;
-  $('txtSel').textContent = n + ' marcado' + (n === 1 ? '' : 's') + ' na tela';
-}
-$('selAplicar').onclick = () => {
-  const v = Math.round(Number($('selQtd').value));
-  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade (de 1 a 100000) antes de aplicar.', 'erro'); return; }
-  const a = visiveis().filter(r => r.incluir && podeMarcar(r));
-  if (!a.length) { mensagem('Marque primeiro os produtos da tela.', 'erro'); return; }
-  a.forEach(r => { r.qtd = v; }); desenhar(); mensagem(a.length + ' produtos com ' + v + ' unidade(s) cada.', 'ok');
-};
 $('busca').oninput = e => { busca = e.target.value; desenhar(); };
 $('todos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { r.incluir = e.target.checked; }); desenhar(); };   // tudo que está na tela (filtros e SKUs), esteja ou não para enviar
-const testes = () => escopo().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
-$('marcarTestes').onclick = () => { testes().forEach(r => r.incluir = true); desenhar(); };
-$('marcarTestesUrg').onclick = () => { testes().forEach(r => { r.incluir = r.urgencia === 'Urgente'; }); desenhar(); };
-$('limparTestes').onclick = () => { testes().forEach(r => r.incluir = false); desenhar(); };
-
-$('aplicarQtdTeste').onclick = () => {
-  const v = Math.round(Number($('qtdTesteTopo').value));
-  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade dos testes (de 1 a 100000) antes de aplicar.', 'erro'); return; }
-  mensagem('');
-  const alvo = visiveis().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
-  if (!alvo.length) { mensagem('Não há produtos de teste na tela. Mude o filtro ou os SKUs escolhidos.', 'erro'); return; }
-  alvo.forEach(r => { r.qtd = v; r.incluir = true; });
-  desenhar(); mensagem(alvo.length + ' testes marcados com ' + v + ' unidade(s) cada.', 'ok');
-};
-
 // ---------- filtro de SKUs (caixa de seleção com busca) ----------
 let RASC = new Set();
 const todosSkus = () => [...new Set(LINHAS.map(r => r.sku || ''))].sort((a, b) => (a || '~').localeCompare(b || '~'));

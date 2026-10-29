@@ -127,8 +127,8 @@ function desenhar(){
   const cartoes = [
     el('div', {class:'card'}, el('b', {}, num(esc.length)), el('span', {}, 'itens vendidos (nesta lista)')),
     el('div', {class:'card destaque'}, el('b', {}, num(c.dentro)), el('span', {}, 'dentro da margem')),
-    el('div', {class:'card'}, el('b', {}, num(c.abaixo)), el('span', {}, 'abaixo da margem · deixou de ganhar ' + brl(deixou))),
-    el('div', {class:'card risco'}, el('b', {}, num(c.prejuizo)), el('span', {}, 'com prejuízo · perdeu ' + brl(prej))),
+    el('div', {class:'card valor ambar'}, el('b', {}, brl(deixou)), el('span', {}, 'deixou de ganhar · ' + num(c.abaixo) + ' abaixo da margem')),
+    el('div', {class:'card risco valor'}, el('b', {}, brl(prej)), el('span', {}, 'perdeu · ' + num(c.prejuizo) + ' com prejuízo')),
     el('div', {class:'card'}, el('b', {}, num(c.sem_dados)), el('span', {}, 'sem dados (digite o custo ou a margem na linha)'))];
   if (aba === 'mogilar') cartoes.push(el('div', {class:'card risco'}, el('b', {}, num(marcados.length)), el('span', {}, 'marcados para não enviar')));
   $('vCartoes').replaceChildren(...cartoes);

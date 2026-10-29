@@ -94,6 +94,7 @@ th.ord{cursor:pointer;user-select:none}
 td.pos{color:var(--verde)}td.neg{color:var(--verm);font-weight:600}
 tr.naoenviar td{background:var(--verm-fundo)}
 .card.risco{border-color:var(--verm);background:var(--verm-fundo)}
+.card.valor{min-width:190px}.card.valor b{font-size:32px;font-weight:800}.card.valor.risco b{color:var(--verm)}.card.valor.ambar{border-color:var(--amarelo-esc)}.card.valor.ambar b{color:var(--amarelo-esc)}.card.valor span{font-size:14px;font-weight:600}
 .progresso #vBarra{height:100%;background:var(--destaque,#ffc933);opacity:.35;transition:width .3s}
 
 .e-full{background:var(--cinza-fundo);color:var(--suave)}.e-enviado{background:var(--verde-fundo);color:var(--verde)}.e-a_enviar{background:var(--ambar-fundo)}

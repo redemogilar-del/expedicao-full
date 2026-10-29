@@ -95,3 +95,5 @@ td.pos{color:var(--verde)}td.neg{color:var(--verm);font-weight:600}
 tr.naoenviar td{background:var(--verm-fundo)}
 .card.risco{border-color:var(--verm);background:var(--verm-fundo)}
 .progresso #vBarra{height:100%;background:var(--destaque,#ffc933);opacity:.35;transition:width .3s}
+
+.e-full{background:var(--cinza-fundo);color:var(--suave)}.e-enviado{background:var(--verde-fundo);color:var(--verde)}.e-a_enviar{background:var(--ambar-fundo)}

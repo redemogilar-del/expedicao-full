@@ -23,9 +23,14 @@ Em todas as abas, a **coluna A é o MLB** (o primeiro anúncio do produto; os de
 
 ## Aba Vendas do dia
 Puxa os pedidos pagos do dia (ML19, ML44 ou as duas) com **tarifa do ML** e **frete do vendedor** de cada item e calcula o lucro:
-`lucro = venda − tarifa − frete − imposto (venda × imposto%) − custo × quantidade` e `margem = lucro ÷ custo`. Custo e margem mínima de cada SKU vêm da planilha (abas DadosBling e MargensML; Full usa a coluna de margem Full). Quem não tem margem na planilha usa a **margem mínima padrão** (marcada com `*`). Imposto (8%) e margem padrão (20%) são editáveis na tela e recalculam na hora. Dado que falta (custo, tarifa, frete, SKU) nunca vira zero: a venda fica **Sem dados**.
+`lucro = venda − tarifa − frete − imposto (venda × imposto%) − custo × quantidade`; o **imposto vem da aba TaxasML** da planilha (por conta, e Full ou normal; campo "imposto/embalagem"). Se você digitar um imposto na tela, ele vale para tudo e manda sobre a planilha e `margem = lucro ÷ custo`. Custo e margem mínima de cada SKU vêm da planilha (abas DadosBling e MargensML; Full usa a coluna de margem Full). Quem não tem margem na planilha usa a **margem mínima padrão** (marcada com `*`). A margem padrão (20%) é editável na tela e recalcula na hora. Dado que falta (custo, tarifa, frete, SKU) nunca vira zero: a venda fica **Sem dados**.
 Cada venda mostra também o **status do envio** (Gerar NF, Gerar etiqueta, Etiqueta impressa, Pronto para coleta, Enviado…) e, ao lado da situação, o **prejuízo em R$** ou **quanto deixou de ganhar** para chegar na margem mínima.
 Cada venda é classificada em *Dentro da margem*, *Abaixo da margem*, *Prejuízo* ou *Sem dados*, e separada em *A enviar* (não Full, ainda não despachado), *Já enviado* e *Full*. O operador marca o que **não deve ser enviado** (há botão para marcar todos abaixo da margem) e baixa a lista "Não enviar". O botão **Salvar relatório do dia** grava na planilha as abas `Vendas AAAA-MM-DD`, `Não enviar AAAA-MM-DD` e uma linha em `Desempenho diário`. Precisa do trecho `apps_script/relatorio_vendas.gs` (V8) no Apps Script. Só leitura no Mercado Livre. Pedidos de carrinho dividem o frete igualmente entre os pedidos do carrinho (aviso na linha).
+
+### Ordem, prejuízos e resumo (Vendas do dia)
+- A lista já vem ordenada: **prejuízo** (maior prejuízo primeiro) → **abaixo da margem** (maior perda primeiro) → **dentro da margem** (do menor ao maior lucro) → **sem dados**.
+- **Baixar Excel dos prejuízos**: todas as vendas com prejuízo, do maior para o menor.
+- No fim da tela, **Resumo para fazer na mão**: o que não foi calculado (falta custo/imposto, anúncio bloqueado) e o que não foi atualizado (o ML recusou, mudou algo) ou ainda não foi atualizado, com o motivo. Dá para baixar em Excel.
 
 ### Preço necessário e atualização de preço (Vendas do dia)
 - A tela tem duas listas: **Vendas Mogilar** (não Full; subfiltros *A enviar*, *Já enviados*, *Todas*) e **Vendas Full**. As duas mostram prejuízo / abaixo da margem e permitem atualizar preço; "não enviar" existe só na lista Mogilar.

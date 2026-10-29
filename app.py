@@ -595,6 +595,25 @@ def api_vendas_pedidos():
         return _erro_fonte(exc)
 
 
+@app.post('/api/vendas/impostos')
+def api_vendas_impostos():
+    """Imposto/embalagem (%) da aba TaxasML por conta. Falha de uma conta não derruba as outras."""
+    try:
+        c = request.get_json(silent=True) or {}
+        contas = c.get('contas')
+        if not isinstance(contas, list) or not 1 <= len(contas) <= 2 or not all(x in fontes.CONTAS for x in contas):
+            raise envios.ArquivoInvalido('Contas inválidas.')
+        ok, erros = {}, {}
+        for conta in contas:
+            try:
+                ok[conta] = fontes.impostos_conta(conta)
+            except fontes.FonteIndisponivel as exc:
+                erros[conta] = str(exc)
+        return jsonify(ok=True, impostos=ok, erros=erros)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/vendas/cadastro')
 def api_vendas_cadastro():
     try:
@@ -618,7 +637,7 @@ def api_vendas_calcular():
         linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete')} for r in bruto if isinstance(r, dict)]
         cadastro = {str(k): {'custo': _num(v.get('custo')), 'margem': _num(v.get('margem')), 'margem_full': _num(v.get('margem_full'))} for k, v in cad.items() if isinstance(v, dict)}
         analisadas, resumo = vendas.calcular(linhas, cadastro, params)
-        return jsonify(ok=True, linhas=analisadas, resumo=resumo, parametros={k: float(v) for k, v in params.items()})
+        return jsonify(ok=True, linhas=analisadas, resumo=resumo)
     except Exception as exc:
         return _erro(exc)
 
@@ -681,7 +700,7 @@ def _resumo_linhas(linhas, params, periodo):
     return [['Período', periodo], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')], ['Vendas analisadas (itens)', r['linhas']], ['Unidades', r['unidades']],
             ['Dentro da margem', r['dentro']], ['Abaixo da margem', r['abaixo']], ['Prejuízo', r['prejuizo']], ['Sem dados', r['sem_dados']],
             ['Vendido, só com dados (R$)', r['venda']], ['Lucro, só com dados (R$)', r['lucro']], ['Prejuízo total (R$)', r['prejuizo_rs']], ['Deixou de ganhar nas abaixo da margem (R$)', r['deixou_rs']], ['Marcados para não enviar', sum(1 for l in linhas if l['nao_enviar'])],
-            ['Imposto (% da venda)', float(params['imposto_pct'])], ['Margem mínima padrão (%)', float(params['margem_padrao'])],
+            ['Imposto (% da venda)', ('%s (digitado na tela)' % float(params['imposto_pct'])) if params['imposto_pct'] is not None else 'da planilha (aba TaxasML, por conta e Full/normal)'], ['Margem mínima padrão (%)', float(params['margem_padrao'])],
             ['Regra', 'Lucro = venda − tarifa ML − frete − imposto − custo. Margem = lucro ÷ custo. Dado ausente não entra na conta ("Sem dados").']]
 
 
@@ -698,6 +717,12 @@ def api_vendas_exportar():
                 raise envios.ArquivoInvalido('Marque pelo menos uma venda para não enviar.')
             buf = _gerar_xlsx_vendas('Não enviar', CAB_NAO, [_linha_nao(l) for l in marcadas], [8, 8, 17, 22, 20, 15, 50, 6, 12, 12, 12, 12, 16, 60], (8, 9, 10, 11, 12, 13), _resumo_linhas(linhas, params, periodo))
             nome = 'nao_enviar_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
+        elif tipo == 'prejuizo':
+            neg = sorted([l for l in linhas if l['classe'] == 'prejuizo'], key=lambda l: -l['perda'])
+            if not neg:
+                raise envios.ArquivoInvalido('Nenhuma venda com prejuízo nesta lista.')
+            buf = _gerar_xlsx_vendas('Prejuízo', CAB_DIA, [_linha_dia(l) for l in neg], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
+            nome = 'vendas_com_prejuizo_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         elif tipo == 'dia':
             buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
             nome = 'vendas_do_dia_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
@@ -753,7 +778,7 @@ def api_vendas_salvar():
         dia = _data(c.get('dia')).strftime('%Y-%m-%d')
         r = vendas.resumo(linhas)
         marcadas = [l for l in linhas if l['nao_enviar']]
-        payload = {'dia': dia, 'periodo': _periodo(c), 'parametros': {k: float(v) for k, v in params.items()},
+        payload = {'dia': dia, 'periodo': _periodo(c), 'parametros': {'imposto_pct': None if params['imposto_pct'] is None else float(params['imposto_pct']), 'margem_padrao': float(params['margem_padrao'])},
                    'resumo': {'itens': r['linhas'], 'unidades': r['unidades'], 'dentro': r['dentro'], 'abaixo': r['abaixo'], 'prejuizo': r['prejuizo'], 'sem_dados': r['sem_dados'],
                               'venda': r['venda'], 'lucro': r['lucro'], 'prejuizo_rs': r['prejuizo_rs'], 'deixou_rs': r['deixou_rs'], 'nao_enviar': len(marcadas)},
                    'cab': CAB_DIA, 'linhas': [_linha_dia(l) for l in linhas],
@@ -764,6 +789,16 @@ def api_vendas_salvar():
 
 
 # ------------------------------------------------------------------ Preço necessário e atualização de preço no ML
+def _imposto_item(x, params):
+    """Imposto (%) do item: o que a tela usou na conta dele; se não vier, o digitado. Sem nenhum dos dois, recusa."""
+    v = _decimal_ou_none(x.get('imposto_pct'))
+    if v is None:
+        v = params.get('imposto_pct')
+    if v is None or not 0 <= v < 60:
+        raise envios.ArquivoInvalido('Imposto não informado (planilha TaxasML indisponível). Digite o imposto na tela.')
+    return v
+
+
 def _decimal_ou_none(v):
     try:
         d = precos.D(str(v))
@@ -788,14 +823,14 @@ def api_vendas_preco_alvo():
             mlb = str((x or {}).get('mlb') or '').strip().upper() if isinstance(x, dict) else ''
             if not fontes._MLB.match(mlb):
                 raise envios.ArquivoInvalido('Anúncio inválido.')
-            pedidos.append((mlb, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta'))))
+            pedidos.append((mlb, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta')), _imposto_item(x, params)))
         tk = fontes.token(c['conta'])
         vendedor = fontes._vendedor(c['conta'], tk)
 
         def um(p):
-            mlb, custo, meta = p
+            mlb, custo, meta, imposto = p
             try:
-                return mlb, precos.analisar(tk, vendedor, precos.buscar_item(tk, mlb), custo, meta, params['imposto_pct'])
+                return mlb, precos.analisar(tk, vendedor, precos.buscar_item(tk, mlb), custo, meta, imposto)
             except precos.Bloqueio as exc:
                 return mlb, {'mlb': mlb, 'acao': 'bloqueado', 'mensagem': str(exc)}
             except Exception as exc:
@@ -833,16 +868,16 @@ def api_vendas_preco_aplicar():
             if not fontes._MLB.match(mlb) or mlb in vistos or None in (custo, meta, visto_atual, visto_novo) or visto_atual <= 0 or visto_novo <= 0:
                 raise envios.ArquivoInvalido('Item inválido ou repetido.')
             vistos.add(mlb)
-            pedidos.append((mlb, custo, meta, visto_atual, visto_novo))
+            pedidos.append((mlb, custo, meta, visto_atual, visto_novo, _imposto_item(x, params)))
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         resultados, aplicados = [], []
-        for mlb, custo, meta, visto_atual, visto_novo in pedidos:
+        for mlb, custo, meta, visto_atual, visto_novo, imposto in pedidos:
             r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
             try:
                 item = precos.buscar_item(tk, mlb)
-                a = precos.analisar(tk, vendedor, item, custo, meta, params['imposto_pct'])
+                a = precos.analisar(tk, vendedor, item, custo, meta, imposto)
                 if a['acao'] != 'subir':
                     raise precos.Bloqueio('Não precisa mais de ajuste: ' + a['mensagem'])
                 atual, novo = precos.D(str(a['preco_atual'])), precos.D(str(a['preco_novo']))
@@ -874,3 +909,25 @@ def api_vendas_preco_aplicar():
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, atualizados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/exportar-manual')
+def api_vendas_exportar_manual():
+    """Lista do que não foi calculado ou atualizado, para a pessoa mexer na mão no Mercado Livre."""
+    try:
+        c = request.get_json(silent=True) or {}
+        bruto = c.get('itens')
+        if not isinstance(bruto, list) or not 1 <= len(bruto) <= 5000:
+            raise envios.ArquivoInvalido('Nada para exportar.')
+        linhas = []
+        for r in bruto:
+            if not isinstance(r, dict):
+                raise envios.ArquivoInvalido('Dados inválidos.')
+            t = lambda k: _seguro(str(r.get(k) or '')[:300])
+            linhas.append([t('tipo'), t('conta'), t('mlb'), t('sku'), t('produto'), t('situacao'), _num(r.get('preco_atual')), _num(r.get('preco_necessario')), t('motivo')])
+        buf = _gerar_xlsx_vendas('Fazer na mão', ['O que houve', 'Conta', 'MLB', 'SKU', 'Produto', 'Situação', 'Preço atual (R$)', 'Preço necessário (R$)', 'Motivo / o que fazer'], linhas,
+                                 [20, 7, 15, 22, 50, 18, 14, 16, 80], (7, 8), [['Período', str(c.get('periodo') or '')[:60]], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')],
+                                 ['Observação', 'Itens que o painel não calculou ou não conseguiu atualizar. Altere o preço direto no Mercado Livre.']])
+        return send_file(buf, mimetype=XLSX, as_attachment=True, download_name='fazer_na_mao_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M'))
+    except Exception as exc:
+        return _erro(exc)

@@ -146,7 +146,7 @@ class TestEndpointsPreco(unittest.TestCase):
     def test_aplicar_exige_confirmacao_e_limites(self):
         fake = FakeML(preco=70.0)
         with self.com(fake):
-            base = {'conta': 'ML19', 'parametros': {}, 'itens': [{'mlb': 'MLB123456789', 'custo': 30, 'meta': 25, 'preco_atual_visto': 70, 'preco_novo_visto': 100}]}
+            base = {'conta': 'ML19', 'parametros': {'imposto_pct': 8}, 'itens': [{'mlb': 'MLB123456789', 'custo': 30, 'meta': 25, 'preco_atual_visto': 70, 'preco_novo_visto': 100}]}
             self.assertEqual(self.c.post('/api/vendas/preco-aplicar', json=base).status_code, 400)                           # sem confirmação
             self.assertEqual(self.c.post('/api/vendas/preco-aplicar', json=dict(base, confirmacao='sim')).status_code, 400)
             muitos = [dict(base['itens'][0], mlb='MLB12345678%d' % i) for i in range(6)]
@@ -177,7 +177,7 @@ class TestEndpointsPreco(unittest.TestCase):
         self.assertEqual(r.get_json()['resultados'][0]['status'], 'OK')
         fake.preco = 70.0                                                                # mesmo anúncio logo em seguida
         with self.com(fake):
-            corpo = {'conta': 'ML19', 'parametros': {}, 'confirmacao': precos.CONFIRMACAO, 'itens': [{'mlb': 'MLB123456789', 'custo': 30, 'meta': 25, 'preco_atual_visto': 70, 'preco_novo_visto': a['preco_novo']}]}
+            corpo = {'conta': 'ML19', 'parametros': {'imposto_pct': 8}, 'confirmacao': precos.CONFIRMACAO, 'itens': [{'mlb': 'MLB123456789', 'custo': 30, 'meta': 25, 'preco_atual_visto': 70, 'preco_novo_visto': a['preco_novo']}]}
             self.assertIn('acabou de ser alterado', self.c.post('/api/vendas/preco-aplicar', json=corpo).get_json()['resultados'][0]['mensagem'])
         precos._RECENTES.clear()
         recusa = FakeML(preco=70.0); recusa.recusa = True

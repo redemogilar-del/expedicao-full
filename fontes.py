@@ -556,3 +556,36 @@ def atualizar_referencia(conta, itens):
             for x in lote:
                 saida[x['mlb']] = 'não atualizada: ' + str(exc)[:60]
     return saida
+
+
+_IMPOSTOS = {}
+
+
+def impostos_conta(conta):
+    """Imposto/embalagem (% do valor da venda) da aba TaxasML: {'normal': %, 'full': %}. Falha vira erro explicativo, nunca zero."""
+    if conta not in CONTAS:
+        raise FonteIndisponivel('Conta inválida.')
+    with _LOCK:
+        c = _IMPOSTOS.get(conta)
+        if c and time.monotonic() - c[1] < 300:
+            return c[0]
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    try:
+        r = _SESS.post(url, json={'chave': chave, 'acao': 'catalogo_taxas', 'conta': conta}, timeout=(5, 25), allow_redirects=True)
+        r.raise_for_status()
+        dados = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise FonteIndisponivel('Não consegui ler os impostos da planilha (%s).' % str(exc)[:80])
+    if not isinstance(dados, dict) or dados.get('ok') is not True or dados.get('conta') != conta:
+        raise FonteIndisponivel('A aba TaxasML não confirmou os dados da conta %s.' % conta)
+    saida = {}
+    for nome, campo in (('normal', 'imposto_embalagem_normal_pct'), ('full', 'imposto_embalagem_full_pct')):
+        v = _numero(dados.get(campo))
+        if v is None or not 0 <= v < 60:
+            raise FonteIndisponivel('Imposto "%s" inválido ou vazio na aba TaxasML (%s).' % (nome, conta))
+        saida[nome] = v
+    with _LOCK:
+        _IMPOSTOS[conta] = (saida, time.monotonic())
+    return saida

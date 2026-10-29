@@ -14,6 +14,8 @@ let ARQ = null;           // arquivo do relatório
 let LINHAS = [];          // resultado do cálculo, com campos de tela: incluir, qtd, qtd_calc
 let ARQUIVO = '', PARAMS = {};
 let filtro = 'enviar', busca = '';
+let SKUSEL = null;        // null = todos os SKUs; senão, Set dos SKUs escolhidos no filtro
+const SEMSKU = '(Espaços em branco)';
 
 function mensagem(texto, tipo){ const m = $('msg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 
@@ -90,6 +92,7 @@ $('calcular').onclick = async () => {
     const fd2 = formParams(new FormData()); fd2.append('relatorio', ARQ); fd2.append('base', JSON.stringify(base));
     const d = await postar('/api/envios/calcular', fd2);
     ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
+    SKUSEL = null; fecharPop();
     LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
     filtro = 'enviar'; busca = ''; $('busca').value = '';
     mensagem(''); $('resultado').hidden = false; desenhar();
@@ -103,6 +106,7 @@ const podeMarcar = r => (r.status === 'enviar' || r.status === 'frete_alto' || r
 function visiveis(){
   const q = busca.trim().toLowerCase();
   return LINHAS.filter(r => (filtro === 'todos' || r.status === filtro || (filtro === 'marcados' && r.incluir)) &&
+    (!SKUSEL || SKUSEL.has(r.sku || '')) &&
     (!q || [r.sku, r.produto, r.codigo_ml, r.mlbu, ...(r.mlbs || [])].join(' ').toLowerCase().includes(q)));
 }
 function resumoSku(){
@@ -129,7 +133,7 @@ function desenhar(){
   }
   const pend = testes.filter(r => !r.incluir).length;
   $('barraTeste').hidden = !testes.length;
-  $('avisoTeste').textContent = testes.length + ' produtos são envio-teste (sem estoque no Full e sem vendas). Eles começam desmarcados: marque os que o Mercado Livre sugeriu.' + (pend < testes.length ? ' ' + (testes.length - pend) + ' já marcados.' : '');
+  $('avisoTeste').textContent = testes.length + ' produtos são envio-teste (sem estoque no Full ou sem vendas em 30 dias). Eles começam desmarcados: marque os que o Mercado Livre sugeriu ou digite a quantidade e aplique.' + (pend < testes.length ? ' ' + (testes.length - pend) + ' já marcados.' : '');
   const lista = visiveis(), corpo = $('corpo'); corpo.replaceChildren();
   for (const r of lista) corpo.append(linha(r));
   $('vazio').hidden = lista.length > 0;
@@ -137,6 +141,7 @@ function desenhar(){
   const cs = $('corpoSku'); cs.replaceChildren(...skus.map(t => el('tr', {}, el('td', {}, t.sku), el('td', {class:'n'}, num(t.qtd)))));
   $('totSku').textContent = num(un);
   $('baixarEnvio').disabled = $('baixarSku').disabled = marc.length === 0;
+  rotuloSku();
 }
 function linha(r){
   const cb = el('input', {type:'checkbox', checked: r.incluir, disabled: !podeMarcar(r)});
@@ -159,6 +164,46 @@ const testes = () => LINHAS.filter(r => r.status === 'enviar' && r.tipo === 'Tes
 $('marcarTestes').onclick = () => { testes().forEach(r => r.incluir = true); desenhar(); };
 $('marcarTestesUrg').onclick = () => { testes().forEach(r => { r.incluir = r.urgencia === 'Urgente'; }); desenhar(); };
 $('limparTestes').onclick = () => { testes().forEach(r => r.incluir = false); desenhar(); };
+
+$('aplicarQtdTeste').onclick = () => {
+  const v = Math.round(Number($('qtdTesteTopo').value));
+  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade dos testes (de 1 a 100000) antes de aplicar.', 'erro'); return; }
+  mensagem('');
+  const alvo = visiveis().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
+  if (!alvo.length) { mensagem('Não há produtos de teste na tela. Mude o filtro ou os SKUs escolhidos.', 'erro'); return; }
+  alvo.forEach(r => { r.qtd = v; r.incluir = true; });
+  desenhar(); mensagem(alvo.length + ' testes marcados com ' + v + ' unidade(s) cada.', 'ok');
+};
+
+// ---------- filtro de SKUs (caixa de seleção com busca) ----------
+let RASC = new Set();
+const todosSkus = () => [...new Set(LINHAS.map(r => r.sku || ''))].sort((a, b) => (a || '~').localeCompare(b || '~'));
+const nomeSku = s => s || SEMSKU;
+function rotuloSku(){ $('btnSku').textContent = SKUSEL ? 'SKUs: ' + SKUSEL.size + ' de ' + todosSkus().length + ' ▾' : 'SKUs: todos ▾'; }
+function listaPop(){
+  const q = $('buscaSku').value.trim().toLowerCase(), lista = todosSkus().filter(s => !q || nomeSku(s).toLowerCase().includes(q));
+  $('listaSku').replaceChildren(...lista.map(s => {
+    const cb = el('input', {type:'checkbox', checked: RASC.has(s)});
+    cb.onchange = () => { if (cb.checked) RASC.add(s); else RASC.delete(s); };
+    return el('label', {}, cb, nomeSku(s));
+  }));
+  $('skuTodos').textContent = 'Selecionar tudo: ' + lista.length; $('skuCont').textContent = 'Mostrando ' + lista.length;
+  $('skuTodos').onclick = () => { lista.forEach(s => RASC.add(s)); listaPop(); };
+  $('skuLimpar').onclick = () => { lista.forEach(s => RASC.delete(s)); listaPop(); };
+}
+function fecharPop(){ $('popSku').hidden = true; $('btnSku').setAttribute('aria-expanded', 'false'); }
+$('btnSku').onclick = e => {
+  e.stopPropagation();
+  if (!$('popSku').hidden) { fecharPop(); return; }
+  RASC = new Set(SKUSEL || todosSkus()); $('buscaSku').value = ''; listaPop();
+  $('popSku').hidden = false; $('btnSku').setAttribute('aria-expanded', 'true'); $('buscaSku').focus();
+};
+$('buscaSku').oninput = listaPop;
+$('popSku').onclick = e => e.stopPropagation();
+$('skuCancelar').onclick = fecharPop;
+$('skuOk').onclick = () => { const todos = todosSkus(); SKUSEL = todos.every(s => RASC.has(s)) ? null : new Set([...RASC]); fecharPop(); desenhar(); };
+document.addEventListener('click', fecharPop);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharPop(); });
 
 // ---------- downloads ----------
 async function baixar(tipo){

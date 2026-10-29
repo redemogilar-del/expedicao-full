@@ -53,3 +53,15 @@ td input[type=number]{width:72px;padding:4px 6px;text-align:right}
 .duas{grid-template-columns:1fr 250px}
 .campo{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--suave);max-width:220px}
 select{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto);width:100%}
+
+.pop{position:relative}
+.pop-caixa{position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:300px;background:var(--cartao);border:1px solid var(--linha);border-radius:10px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.pop-caixa[hidden]{display:none}
+.pop-caixa input[type=search]{width:100%;max-width:none;margin:0 0 8px}
+.pop-topo{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px}
+.pop-lista{max-height:260px;overflow:auto;border-top:1px solid var(--linha);border-bottom:1px solid var(--linha);padding:4px 0}
+.pop-lista label{display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px;cursor:pointer;word-break:break-all}
+.pop-lista input{width:auto;margin:0}
+.pop-fim{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+button.link{background:none;border:0;padding:0;color:var(--destaque,#ffc933);text-decoration:underline;cursor:pointer;font:inherit}
+.inline-campo{display:flex;align-items:center;gap:6px;font-size:13px}.inline-campo input{width:90px}

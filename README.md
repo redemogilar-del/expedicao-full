@@ -21,6 +21,11 @@ A aba **Aptos Para FULL** da planilha "Banco de Dados ML Hub" (coluna A, SKU) de
 ## Planilhas geradas
 Em todas as abas, a **coluna A é o MLB** (o primeiro anúncio do produto; os demais ficam na coluna "MLBs") e a **coluna B é a quantidade**, com cor diferente e a quantidade em negrito, para copiar e colar no painel do Mercado Livre. No resumo por SKU, A é o SKU. O relatório de aptos (e o de não aptos) também traz a aba "Resumo por SKU" com o que está marcado no grupo.
 
+## Aba Vendas do dia
+Puxa os pedidos pagos do dia (ML19, ML44 ou as duas) com **tarifa do ML** e **frete do vendedor** de cada item e calcula o lucro:
+`lucro = venda − tarifa − frete − imposto (venda × imposto%) − custo × quantidade` e `margem = lucro ÷ custo`. Custo e margem mínima de cada SKU vêm da planilha (abas DadosBling e MargensML; Full usa a coluna de margem Full). Quem não tem margem na planilha usa a **margem mínima padrão** (marcada com `*`). Imposto (8%) e margem padrão (20%) são editáveis na tela e recalculam na hora. Dado que falta (custo, tarifa, frete, SKU) nunca vira zero: a venda fica **Sem dados**.
+Cada venda é classificada em *Dentro da margem*, *Abaixo da margem*, *Prejuízo* ou *Sem dados*, e separada em *A enviar* (não Full, ainda não despachado), *Já enviado* e *Full*. O operador marca o que **não deve ser enviado** (há botão para marcar todos abaixo da margem) e baixa a lista "Não enviar". O botão **Salvar relatório do dia** grava na planilha as abas `Vendas AAAA-MM-DD`, `Não enviar AAAA-MM-DD` e uma linha em `Desempenho diário`. Precisa do trecho `apps_script/relatorio_vendas.gs` (V8) no Apps Script. Só leitura no Mercado Livre. Pedidos de carrinho dividem o frete igualmente entre os pedidos do carrinho (aviso na linha).
+
 ## Regras (iguais às da planilha de controle)
 - Necessidade = vendas dos últimos 30 dias × meses de estoque (padrão 1,5) − recebimento pendente − aptas para venda, arredondado para cima.
 - Produto sem nenhum estoque no Full (aptas + pendente = 0): envia no mínimo o envio-teste (padrão 3). Se o ML sugere menos que isso, arredonda para o teste.

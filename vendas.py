@@ -1,0 +1,105 @@
+"""Regra de lucro das vendas (aba Vendas do dia). Sem Flask.
+
+  repasse = venda − tarifa do ML − frete do vendedor      ("o que sobrou da venda")
+  imposto = venda × imposto%                              (imposto sobre o valor final da venda)
+  lucro   = repasse − imposto − custo × quantidade
+  margem  = lucro ÷ (custo × quantidade) × 100            (margem sobre o custo, como na planilha)
+
+Dado ausente (custo, tarifa, frete) NUNCA vira zero: a linha fica "Sem dados" e não entra na conta.
+"""
+from decimal import ROUND_HALF_UP, Decimal
+
+PADRAO = {'imposto_pct': '8', 'margem_padrao': '20'}
+CLASSES = ('prejuizo', 'abaixo', 'dentro', 'sem_dados')
+ROTULOS = {'prejuizo': 'Prejuízo', 'abaixo': 'Abaixo da margem', 'dentro': 'Dentro da margem', 'sem_dados': 'Sem dados'}
+
+
+class ParametroInvalido(ValueError):
+    pass
+
+
+def D(v):
+    return Decimal(str(v))
+
+
+def _dois(v):
+    return float(D(v).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+def validar_parametros(brutos):
+    brutos = brutos or {}
+    saida = {}
+    for chave, (minimo, maximo, nome) in {'imposto_pct': (0, 60, 'Imposto'), 'margem_padrao': (0, 1000, 'Margem mínima padrão')}.items():
+        try:
+            v = D(str(brutos.get(chave, PADRAO[chave])).replace(',', '.'))
+        except Exception:
+            raise ParametroInvalido('%s: digite um número.' % nome)
+        if not v.is_finite() or not minimo <= v <= maximo:
+            raise ParametroInvalido('%s: use um valor entre %d e %d.' % (nome, minimo, maximo))
+        saida[chave] = v
+    return saida
+
+
+def _num(v):
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n == n and abs(n) != float('inf') else None
+
+
+def analisar(linha, cad, params):
+    """Devolve a linha enriquecida com custo, imposto, lucro, margem, meta e classe."""
+    reg = dict(linha)
+    qtd = int(_num(linha.get('quantidade')) or 0)
+    venda, tarifa, frete = _num(linha.get('venda')), _num(linha.get('tarifa')), _num(linha.get('frete'))
+    cad = cad or {}
+    custo = _num(cad.get('custo'))
+    full = linha.get('grupo') == 'full'
+    meta, origem = _num(cad.get('margem_full') if full else cad.get('margem')), 'planilha'
+    if meta is None:
+        meta, origem = float(params['margem_padrao']), 'padrão'
+    faltam = []
+    if not str(linha.get('sku') or '').strip():
+        faltam.append('SKU do anúncio')
+    elif custo is None or custo <= 0:
+        faltam.append('custo na planilha')
+    if venda is None or venda <= 0 or qtd <= 0:
+        faltam.append('valor da venda')
+    if tarifa is None:
+        faltam.append('tarifa do ML')
+    if frete is None:
+        faltam.append('frete')
+    reg.update({'custo_unit': custo if custo and custo > 0 else None, 'meta': meta, 'meta_origem': origem,
+                'repasse': None, 'imposto': None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados',
+                'pendencias': ', '.join(faltam)})
+    if faltam:
+        return reg
+    repasse = D(venda) - D(tarifa) - D(frete)
+    imposto = D(venda) * params['imposto_pct'] / 100
+    custo_total = D(custo) * qtd
+    lucro = repasse - imposto - custo_total
+    margem = lucro / custo_total * 100
+    reg.update({'repasse': _dois(repasse), 'imposto': _dois(imposto), 'custo_total': _dois(custo_total), 'lucro': _dois(lucro), 'margem': _dois(margem)})
+    reg['classe'] = 'prejuizo' if lucro < 0 else ('abaixo' if margem < D(str(meta)) else 'dentro')
+    return reg
+
+
+def calcular(linhas, cadastro, params):
+    """(linhas analisadas, resumo). O cadastro vem de fontes.cadastro: {sku: {custo, margem, margem_full}}."""
+    saida = [analisar(l, cadastro.get(str(l.get('sku') or '').strip()), params) for l in linhas]
+    return saida, resumo(saida)
+
+
+def resumo(linhas):
+    r = {c: 0 for c in CLASSES}
+    r.update({'linhas': len(linhas), 'venda': 0.0, 'lucro': 0.0, 'unidades': 0})
+    for l in linhas:
+        r[l['classe']] += 1
+        r['unidades'] += int(l.get('quantidade') or 0)
+        if l['classe'] != 'sem_dados':
+            r['venda'] += l['venda']; r['lucro'] += l['lucro']
+    r['venda'], r['lucro'] = _dois(r['venda']), _dois(r['lucro'])
+    return r

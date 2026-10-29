@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block titulo %}Vendas do dia — Expedição Mogilar{% endblock %}
+{% block corpo %}
+<h1>Vendas do dia</h1>
+<p class="suave">Puxa as vendas do Mercado Livre (ML19 e ML44), calcula o lucro de cada uma e mostra quais estão <b>dentro</b> ou <b>fora</b> da margem. Você marca o que <b>não deve ser enviado</b>, baixa a lista e salva o relatório do dia na planilha do Google. Nada é alterado no Mercado Livre.</p>
+
+<section class="cartao">
+  <div class="regras">
+    <label>Conta<select id="vConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
+    <label>De<input type="date" id="vDe" value="{{ hoje }}"></label>
+    <label>Até<input type="date" id="vAte" value="{{ hoje }}"></label>
+    <label>Imposto (% do valor da venda)<input type="number" id="vImposto" min="0" max="60" step="0.1" value="{{ padrao.imposto_pct }}"></label>
+    <label>Margem mínima padrão (%)<input type="number" id="vMargem" min="0" max="1000" step="0.1" value="{{ padrao.margem_padrao }}"></label>
+  </div>
+  <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
+  <button class="primario" id="vBuscar">Buscar vendas e calcular</button>
+</section>
+
+<p id="vMsg" class="aviso" hidden role="status"></p>
+<div id="vProg" class="progresso" hidden><div id="vBarra"></div><span id="vTxt"></span></div>
+
+<section id="vResultado" hidden>
+  <div class="cartoes" id="vCartoes"></div>
+  <div class="barra">
+    <div class="filtros" id="vGrupos"></div>
+    <input type="search" id="vBusca" placeholder="Buscar pedido, SKU, produto, MLB…">
+  </div>
+  <div class="barra">
+    <div class="filtros" id="vClasses"></div>
+    <button class="secundario" id="vMarcarRuins">Marcar para não enviar: abaixo da margem e prejuízo (que estão na tela)</button>
+    <button class="secundario" id="vLimpar">Desmarcar tudo</button>
+  </div>
+  <div class="tabela-caixa">
+    <table id="vTabela">
+      <thead><tr>
+        <th class="chk"><input type="checkbox" id="vTodos" title="Marcar/desmarcar não enviar em tudo que está na tela"></th>
+        <th>Situação</th><th>Conta</th><th>Pedido</th><th>SKU</th><th>Produto</th><th class="n">Qtd</th><th class="n">Venda</th><th class="n">Tarifa ML</th><th class="n">Frete</th>
+        <th class="n">Imposto</th><th class="n">Custo</th><th class="n">Lucro</th><th class="n">Margem</th><th class="n">Mínima</th><th>Envio</th>
+      </tr></thead>
+      <tbody id="vCorpo"></tbody>
+    </table>
+    <p id="vVazio" class="suave centro" hidden>Nada nesta lista.</p>
+  </div>
+  <div class="acoes">
+    <button class="primario" id="vBaixarNao" disabled>Baixar lista “Não enviar”</button>
+    <button class="secundario" id="vBaixarDia">Baixar todas as vendas (Excel)</button>
+    <button class="secundario" id="vSalvar">Salvar relatório do dia na planilha do Google</button>
+  </div>
+  <p class="suave pequeno">A planilha do Google recebe a aba “Vendas AAAA-MM-DD”, a aba “Não enviar AAAA-MM-DD” (se houver marcados) e uma linha em “Desempenho diário”. Salvar de novo no mesmo dia substitui o que já estava lá.</p>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendas.js') }}"></script>{% endblock %}

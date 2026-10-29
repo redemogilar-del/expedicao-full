@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 
 import envios
 import fontes
+import vendas
 
 log = logging.getLogger('expedicao')
 FUSO = ZoneInfo('America/Sao_Paulo')
@@ -34,7 +35,7 @@ app.config.update(
 USUARIO = os.environ.get('EXP_LOGIN_USER', '')
 SENHA_HASH = os.environ.get('EXP_LOGIN_PASSWORD_HASH', '')
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', False)]
+ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True)]
 
 
 def _configurado():
@@ -120,7 +121,7 @@ def candidatos_pagina():
 
 @app.get('/vendas')
 def vendas_pagina():
-    return render_template('em_breve.html', abas=ABAS, ativa='vendas')
+    return render_template('vendas.html', abas=ABAS, ativa='vendas', padrao=vendas.PADRAO, hoje=datetime.now(FUSO).strftime('%Y-%m-%d'))
 
 
 def _erro(exc):
@@ -562,3 +563,199 @@ def _grande(_):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
+
+
+# ------------------------------------------------------------------ Vendas do dia (lucro por venda)
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'obs', 'meta_origem')
+
+
+def _params_vendas(c):
+    try:
+        return vendas.validar_parametros((c or {}).get('parametros'))
+    except vendas.ParametroInvalido as exc:
+        raise envios.ArquivoInvalido(str(exc))
+
+
+@app.post('/api/vendas/pedidos')
+def api_vendas_pedidos():
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        de, ate = _data(c.get('de')), _data(c.get('ate'))
+        if ate < de or (ate - de).days > 31:
+            raise envios.ArquivoInvalido('Período inválido (máximo de 31 dias por consulta).')
+        off = c.get('offset', 0)
+        if not isinstance(off, int) or isinstance(off, bool) or not 0 <= off <= 20000:
+            raise envios.ArquivoInvalido('Posição inválida.')
+        r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off)
+        return jsonify(ok=True, **r)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/cadastro')
+def api_vendas_cadastro():
+    try:
+        c = request.get_json(silent=True) or {}
+        skus = c.get('skus')
+        if not isinstance(skus, list) or not 1 <= len(skus) <= 100 or not all(isinstance(x, str) and len(x) <= 80 for x in skus):
+            raise envios.ArquivoInvalido('Lista de SKUs inválida.')
+        return jsonify(ok=True, cadastro=fontes.cadastro(skus))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/calcular')
+def api_vendas_calcular():
+    try:
+        c = request.get_json(silent=True) or {}
+        params = _params_vendas(c)
+        bruto, cad = c.get('linhas'), c.get('cadastro')
+        if not isinstance(bruto, list) or len(bruto) > 20000 or not isinstance(cad, dict):
+            raise envios.ArquivoInvalido('Dados inválidos.')
+        linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete')} for r in bruto if isinstance(r, dict)]
+        cadastro = {str(k): {'custo': _num(v.get('custo')), 'margem': _num(v.get('margem')), 'margem_full': _num(v.get('margem_full'))} for k, v in cad.items() if isinstance(v, dict)}
+        analisadas, resumo = vendas.calcular(linhas, cadastro, params)
+        return jsonify(ok=True, linhas=analisadas, resumo=resumo, parametros={k: float(v) for k, v in params.items()})
+    except Exception as exc:
+        return _erro(exc)
+
+
+def _linhas_vendas(c):
+    """Linhas vindas da tela, recalculadas aqui (o lucro nunca é aceito pronto) e com a marca 'não enviar'."""
+    params = _params_vendas(c)
+    bruto = c.get('linhas')
+    if not isinstance(bruto, list) or not 1 <= len(bruto) <= 20000:
+        raise envios.ArquivoInvalido('Nada para exportar.')
+    saida = []
+    for r in bruto:
+        if not isinstance(r, dict):
+            raise envios.ArquivoInvalido('Dados inválidos.')
+        base = {k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete')}
+        meta = _num(r.get('meta'))
+        cad = {'custo': _num(r.get('custo_unit')), 'margem': meta, 'margem_full': meta}
+        a = vendas.analisar(base, cad, params)
+        a['meta_origem'] = base['meta_origem'] or a['meta_origem']
+        a['nao_enviar'] = r.get('nao_enviar') is True
+        saida.append(a)
+    return saida, params
+
+
+def _periodo(c):
+    return str(c.get('periodo') or '')[:60]
+
+
+def _motivo_nao_enviar(l):
+    if l['classe'] == 'prejuizo':
+        return 'Prejuízo de R$ %.2f (margem %.2f%%)' % (-l['lucro'], l['margem'])
+    if l['classe'] == 'abaixo':
+        return 'Margem %.2f%% abaixo do mínimo de %.2f%%' % (l['margem'], l['meta'])
+    if l['classe'] == 'dentro':
+        return 'Marcado pelo operador (margem %.2f%%)' % l['margem']
+    return 'Marcado pelo operador (%s)' % (l['pendencias'] or 'sem dados')
+
+
+CAB_DIA = ['Não enviar', 'Situação', 'Conta', 'Pedido', 'Data', 'SKU', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Tarifa ML (R$)', 'Frete vendedor (R$)', 'Repasse (R$)',
+           'Imposto (R$)', 'Custo total (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Envio', 'Observação']
+ENVIO_ROTULO = {'a_enviar': 'A enviar', 'enviado': 'Já enviado', 'full': 'Full'}
+
+
+def _linha_dia(l):
+    return [_seguro('SIM' if l['nao_enviar'] else ''), vendas.ROTULOS[l['classe']], l['conta'], l['pedido'], l['data'], _seguro(l['sku']), l['mlb'], _seguro(l['titulo']),
+            l['quantidade'], l['venda'], l['tarifa'], l['frete'], l['repasse'], l['imposto'], l['custo_total'], l['lucro'], l['margem'], l['meta'],
+            ENVIO_ROTULO.get(l['grupo'], l['grupo']), _seguro(l['pendencias'] or l['obs'])]
+
+
+CAB_NAO = ['Pedido', 'Conta', 'Data', 'SKU', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Motivo']
+
+
+def _linha_nao(l):
+    return [l['pedido'], l['conta'], l['data'], _seguro(l['sku']), l['mlb'], _seguro(l['titulo']), l['quantidade'], l['venda'], l['lucro'], l['margem'], l['meta'], _motivo_nao_enviar(l)]
+
+
+def _resumo_linhas(linhas, params, periodo):
+    r = vendas.resumo(linhas)
+    return [['Período', periodo], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')], ['Vendas analisadas (itens)', r['linhas']], ['Unidades', r['unidades']],
+            ['Dentro da margem', r['dentro']], ['Abaixo da margem', r['abaixo']], ['Prejuízo', r['prejuizo']], ['Sem dados', r['sem_dados']],
+            ['Vendido, só com dados (R$)', r['venda']], ['Lucro, só com dados (R$)', r['lucro']], ['Marcados para não enviar', sum(1 for l in linhas if l['nao_enviar'])],
+            ['Imposto (% da venda)', float(params['imposto_pct'])], ['Margem mínima padrão (%)', float(params['margem_padrao'])],
+            ['Regra', 'Lucro = venda − tarifa ML − frete − imposto − custo. Margem = lucro ÷ custo. Dado ausente não entra na conta ("Sem dados").']]
+
+
+@app.post('/api/vendas/exportar')
+def api_vendas_exportar():
+    try:
+        c = request.get_json(silent=True) or {}
+        linhas, params = _linhas_vendas(c)
+        tipo = c.get('tipo')
+        periodo = _periodo(c)
+        if tipo == 'nao_enviar':
+            marcadas = [l for l in linhas if l['nao_enviar']]
+            if not marcadas:
+                raise envios.ArquivoInvalido('Marque pelo menos uma venda para não enviar.')
+            buf = _gerar_xlsx_vendas('Não enviar', CAB_NAO, [_linha_nao(l) for l in marcadas], [8, 8, 17, 22, 15, 50, 6, 12, 12, 12, 12, 60], (7, 8, 9, 10), _resumo_linhas(linhas, params, periodo))
+            nome = 'nao_enviar_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
+        elif tipo == 'dia':
+            buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 7, 17, 16, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (9, 10, 11, 12, 13, 14, 15, 16, 17), _resumo_linhas(linhas, params, periodo))
+            nome = 'vendas_do_dia_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
+        else:
+            raise envios.ArquivoInvalido('Tipo de relatório inválido.')
+        return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
+    except Exception as exc:
+        return _erro(exc)
+
+
+def _gerar_xlsx_vendas(titulo, cab, linhas, larguras, colunas_num, resumo):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook(); ws = wb.active; ws.title = titulo
+    ws.append(cab)
+    for l in linhas:
+        ws.append(l)
+    for c in ws[1]:
+        c.font = Font(name='Arial', bold=True, color='FFFFFF'); c.fill = PatternFill('solid', fgColor='1F3A5F'); c.alignment = Alignment(wrap_text=True, vertical='center')
+    vermelho, ambar = PatternFill('solid', fgColor='FDEAEA'), PatternFill('solid', fgColor='FFF4D6')
+    for linha in ws.iter_rows(min_row=2):
+        for c in linha:
+            c.font = Font(name='Arial', size=10)
+        for i in colunas_num:
+            if isinstance(linha[i - 1].value, float):
+                linha[i - 1].number_format = '#,##0.00'
+        sit = str(linha[1].value or '')
+        if sit == 'Prejuízo':
+            linha[1].fill = vermelho
+        elif sit in ('Abaixo da margem', 'Sem dados'):
+            linha[1].fill = ambar
+        if linha[0].value == 'SIM':
+            linha[0].font = Font(name='Arial', size=10, bold=True, color='B4232A')
+    for i, w in enumerate(larguras, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = 'A2'; ws.auto_filter.ref = ws.dimensions
+    ws2 = wb.create_sheet('Resumo')
+    for linha in resumo:
+        ws2.append([linha[0], _seguro(linha[1]) if isinstance(linha[1], str) else linha[1]])
+    for linha in ws2.iter_rows():
+        linha[0].font = Font(name='Arial', bold=True); linha[1].font = Font(name='Arial')
+    ws2.column_dimensions['A'].width = 32; ws2.column_dimensions['B'].width = 90
+    buf = BytesIO(); wb.save(buf); buf.seek(0)
+    return buf
+
+
+@app.post('/api/vendas/salvar')
+def api_vendas_salvar():
+    try:
+        c = request.get_json(silent=True) or {}
+        linhas, params = _linhas_vendas(c)
+        dia = _data(c.get('dia')).strftime('%Y-%m-%d')
+        r = vendas.resumo(linhas)
+        marcadas = [l for l in linhas if l['nao_enviar']]
+        payload = {'dia': dia, 'periodo': _periodo(c), 'parametros': {k: float(v) for k, v in params.items()},
+                   'resumo': {'itens': r['linhas'], 'unidades': r['unidades'], 'dentro': r['dentro'], 'abaixo': r['abaixo'], 'prejuizo': r['prejuizo'], 'sem_dados': r['sem_dados'],
+                              'venda': r['venda'], 'lucro': r['lucro'], 'nao_enviar': len(marcadas)},
+                   'cab': CAB_DIA, 'linhas': [_linha_dia(l) for l in linhas],
+                   'cab_nao_enviar': CAB_NAO, 'nao_enviar': [_linha_nao(l) for l in marcadas]}
+        return jsonify(ok=True, **fontes.salvar_relatorio(payload))
+    except Exception as exc:
+        return _erro_fonte(exc)

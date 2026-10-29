@@ -48,21 +48,12 @@
     </div>
     <input type="search" id="busca" placeholder="Buscar SKU, produto, MLB…">
   </div>
-  <div class="barra" id="barraTeste" hidden>
-    <span class="aviso inline" id="avisoTeste"></span>
-    <label class="inline-campo">Qtd dos testes<input type="number" id="qtdTesteTopo" min="1" max="100000" step="1" placeholder="ex.: 3"></label>
-    <button class="primario" id="aplicarQtdTeste">Aplicar e marcar os testes da tela</button>
-    <button class="secundario" id="marcarTestes">Marcar todos os testes</button>
-    <button class="secundario" id="marcarTestesUrg">Marcar só os urgentes</button>
-    <button class="secundario" id="limparTestes">Desmarcar testes</button>
+  <div class="barra" id="barraGrupos" hidden>
+    <div class="filtros" id="grupos"></div>
+    <button class="primario" id="marcarAptos">Marcar todos os aptos para Full</button>
+    <button class="secundario" id="baixarAptos">Baixar relatório dos aptos</button>
+    <button class="secundario" id="baixarNaoAptos">Baixar relatório dos não aptos</button>
   </div>
-
-  <div class="barra" id="barraSel" hidden>
-    <b id="txtSel"></b>
-    <label class="inline-campo">Qtd para todos os marcados da tela<input type="number" id="selQtd" min="1" max="100000" step="1" placeholder="ex.: 3"></label>
-    <button class="secundario" id="selAplicar">Aplicar quantidade</button>
-  </div>
-
   <div class="duas">
     <div class="tabela-caixa">
       <table id="tabela">
@@ -83,6 +74,11 @@
   </div>
 
   <p class="suave pequeno" id="notaSku"></p>
+  <div class="barra">
+    <label class="inline-campo">Data da coleta<input type="date" id="coletaData"></label>
+    <label class="inline-campo">Número da coleta<input type="text" id="coletaNum" maxlength="30" placeholder="ex.: 12"></label>
+    <span class="suave pequeno">Aparecem no topo do resumo por SKU.</span>
+  </div>
   <div class="acoes">
     <button class="primario" id="baixarEnvio">Baixar planilha de envio (MLBs + quantidades)</button>
     <button class="secundario" id="baixarSku">Baixar resumo por SKU (produção)</button>

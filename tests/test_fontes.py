@@ -46,6 +46,13 @@ class TestCustos(unittest.TestCase):
         with mock.patch.object(fontes._SESS, 'post', ambiguo):
             self.assertEqual(fontes.custos(['PO_5kg']), {'PO_5kg': None})
 
+    def test_aptos_full(self):
+        with mock.patch.object(fontes._SESS, 'post', return_value=Resp({'ok': True, 'skus': [' VP4O_5m2 ', 'G£02,3_1Om2', '', None]})):
+            self.assertEqual(fontes.aptos_full(), ['g£02,3_1om2', 'vp4o_5m2'])
+        with mock.patch.object(fontes._SESS, 'post', return_value=Resp({'ok': False, 'error': 'Ação inválida'})):
+            with self.assertRaises(fontes.FonteIndisponivel):
+                fontes.aptos_full()
+
     def test_lotes_de_50_e_erros(self):
         chamadas = []
         def falso(url, json=None, **kw):

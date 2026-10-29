@@ -14,6 +14,8 @@ let ARQ = null;           // arquivo do relatório
 let LINHAS = [];          // resultado do cálculo, com campos de tela: incluir, qtd, qtd_calc
 let ARQUIVO = '', PARAMS = {};
 let filtro = 'enviar', busca = '';
+let APTOS = null, grupo = 'todos', avisoAptos = '';   // APTOS: Set de SKUs da aba Aptos Para FULL (null = indisponível)
+const norm = v => String(v || '').trim().toLowerCase();
 let SKUSEL = null;        // null = todos os SKUs; senão, Set dos SKUs escolhidos no filtro
 const SEMSKU = '(Espaços em branco)';
 
@@ -93,9 +95,14 @@ $('calcular').onclick = async () => {
     const d = await postar('/api/envios/calcular', fd2);
     ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
     SKUSEL = null; fecharPop();
-    LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
-    filtro = 'enviar'; busca = ''; $('busca').value = '';
-    mensagem(''); $('resultado').hidden = false; desenhar();
+    LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar'}));
+    filtro = 'enviar'; busca = ''; $('busca').value = ''; grupo = 'todos';
+    progresso('Conferindo a lista de aptos para Full…');
+    try { const ap = await postar('/api/envios/aptos', new FormData()); APTOS = new Set(ap.skus); avisoAptos = ''; }
+    catch (e) { APTOS = null; avisoAptos = e.message; }
+    LINHAS.forEach(r => { r.apto = APTOS ? APTOS.has(norm(r.sku)) : null; });
+    mensagem(avisoAptos ? 'Os produtos foram calculados, mas não consegui separar aptos e não aptos para Full: ' + avisoAptos : '', avisoAptos ? 'erro' : '');
+    $('resultado').hidden = false; desenhar();
     $('resultado').scrollIntoView({behavior:'smooth'});
   } catch (err) { mensagem(err.message, 'erro'); }
   atualizarBotao();
@@ -106,7 +113,7 @@ const podeMarcar = r => r.status !== 'impedido';   // impedido pelo ML não envi
 const escopo = () => SKUSEL ? LINHAS.filter(r => SKUSEL.has(r.sku || '')) : LINHAS;   // linhas dos SKUs escolhidos (todas, se não há filtro)
 function visiveis(){
   const q = busca.trim().toLowerCase();
-  return LINHAS.filter(r => (filtro === 'todos' || r.status === filtro || (filtro === 'marcados' && r.incluir)) &&
+  return LINHAS.filter(r => (grupo === 'todos' || (grupo === 'aptos' && r.apto === true) || (grupo === 'nao' && r.apto === false)) && (filtro === 'todos' || r.status === filtro || (filtro === 'marcados' && r.incluir)) &&
     (!SKUSEL || SKUSEL.has(r.sku || '')) &&
     (!q || [r.sku, r.produto, r.codigo_ml, r.mlbu, ...(r.mlbs || [])].join(' ').toLowerCase().includes(q)));
 }
@@ -119,7 +126,6 @@ function desenhar(){
   const esc = escopo(), marc = esc.filter(r => r.incluir && r.qtd > 0), un = marc.reduce((s, r) => s + r.qtd, 0), skus = resumoSku();
   const geralUn = LINHAS.filter(r => r.incluir && r.qtd > 0).reduce((s, r) => s + r.qtd, 0), geral = SKUSEL ? ' (geral: ' + num(geralUn) + ')' : '';
   const cont = {}; esc.forEach(r => cont[r.status] = (cont[r.status] || 0) + 1);
-  const testes = esc.filter(r => r.status === 'enviar' && r.tipo === 'Teste');
   const cards = $('cartoes'); cards.replaceChildren(
     el('div', {class:'card destaque'}, el('b', {}, num(marc.length)), el('span', {}, 'produtos marcados para enviar')),
     el('div', {class:'card destaque'}, el('b', {}, num(un)), el('span', {}, 'unidades no total' + (SKUSEL ? ' dos SKUs escolhidos' + geral : ''))),
@@ -133,9 +139,13 @@ function desenhar(){
     const n = k === 'todos' ? esc.length : k === 'marcados' ? marc.length : (cont[k] || 0);
     fb.append(el('button', {class: k === filtro ? 'on' : '', onclick: () => { filtro = k; desenhar(); }}, nome + ' (' + n + ')'));
   }
-  const pend = testes.filter(r => !r.incluir).length;
-  $('barraTeste').hidden = !testes.length;
-  $('avisoTeste').textContent = testes.length + ' produtos são envio-teste (sem estoque no Full ou sem vendas em 30 dias). Eles começam desmarcados: marque os que o Mercado Livre sugeriu ou digite a quantidade e aplique.' + (pend < testes.length ? ' ' + (testes.length - pend) + ' já marcados.' : '');
+  $('barraGrupos').hidden = !APTOS;
+  if (APTOS) {
+    const na = esc.filter(r => r.apto === true).length, nn = esc.filter(r => r.apto === false).length, gb = $('grupos'); gb.replaceChildren();
+    for (const [k, nome, n] of [['todos', 'Todos', esc.length], ['aptos', 'Aptos para Full', na], ['nao', 'Não aptos', nn]])
+      gb.append(el('button', {class: k === grupo ? 'on' : '', onclick: () => { grupo = k; desenhar(); }}, nome + ' (' + n + ')'));
+    $('baixarAptos').disabled = !na; $('baixarNaoAptos').disabled = !nn; $('marcarAptos').disabled = !na;
+  }
   const lista = visiveis(), corpo = $('corpo'); corpo.replaceChildren();
   for (const r of lista) corpo.append(linha(r));
   $('vazio').hidden = lista.length > 0;
@@ -143,7 +153,7 @@ function desenhar(){
   const cs = $('corpoSku'); cs.replaceChildren(...skus.map(t => el('tr', {}, el('td', {}, t.sku), el('td', {class:'n'}, num(t.qtd)))));
   $('totSku').textContent = num(un);
   $('baixarEnvio').disabled = $('baixarSku').disabled = marc.length === 0;
-  rotuloSku(); barraSelecao(lista);
+  rotuloSku();
   $('notaSku').textContent = SKUSEL ? 'Filtro de SKUs ativo: as planilhas terão só os ' + SKUSEL.size + ' SKUs escolhidos.' : '';
 }
 function linha(r){
@@ -161,34 +171,8 @@ function linha(r){
     el('td', {class:'n'}, imp), el('td', {class:'n'}, q), el('td', {}, r.tipo || ''), el('td', {}, r.motivo),
     el('td', {}, r.urgencia && r.urgencia !== '-' ? r.urgencia + (r.prazo && r.prazo !== '-' ? ' (' + r.prazo + ')' : '') : ''));
 }
-function barraSelecao(lista){
-  const n = lista.filter(r => r.incluir).length; $('barraSel').hidden = n === 0;
-  $('txtSel').textContent = n + ' marcado' + (n === 1 ? '' : 's') + ' na tela';
-}
-$('selAplicar').onclick = () => {
-  const v = Math.round(Number($('selQtd').value));
-  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade (de 1 a 100000) antes de aplicar.', 'erro'); return; }
-  const a = visiveis().filter(r => r.incluir && podeMarcar(r));
-  if (!a.length) { mensagem('Marque primeiro os produtos da tela.', 'erro'); return; }
-  a.forEach(r => { r.qtd = v; }); desenhar(); mensagem(a.length + ' produtos com ' + v + ' unidade(s) cada.', 'ok');
-};
 $('busca').oninput = e => { busca = e.target.value; desenhar(); };
 $('todos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { r.incluir = e.target.checked; }); desenhar(); };   // tudo que está na tela (filtros e SKUs), esteja ou não para enviar
-const testes = () => escopo().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
-$('marcarTestes').onclick = () => { testes().forEach(r => r.incluir = true); desenhar(); };
-$('marcarTestesUrg').onclick = () => { testes().forEach(r => { r.incluir = r.urgencia === 'Urgente'; }); desenhar(); };
-$('limparTestes').onclick = () => { testes().forEach(r => r.incluir = false); desenhar(); };
-
-$('aplicarQtdTeste').onclick = () => {
-  const v = Math.round(Number($('qtdTesteTopo').value));
-  if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade dos testes (de 1 a 100000) antes de aplicar.', 'erro'); return; }
-  mensagem('');
-  const alvo = visiveis().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
-  if (!alvo.length) { mensagem('Não há produtos de teste na tela. Mude o filtro ou os SKUs escolhidos.', 'erro'); return; }
-  alvo.forEach(r => { r.qtd = v; r.incluir = true; });
-  desenhar(); mensagem(alvo.length + ' testes marcados com ' + v + ' unidade(s) cada.', 'ok');
-};
-
 // ---------- filtro de SKUs (caixa de seleção com busca) ----------
 let RASC = new Set();
 const todosSkus = () => [...new Set(LINHAS.map(r => r.sku || ''))].sort((a, b) => (a || '~').localeCompare(b || '~'));
@@ -221,12 +205,12 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharPop();
 
 // ---------- downloads ----------
 async function baixar(tipo){
-  const botao = tipo === 'envio' ? $('baixarEnvio') : $('baixarSku'); botao.disabled = true;
+  const botao = $({envio: 'baixarEnvio', producao: 'baixarSku', aptos: 'baixarAptos', nao_aptos: 'baixarNaoAptos'}[tipo]); botao.disabled = true;
   try {
     const linhas = escopo().map(r => ({incluir: r.incluir, qtd: r.qtd, qtd_calc: r.qtd_calc, status: r.status, tipo: r.tipo, codigo_ml: r.codigo_ml, mlbu: r.mlbu, sku: r.sku,
       produto: r.produto, mlbs: r.mlbs, motivo: r.motivo, vendas: r.vendas, estoque_total: r.estoque_total, frete: r.frete, custo: r.custo,
-      impacto_pct: r.impacto_pct, urgencia: r.urgencia, prazo: r.prazo}));
-    const resp = await fetch('/api/envios/exportar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tipo, linhas, parametros: PARAMS, arquivo: ARQUIVO})});
+      impacto_pct: r.impacto_pct, urgencia: r.urgencia, prazo: r.prazo, apto: r.apto}));
+    const resp = await fetch('/api/envios/exportar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tipo, linhas, parametros: PARAMS, arquivo: ARQUIVO, coleta: {data: $('coletaData').value, numero: $('coletaNum').value}})});
     if (resp.status === 401) { location.href = '/login'; return; }
     if (!resp.ok) { let m = 'Erro ' + resp.status; try { m = (await resp.json()).error || m; } catch(e) {} throw new Error(m); }
     const blob = await resp.blob(), nome = (resp.headers.get('Content-Disposition') || '').match(/filename\*?=(?:UTF-8'')?"?([^";]+)/);
@@ -236,7 +220,17 @@ async function baixar(tipo){
   } catch (err) { mensagem('Não consegui gerar a planilha: ' + err.message, 'erro'); }
   botao.disabled = false;
 }
+{ const h = new Date(); $('coletaData').value = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0') + '-' + String(h.getDate()).padStart(2, '0'); }
 $('baixarEnvio').onclick = () => baixar('envio');
 $('baixarSku').onclick = () => baixar('producao');
+$('baixarAptos').onclick = () => baixar('aptos');
+$('baixarNaoAptos').onclick = () => baixar('nao_aptos');
+$('marcarAptos').onclick = () => {
+  const a = escopo().filter(r => r.apto === true && r.status === 'enviar' && r.qtd > 0);
+  a.forEach(r => { r.incluir = true; });
+  const testesN = a.filter(r => r.tipo === 'Teste').length;
+  desenhar();
+  mensagem(a.length + ' aptos para Full marcados' + (testesN ? ' (' + testesN + ' são envio-teste)' : '') + '. Para incluir algum não apto, abra "Não aptos" e marque só os que quiser. O botão "Baixar planilha de envio" leva todos os marcados.', 'ok');
+};
 
 atualizarBotao();

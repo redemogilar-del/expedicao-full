@@ -9,11 +9,17 @@ Nada é gravado no servidor e nada é alterado no Mercado Livre: o painel só l�
 2. Entre no painel → **Envios Full** → passo 1: escolha o relatório.
 3. Passo 2: escolha a **conta** do Mercado Livre do relatório (ML19 ou ML44).
 4. Passo 3: confira as regras e clique em **Calcular envios**. O painel busca custo e frete sozinho (pode levar alguns minutos em relatórios grandes).
-5. Os produtos de **envio-teste** (sem estoque e sem vendas no Full) começam desmarcados: marque os que o Mercado Livre sugeriu.
+5. Os produtos de **envio-teste** (sem estoque, sem vendas ou com sugestão do ML de 1 ou 2 unidades) já vêm marcados, com a quantidade do teste (3 por padrão, campo "Unidades do envio-teste"). Para mudar uma quantidade, digite na própria linha.
 6. Ajuste quantidades se precisar e baixe **a planilha de envio** e **o resumo por SKU**.
 
 ## Aba Candidatos ao Full
 Lê os pedidos pagos do período (ML19, ML44 ou as duas), soma por anúncio e mostra os que **venderam fora do Full**, com unidades, faturamento, preço médio, vendas/dia, custo (planilha de custos) e estoque. Dá para somar por SKU, filtrar, ordenar e baixar a planilha. O "fora do Full" usa o tipo de envio que o anúncio tem **hoje**: anúncio que já é Full não aparece. Só leitura.
+
+## Aptos para Full
+A aba **Aptos Para FULL** da planilha "Banco de Dados ML Hub" (coluna A, SKU) define o que é apto. O painel separa o resultado em *Aptos* e *Não aptos* (comparando o SKU sem diferenciar maiúsculas), tem o botão **Marcar todos os aptos para Full** e baixa um relatório de cada grupo. A planilha de envio leva tudo que estiver marcado (aptos e não aptos incluídos à mão), com a coluna "Apto para Full". Precisa do trecho `apps_script/aptos_full.gs` no Apps Script da planilha.
+
+## Planilhas geradas
+Em todas as abas, a **coluna A é o MLB** (o primeiro anúncio do produto; os demais ficam na coluna "MLBs") e a **coluna B é a quantidade**, com cor diferente e a quantidade em negrito, para copiar e colar no painel do Mercado Livre. No resumo por SKU, A é o SKU. O relatório de aptos (e o de não aptos) também traz a aba "Resumo por SKU" com o que está marcado no grupo.
 
 ## Regras (iguais às da planilha de controle)
 - Necessidade = vendas dos últimos 30 dias × meses de estoque (padrão 1,5) − recebimento pendente − aptas para venda, arredondado para cima.

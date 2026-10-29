@@ -10,15 +10,16 @@ python -m unittest discover -s tests -v
 ```
 
 ## Arquitetura
-- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/candidatos` (`/api/candidatos/{pedidos,itens,exportar}`), `/api/envios/{ler,custos,fretes,calcular,exportar}`, geração dos .xlsx.
+- `app.py` — login obrigatório (503 se faltar `EXP_SECRET_KEY`, `EXP_LOGIN_USER` ou `EXP_LOGIN_PASSWORD_HASH`), rotas `/envios`, `/candidatos` (`/api/candidatos/{pedidos,itens,exportar}`), `/api/envios/{ler,custos,fretes,aptos,calcular,exportar}`, geração dos .xlsx.
 - `envios.py` — toda a regra de negócio e a leitura dos arquivos (relatório do ML). Sem Flask.
-- `fontes.py` — custo (Apps Script da planilha de custos, `catalogo_custos`) e frete (API do ML: `/items/{mlb}` + `/users/{seller}/shipping_options/free`, `list_cost`). Somente leitura. Também `pedidos_pagina` (`/orders/search`, pagos, 50 por página) e `itens_info` (`/items?ids=`, tipo de envio atual) para a aba Candidatos.
+- `fontes.py` — custo (Apps Script da planilha de custos, `catalogo_custos`) e frete (API do ML: `/items/{mlb}` + `/users/{seller}/shipping_options/free`, `list_cost`). Somente leitura. `aptos_full()` lê a aba "Aptos Para FULL" (ação `aptos_full` do Apps Script; trecho em `apps_script/aptos_full.gs`). Também `pedidos_pagina` (`/orders/search`, pagos, 50 por página) e `itens_info` (`/items?ids=`, tipo de envio atual) para a aba Candidatos.
 - `templates/` + `static/envios.js` — tela. Sem `innerHTML` (CSP `default-src 'self'`; nada de script inline).
 - Nada é gravado no servidor nem no navegador. Fluxo: ler → custos (lotes de 100) → fretes (lotes de 6) → calcular.
 
 ## Regras de negócio (não mudar sem pedir)
 - Necessidade = ARREDONDA_PARA_CIMA(vendas30 × meses − pendente − aptas), nunca negativa.
 - aptas + pendente = 0 ⇒ mínimo = envio-teste (3). Sugestão do ML menor que o teste ⇒ vira o teste.
+- Envio-teste já vem marcado na tela, com a quantidade do teste (sem botões de aplicar; a quantidade se edita na linha).
 - Frete/custo < limite (45%), estritamente menor. Dado ausente nunca vira zero.
 - Chave do produto = Código ML (o "Número de produto" pode ser `0` em anúncios fora do catálogo).
 - Valores com `=`, `+` ou `@` no início são escritos com apóstrofo no Excel (nada vira fórmula).

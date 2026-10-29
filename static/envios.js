@@ -92,7 +92,7 @@ $('calcular').onclick = async () => {
     const fd2 = formParams(new FormData()); fd2.append('relatorio', ARQ); fd2.append('base', JSON.stringify(base));
     const d = await postar('/api/envios/calcular', fd2);
     ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
-    SKUSEL = null; SEL = new Set(); ultimoSel = -1; fecharPop();
+    SKUSEL = null; fecharPop();
     LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
     filtro = 'enviar'; busca = ''; $('busca').value = '';
     mensagem(''); $('resultado').hidden = false; desenhar();
@@ -102,9 +102,8 @@ $('calcular').onclick = async () => {
 };
 
 // ---------- tela de resultado ----------
-const podeMarcar = r => (r.status === 'enviar' || r.status === 'frete_alto' || r.status === 'sem_dados') && r.qtd_calc > 0;
+const podeMarcar = r => r.status !== 'impedido';   // impedido pelo ML não envia; o resto pode ser marcado mesmo sem sugestão
 const escopo = () => SKUSEL ? LINHAS.filter(r => SKUSEL.has(r.sku || '')) : LINHAS;   // linhas dos SKUs escolhidos (todas, se não há filtro)
-let SEL = new Set(), ultimoSel = -1;   // seleção por caixinha (código ML)
 function visiveis(){
   const q = busca.trim().toLowerCase();
   return LINHAS.filter(r => (filtro === 'todos' || r.status === filtro || (filtro === 'marcados' && r.incluir)) &&
@@ -154,41 +153,27 @@ function linha(r){
   q.onchange = () => { const v = Math.max(0, Math.min(100000, Math.round(Number(q.value) || 0))); r.qtd = v; if (v === 0) r.incluir = false; desenhar(); };
   const ml = r.mlbs && r.mlbs.length ? el('div', {class:'mlbs'}, r.mlbs.slice(0, 3).join(', ') + (r.mlbs.length > 3 ? ' +' + (r.mlbs.length - 3) : '')) : null;
   const imp = r.impacto_pct === null || r.impacto_pct === undefined ? '—' : brl(r.frete) + ' / ' + brl(r.custo) + ' = ' + r.impacto_pct.toLocaleString('pt-BR') + '%';
-  const sel = el('input', {type:'checkbox', checked: SEL.has(r.codigo_ml), title:'Selecionar (Shift para um intervalo)'});
-  sel.onclick = ev => selecionar(r, sel.checked, ev.shiftKey);
-  return el('tr', {class: (SEL.has(r.codigo_ml) ? 'sel ' : '') + (r.incluir ? 'marcado' : '') + (!r.incluir && r.status !== 'enviar' ? ' fora' : '')},
-    el('td', {class:'chk sel'}, sel), el('td', {class:'chk'}, cb), el('td', {}, el('span', {class:'tag t-' + r.status}, ROTULOS[r.status])),
+  return el('tr', {class: (r.incluir ? 'marcado' : '') + (!r.incluir && r.status !== 'enviar' ? ' fora' : '')},
+    el('td', {class:'chk'}, cb), el('td', {}, el('span', {class:'tag t-' + r.status}, ROTULOS[r.status])),
     el('td', {}, r.sku), el('td', {}, r.produto.slice(0, 70), ml), el('td', {}, r.codigo_ml),
     el('td', {class:'n'}, num(r.vendas)), el('td', {class:'n', title:'Aptas + recebimento pendente'}, num(r.estoque_total)),
     el('td', {class:'n'}, r.cobertura_dias === null || r.cobertura_dias === undefined ? '—' : num(r.cobertura_dias)),
     el('td', {class:'n'}, imp), el('td', {class:'n'}, q), el('td', {}, r.tipo || ''), el('td', {}, r.motivo),
     el('td', {}, r.urgencia && r.urgencia !== '-' ? r.urgencia + (r.prazo && r.prazo !== '-' ? ' (' + r.prazo + ')' : '') : ''));
 }
-function selecionar(r, marcado, intervalo){
-  const lista = visiveis(), i = lista.indexOf(r);
-  const alvo = intervalo && ultimoSel >= 0 && ultimoSel < lista.length ? lista.slice(Math.min(i, ultimoSel), Math.max(i, ultimoSel) + 1) : [r];
-  alvo.forEach(x => { if (marcado) SEL.add(x.codigo_ml); else SEL.delete(x.codigo_ml); });
-  ultimoSel = i; desenhar();
-}
-const selecionadas = () => LINHAS.filter(r => SEL.has(r.codigo_ml));
 function barraSelecao(lista){
-  const n = selecionadas().length; $('barraSel').hidden = n === 0;
-  $('txtSel').textContent = n + ' selecionado' + (n === 1 ? '' : 's');
-  const c = $('selTodos'); c.checked = lista.length > 0 && lista.every(r => SEL.has(r.codigo_ml)); c.disabled = !lista.length;
+  const n = lista.filter(r => r.incluir).length; $('barraSel').hidden = n === 0;
+  $('txtSel').textContent = n + ' marcado' + (n === 1 ? '' : 's') + ' na tela';
 }
-$('selTodos').onchange = e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r.codigo_ml); else SEL.delete(r.codigo_ml); }); desenhar(); };
-$('selMarcar').onclick = () => { const a = selecionadas().filter(podeMarcar); a.forEach(r => { r.incluir = true; }); desenhar(); mensagem(a.length + ' produtos marcados para enviar.' + (a.length < selecionadas().length ? ' Os demais não podem ser marcados (impedidos ou sem quantidade).' : ''), 'ok'); };
-$('selDesmarcar').onclick = () => { selecionadas().forEach(r => { r.incluir = false; }); desenhar(); };
-$('selLimpar').onclick = () => { SEL.clear(); ultimoSel = -1; desenhar(); };
 $('selAplicar').onclick = () => {
   const v = Math.round(Number($('selQtd').value));
   if (!(v >= 1 && v <= 100000)) { mensagem('Digite a quantidade (de 1 a 100000) antes de aplicar.', 'erro'); return; }
-  const a = selecionadas().filter(r => r.status === 'enviar' || r.status === 'frete_alto' || r.status === 'sem_dados');
-  if (!a.length) { mensagem('Nenhum dos selecionados pode receber quantidade.', 'erro'); return; }
-  a.forEach(r => { r.qtd = v; r.incluir = true; }); desenhar(); mensagem(a.length + ' produtos marcados com ' + v + ' unidade(s) cada.', 'ok');
+  const a = visiveis().filter(r => r.incluir && podeMarcar(r));
+  if (!a.length) { mensagem('Marque primeiro os produtos da tela.', 'erro'); return; }
+  a.forEach(r => { r.qtd = v; }); desenhar(); mensagem(a.length + ' produtos com ' + v + ' unidade(s) cada.', 'ok');
 };
 $('busca').oninput = e => { busca = e.target.value; desenhar(); };
-$('todos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { r.incluir = e.target.checked; }); desenhar(); };
+$('todos').onchange = e => { visiveis().filter(podeMarcar).forEach(r => { r.incluir = e.target.checked; }); desenhar(); };   // tudo que está na tela (filtros e SKUs), esteja ou não para enviar
 const testes = () => escopo().filter(r => r.status === 'enviar' && r.tipo === 'Teste');
 $('marcarTestes').onclick = () => { testes().forEach(r => r.incluir = true); desenhar(); };
 $('marcarTestesUrg').onclick = () => { testes().forEach(r => { r.incluir = r.urgencia === 'Urgente'; }); desenhar(); };

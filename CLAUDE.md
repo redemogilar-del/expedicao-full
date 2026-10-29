@@ -26,7 +26,7 @@ python -m unittest discover -s tests -v
 - Chave do produto = Código ML (o "Número de produto" pode ser `0` em anúncios fora do catálogo).
 - Valores com `=`, `+` ou `@` no início são escritos com apóstrofo no Excel (nada vira fórmula).
 
-- Lucro = venda − tarifa ML − frete − imposto(venda×%) − custo×qtd; margem = lucro ÷ custo. Falta custo/tarifa/frete ⇒ "Sem dados", nunca zero.
+- Lucro = venda − tarifa ML − frete − imposto(venda×%, da aba TaxasML por conta e Full/normal; o digitado na tela manda) − custo×qtd; margem = lucro ÷ custo. Falta custo/tarifa/frete ⇒ "Sem dados", nunca zero.
 
 ## Convenções
 - Trabalhe em branches e abra PR; quem faz o merge é o dono. Não mexer na `main` direto.

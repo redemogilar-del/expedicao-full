@@ -9,7 +9,7 @@ Dado ausente (custo, tarifa, frete) NUNCA vira zero: a linha fica "Sem dados" e 
 """
 from decimal import ROUND_HALF_UP, Decimal
 
-PADRAO = {'imposto_pct': '8', 'margem_padrao': '20'}
+PADRAO = {'imposto_pct': '', 'margem_padrao': '20'}      # imposto vazio = usa o da planilha (aba TaxasML) por conta e modalidade
 CLASSES = ('prejuizo', 'abaixo', 'dentro', 'sem_dados')
 ROTULOS = {'prejuizo': 'Prejuízo', 'abaixo': 'Abaixo da margem', 'dentro': 'Dentro da margem', 'sem_dados': 'Sem dados'}
 
@@ -26,18 +26,37 @@ def _dois(v):
     return float(D(v).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
+def _decimal(bruto, minimo, maximo, nome):
+    try:
+        v = D(str(bruto).replace(',', '.'))
+    except Exception:
+        raise ParametroInvalido('%s: digite um número.' % nome)
+    if not v.is_finite() or not minimo <= v <= maximo:
+        raise ParametroInvalido('%s: use um valor entre %d e %d.' % (nome, minimo, maximo))
+    return v
+
+
 def validar_parametros(brutos):
+    """{'imposto_pct': Decimal|None (None = usa a planilha), 'margem_padrao': Decimal, 'impostos': {conta: {'normal': Decimal, 'full': Decimal}}}."""
     brutos = brutos or {}
-    saida = {}
-    for chave, (minimo, maximo, nome) in {'imposto_pct': (0, 60, 'Imposto'), 'margem_padrao': (0, 1000, 'Margem mínima padrão')}.items():
-        try:
-            v = D(str(brutos.get(chave, PADRAO[chave])).replace(',', '.'))
-        except Exception:
-            raise ParametroInvalido('%s: digite um número.' % nome)
-        if not v.is_finite() or not minimo <= v <= maximo:
-            raise ParametroInvalido('%s: use um valor entre %d e %d.' % (nome, minimo, maximo))
-        saida[chave] = v
+    saida = {'margem_padrao': _decimal(brutos.get('margem_padrao', PADRAO['margem_padrao']), 0, 1000, 'Margem mínima padrão')}
+    imp = brutos.get('imposto_pct', PADRAO['imposto_pct'])
+    saida['imposto_pct'] = None if imp is None or str(imp).strip() == '' else _decimal(imp, 0, 60, 'Imposto')
+    saida['impostos'] = {}
+    tabela = brutos.get('impostos') or {}
+    if not isinstance(tabela, dict):
+        raise ParametroInvalido('Impostos da planilha inválidos.')
+    for conta, d in tabela.items():
+        if isinstance(d, dict) and str(conta) in ('ML19', 'ML44') and d.get('normal') is not None and d.get('full') is not None:
+            saida['impostos'][str(conta)] = {'normal': _decimal(d['normal'], 0, 60, 'Imposto da planilha'), 'full': _decimal(d['full'], 0, 60, 'Imposto da planilha')}
     return saida
+
+
+def imposto_da_linha(linha, params):
+    """% de imposto da venda: o digitado na tela (vale para tudo) ou o da planilha (TaxasML) da conta, Full ou normal. None = indisponível."""
+    if params.get('imposto_pct') is not None:
+        return params['imposto_pct']
+    return ((params.get('impostos') or {}).get(str(linha.get('conta') or '')) or {}).get('full' if linha.get('grupo') == 'full' else 'normal')
 
 
 def _num(v):
@@ -70,13 +89,16 @@ def analisar(linha, cad, params):
         faltam.append('tarifa do ML')
     if frete is None:
         faltam.append('frete')
+    imp_pct = imposto_da_linha(linha, params)
+    if imp_pct is None:
+        faltam.append('imposto (aba TaxasML ou digite na tela)')
     reg.update({'custo_unit': custo if custo and custo > 0 else None, 'meta': meta, 'meta_origem': origem,
-                'repasse': None, 'imposto': None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados', 'perda': None, 'perda_tipo': '',
+                'repasse': None, 'imposto': None, 'imposto_pct': float(imp_pct) if imp_pct is not None else None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados', 'perda': None, 'perda_tipo': '',
                 'pendencias': ', '.join(faltam)})
     if faltam:
         return reg
     repasse = D(venda) - D(tarifa) - D(frete)
-    imposto = D(venda) * params['imposto_pct'] / 100
+    imposto = D(venda) * imp_pct / 100
     custo_total = D(custo) * qtd
     lucro = repasse - imposto - custo_total
     margem = lucro / custo_total * 100

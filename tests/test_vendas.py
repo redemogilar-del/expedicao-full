@@ -14,7 +14,7 @@ import app as app_mod
 import fontes
 import vendas as v
 
-P = v.validar_parametros({})          # imposto 8%, margem padrão 20%
+P = v.validar_parametros({'imposto_pct': 8})          # imposto 8% digitado, margem padrão 20%
 
 
 def venda(**kw):
@@ -53,6 +53,23 @@ class TestRegraLucro(unittest.TestCase):
         self.assertEqual((v.analisar(venda(), {'custo': 30.0}, P)['meta'], v.analisar(venda(), {'custo': 30.0}, P)['meta_origem']), (20.0, 'padrão'))
         r = v.analisar(venda(grupo='full'), {'custo': 30.0, 'margem': 10.0, 'margem_full': 5.0}, P)
         self.assertEqual((r['meta'], r['meta_origem']), (5.0, 'planilha'))
+
+    def test_imposto_da_planilha_por_conta_e_full(self):
+        pl = v.validar_parametros({'impostos': {'ML19': {'normal': '8', 'full': '5'}, 'ML44': {'normal': '10', 'full': '6'}}})
+        self.assertIsNone(pl['imposto_pct'])
+        cad = {'custo': 30.0, 'margem': 10.0}
+        self.assertEqual(v.analisar(venda(conta='ML19'), cad, pl)['imposto'], 8.0)
+        self.assertEqual(v.analisar(venda(conta='ML44'), cad, pl)['imposto'], 10.0)
+        self.assertEqual(v.analisar(venda(conta='ML19', grupo='full'), cad, pl)['imposto'], 5.0)
+        r = v.analisar(venda(conta='ML44', grupo='full'), cad, pl); self.assertEqual((r['imposto'], r['imposto_pct']), (6.0, 6.0))
+        # o digitado na tela vale para tudo e manda sobre a planilha
+        dig = v.validar_parametros({'imposto_pct': 12, 'impostos': {'ML19': {'normal': 8, 'full': 5}}})
+        self.assertEqual(v.analisar(venda(conta='ML19'), cad, dig)['imposto'], 12.0)
+        # sem planilha e sem digitado: sem dados, nunca zero
+        r = v.analisar(venda(conta='ML19'), cad, v.validar_parametros({}))
+        self.assertEqual((r['classe'], r['imposto']), ('sem_dados', None)); self.assertIn('imposto', r['pendencias'])
+        with self.assertRaises(v.ParametroInvalido):
+            v.validar_parametros({'impostos': 'x'})
 
     def test_perda_em_dinheiro(self):
         pre = v.analisar(venda(frete=50.0), {'custo': 30.0, 'margem': 20.0}, P)
@@ -193,9 +210,33 @@ class TestEndpointsVendas(unittest.TestCase):
         self.assertEqual((d['linhas'][0]['lucro'], d['linhas'][0]['classe'], d['resumo']['dentro']), (7.0, 'dentro', 1))
         self.assertEqual(self.c.post('/api/vendas/calcular', json={'linhas': raw, 'cadastro': {}, 'parametros': {'imposto_pct': 'x'}}).status_code, 400)
 
+    def test_impostos_endpoint(self):
+        with mock.patch.object(fontes, 'impostos_conta', lambda c: {'normal': 8.0, 'full': 5.0} if c == 'ML19' else (_ for _ in ()).throw(fontes.FonteIndisponivel('sem TaxasML'))):
+            d = self.c.post('/api/vendas/impostos', json={'contas': ['ML19', 'ML44']}).get_json()
+        self.assertEqual(d['impostos'], {'ML19': {'normal': 8.0, 'full': 5.0}}); self.assertIn('ML44', d['erros'])
+        self.assertEqual(self.c.post('/api/vendas/impostos', json={'contas': ['XX']}).status_code, 400)
+
+    def test_exportar_prejuizo_ordenado_e_manual(self):
+        import openpyxl
+        base = self.linhas()[0]
+        lin = [dict(base, pedido='1', frete=5, nao_enviar=False), dict(base, pedido='2', frete=60, nao_enviar=False), dict(base, pedido='3', frete=1, nao_enviar=False)]
+        r = self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin, 'parametros': {'imposto_pct': 8}})
+        self.assertEqual(r.status_code, 200)
+        dados = list(openpyxl.load_workbook(io.BytesIO(r.data))['Prejuízo'].iter_rows(min_row=2, values_only=True))
+        self.assertEqual([d[4] for d in dados], ['2'])                                  # só o que tem prejuízo (frete 60: lucro −43)
+        lin2 = [dict(base, pedido='1', frete=50, nao_enviar=False), dict(base, pedido='2', frete=70, nao_enviar=False)]
+        dados = list(openpyxl.load_workbook(io.BytesIO(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': lin2, 'parametros': {'imposto_pct': 8}}).data))['Prejuízo'].iter_rows(min_row=2, values_only=True))
+        self.assertEqual([d[4] for d in dados], ['2', '1'])                              # maior prejuízo primeiro
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'prejuizo', 'linhas': [dict(base, nao_enviar=False)], 'parametros': {'imposto_pct': 8}}).status_code, 400)
+        m = self.c.post('/api/vendas/exportar-manual', json={'periodo': 'x', 'itens': [{'tipo': 'Não calculado', 'conta': 'ML19', 'mlb': 'MLB1', 'sku': '=X', 'produto': 'P', 'situacao': 'Prejuízo', 'preco_atual': 10, 'preco_necessario': None, 'motivo': 'Preços diferentes por variação'}]})
+        self.assertEqual(m.status_code, 200)
+        ws = openpyxl.load_workbook(io.BytesIO(m.data))['Fazer na mão']
+        self.assertEqual([c.value for c in ws[2]][:4], ['Não calculado', 'ML19', 'MLB1', "'=X"])
+        self.assertEqual(self.c.post('/api/vendas/exportar-manual', json={'itens': []}).status_code, 400)
+
     def test_exportar_nao_enviar(self):
         import openpyxl
-        r = self.c.post('/api/vendas/exportar', json={'tipo': 'nao_enviar', 'linhas': self.linhas(), 'parametros': {}, 'periodo': '29/10/2026'})
+        r = self.c.post('/api/vendas/exportar', json={'tipo': 'nao_enviar', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}, 'periodo': '29/10/2026'})
         self.assertEqual(r.status_code, 200)
         ws = openpyxl.load_workbook(io.BytesIO(r.data))['Não enviar']
         dados = list(ws.iter_rows(min_row=2, values_only=True))
@@ -204,28 +245,28 @@ class TestEndpointsVendas(unittest.TestCase):
         self.assertEqual(dados[0][12], 5.0)                                              # deixou de ganhar: 60 × 20% − 7 = 5
         self.assertEqual(dados[0][4], 'Aguardando')
         sem = [dict(l, nao_enviar=False) for l in self.linhas()]
-        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'nao_enviar', 'linhas': sem}).status_code, 400)
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'nao_enviar', 'linhas': sem, 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
     def test_exportar_dia_recalcula_e_protege_formula(self):
         import openpyxl
         lin = self.linhas(); lin[0]['lucro'] = 99999                                  # lucro "pronto" vindo da tela é ignorado
-        r = self.c.post('/api/vendas/exportar', json={'tipo': 'dia', 'linhas': lin})
+        r = self.c.post('/api/vendas/exportar', json={'tipo': 'dia', 'linhas': lin, 'parametros': {'imposto_pct': 8}})
         ws = openpyxl.load_workbook(io.BytesIO(r.data))['Vendas do dia']
         dados = list(ws.iter_rows(min_row=2, values_only=True))
         self.assertEqual([d[1] for d in dados], ['Abaixo da margem', 'Dentro da margem', 'Sem dados']); self.assertEqual(dados[0][17], 7.0); self.assertEqual(dados[0][2], 5.0)
         self.assertEqual(dados[2][6], "'=CMD()"); self.assertEqual((dados[0][0], dados[1][0]), ('SIM', None)); self.assertEqual(dados[1][2], None)
-        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'xx', 'linhas': lin}).status_code, 400)
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'xx', 'linhas': lin, 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
     def test_salvar(self):
         enviado = {}
         def falso(p): enviado.update(p); return {'abas': ['Vendas 2026-10-29']}
         with mock.patch.object(fontes, 'salvar_relatorio', falso):
-            d = self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'periodo': '29/10/2026', 'linhas': self.linhas()}).get_json()
+            d = self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'periodo': '29/10/2026', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).get_json()
         self.assertTrue(d['ok'])
         self.assertEqual((enviado['dia'], enviado['resumo']['itens'], enviado['resumo']['nao_enviar'], len(enviado['nao_enviar']), enviado['resumo']['sem_dados']), ('2026-10-29', 3, 1, 1, 1))
         with mock.patch.object(fontes, 'salvar_relatorio', side_effect=fontes.FonteIndisponivel('sem planilha')):
-            self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'linhas': self.linhas()}).status_code, 503)
-        self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': 'ontem', 'linhas': self.linhas()}).status_code, 400)
+            self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).status_code, 503)
+        self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': 'ontem', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
 
 if __name__ == '__main__':

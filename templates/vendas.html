@@ -9,10 +9,10 @@
     <label>Conta<select id="vConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
     <label>De<input type="date" id="vDe" value="{{ hoje }}"></label>
     <label>Até<input type="date" id="vAte" value="{{ hoje }}"></label>
-    <label>Imposto (% do valor da venda)<input type="number" id="vImposto" min="0" max="60" step="0.1" value="{{ padrao.imposto_pct }}"></label>
+    <label>Imposto (% do valor da venda)<input type="number" id="vImposto" min="0" max="60" step="0.1" value="" placeholder="vazio = da planilha"></label>
     <label>Margem mínima padrão (%)<input type="number" id="vMargem" min="0" max="1000" step="0.1" value="{{ padrao.margem_padrao }}"></label>
   </div>
-  <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
+  <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. O imposto vem da aba TaxasML da planilha (por conta, Full ou normal); se você digitar um valor aqui, ele vale para tudo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
   <button class="primario" id="vBuscar">Buscar vendas e calcular</button>
 </section>
 
@@ -54,9 +54,16 @@
   </div>
   <div class="acoes">
     <button class="primario" id="vBaixarNao" disabled>Baixar lista “Não enviar”</button>
+    <button class="secundario" id="vBaixarNeg" disabled>Baixar Excel dos prejuízos</button>
     <button class="secundario" id="vBaixarDia">Baixar todas as vendas (Excel)</button>
     <button class="secundario" id="vSalvar">Salvar relatório do dia na planilha do Google</button>
   </div>
+  <section class="cartao" id="vManual" style="margin-top:16px">
+    <h2>Resumo para fazer na mão no Mercado Livre</h2>
+    <p class="suave pequeno" id="vManualTxt"></p>
+    <div class="tabela-caixa mini"><table><thead><tr><th>O que houve</th><th>Conta</th><th>Anúncio</th><th>SKU</th><th>Produto</th><th>Situação</th><th class="n">Preço atual</th><th class="n">Preço necessário</th><th>Motivo / o que fazer</th></tr></thead><tbody id="vManualCorpo"></tbody></table></div>
+    <div class="acoes"><button class="secundario" id="vManualBaixar" disabled>Baixar este resumo (Excel)</button></div>
+  </section>
   <p class="suave pequeno">A planilha do Google recebe a aba “Vendas AAAA-MM-DD”, a aba “Não enviar AAAA-MM-DD” (se houver marcados) e uma linha em “Desempenho diário”. Salvar de novo no mesmo dia substitui o que já estava lá.</p>
 </section>
 {% endblock %}

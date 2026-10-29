@@ -10,7 +10,6 @@ const ROTULOS = {enviar:'Enviar', frete_alto:'Frete alto', sem_dados:'Sem frete/
 const num = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR');
 const brl = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
 
-let BASE = null;          // {itens, linhas, data, nome}
 let ARQ = null;           // arquivo do relatório
 let LINHAS = [];          // resultado do cálculo, com campos de tela: incluir, qtd, qtd_calc
 let ARQUIVO = '', PARAMS = {};
@@ -26,35 +25,8 @@ async function postar(url, corpo){
   return d;
 }
 
-// ---------- base de frete e custo (guardada neste navegador) ----------
-function salvarBase(){ try { localStorage.setItem('exp_base', JSON.stringify(BASE)); } catch(e) {} }
-function carregarBase(){ try { BASE = JSON.parse(localStorage.getItem('exp_base') || 'null'); } catch(e) { BASE = null; } }
-function mostrarBase(){
-  const info = $('baseInfo');
-  if (!BASE) { info.textContent = 'Nenhuma base enviada ainda.'; $('txtBotBase').textContent = 'Enviar a base'; }
-  else {
-    const dias = Math.floor((Date.now() - new Date(BASE.data).getTime()) / 86400000);
-    info.textContent = 'Base: ' + BASE.nome + ' — ' + BASE.linhas + ' produtos, enviada ' + (dias <= 0 ? 'hoje' : 'há ' + dias + ' dia(s)') + '.' + (dias > 14 ? ' Está antiga: confira o frete e o custo.' : '');
-    $('txtBotBase').textContent = 'Trocar a base';
-  }
-  info.classList.toggle('ok', !!BASE);
-  atualizarBotao();
-}
-function atualizarBotao(){ $('calcular').disabled = !(ARQ && BASE); }
-
-$('arqBase').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  mensagem('Lendo a base…');
-  try {
-    const fd = new FormData(); fd.append('arquivo', f);
-    const d = await postar('/api/envios/base', fd);
-    BASE = {itens: d.itens, linhas: d.linhas, nome: d.nome, data: new Date().toISOString()};
-    salvarBase(); mostrarBase(); mensagem(d.sem_valor ? d.sem_valor + ' produtos da base estão sem frete ou custo e ficarão de fora.' : '', d.sem_valor ? '' : null);
-  } catch (err) { mensagem(err.message, 'erro'); }
-  e.target.value = '';
-};
-
 // ---------- relatório do ML ----------
+function atualizarBotao(){ $('calcular').disabled = !ARQ; }
 function escolherRelatorio(f){
   if (!f) return;
   ARQ = f; $('txtRel').textContent = '✓ ' + f.name; $('soltarRel').classList.add('ok'); atualizarBotao();
@@ -66,14 +38,58 @@ const alvo = $('soltarRel');
 alvo.addEventListener('drop', e => escolherRelatorio(e.dataTransfer.files[0]));
 
 // ---------- cálculo ----------
+function progresso(texto, pct){ mensagem(texto + (pct === undefined ? '' : ' (' + pct + '%)')); }
+async function json(url, corpo){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(corpo)});
+  if (r.status === 401) { location.href = '/login'; throw new Error('Sessão expirada'); }
+  let d = null; try { d = await r.json(); } catch(e) {}
+  if (!r.ok || !d || d.ok === false) throw new Error((d && d.error) || ('Erro ' + r.status + '. O servidor pode estar acordando; tente de novo em 1 minuto.'));
+  return d;
+}
+function formParams(fd){ fd.append('meses', $('pMeses').value); fd.append('limite_frete_pct', $('pLimite').value); fd.append('qtd_teste', $('pTeste').value); return fd; }
+
 $('calcular').onclick = async () => {
-  mensagem('Calculando…'); $('calcular').disabled = true;
+  $('calcular').disabled = true; $('resultado').hidden = true;
   try {
-    const fd = new FormData();
-    fd.append('relatorio', ARQ); fd.append('base', JSON.stringify(BASE.itens));
-    fd.append('meses', $('pMeses').value); fd.append('limite_frete_pct', $('pLimite').value); fd.append('qtd_teste', $('pTeste').value);
-    const d = await postar('/api/envios/calcular', fd);
-    ARQUIVO = d.arquivo; PARAMS = d.parametros;
+    const conta = $('pConta').value;
+    progresso('Lendo o relatório…');
+    const fd = formParams(new FormData()); fd.append('relatorio', ARQ);
+    const lido = await postar('/api/envios/ler', fd);
+    const base = {};
+    for (const p of lido.pendencias) base[p.codigo_ml] = {frete: null, custo: null};
+
+    // custo: planilha de custos, em blocos de 100 SKUs
+    const skus = lido.skus, custo = {};
+    for (let i = 0; i < skus.length; i += 100) {
+      progresso('Buscando o custo na planilha… ' + Math.min(i + 100, skus.length) + ' de ' + skus.length + ' SKUs');
+      Object.assign(custo, (await json('/api/envios/custos', {skus: skus.slice(i, i + 100)})).custos);
+    }
+    for (const p of lido.pendencias) base[p.codigo_ml].custo = custo[p.sku] ?? null;
+
+    // frete: Mercado Livre, em blocos pequenos (cada produto consulta o anúncio)
+    let fila = lido.pendencias.map(p => ({codigo_ml: p.codigo_ml, mlbs: p.mlbs})), feitos = 0, falhas = 0;
+    const total = fila.length;
+    while (fila.length) {
+      progresso('Buscando o frete no Mercado Livre… ' + feitos + ' de ' + total + ' produtos', Math.round(feitos / Math.max(total, 1) * 100));
+      const lote = fila.splice(0, 6);
+      try {
+        const d = await json('/api/envios/fretes', {conta, itens: lote});
+        for (const [cod, r] of Object.entries(d.fretes)) { base[cod].frete = r.frete; if (r.erro) base[cod].erro = r.erro; }
+        const pend = new Set(d.pendentes || []);
+        feitos += lote.length - pend.size;
+        if (pend.size) fila.push(...lote.filter(x => pend.has(x.codigo_ml)));
+        falhas = 0;
+      } catch (err) {
+        fila.unshift(...lote);
+        if (++falhas >= 3) throw err;
+        await new Promise(r => setTimeout(r, 2500 * falhas));
+      }
+    }
+
+    progresso('Calculando…');
+    const fd2 = formParams(new FormData()); fd2.append('relatorio', ARQ); fd2.append('base', JSON.stringify(base));
+    const d = await postar('/api/envios/calcular', fd2);
+    ARQUIVO = d.arquivo; PARAMS = {...d.parametros, conta};
     LINHAS = d.linhas.map(r => ({...r, qtd_calc: r.qtd, incluir: r.status === 'enviar' && r.tipo !== 'Teste'}));
     filtro = 'enviar'; busca = ''; $('busca').value = '';
     mensagem(''); $('resultado').hidden = false; desenhar();
@@ -103,7 +119,7 @@ function desenhar(){
     el('div', {class:'card destaque'}, el('b', {}, num(un)), el('span', {}, 'unidades no total')),
     el('div', {class:'card'}, el('b', {}, num(skus.length)), el('span', {}, 'SKUs diferentes (produção)')),
     el('div', {class:'card'}, el('b', {}, num(cont.frete_alto || 0)), el('span', {}, 'barrados por frete alto')),
-    el('div', {class:'card'}, el('b', {}, num(cont.sem_dados || 0)), el('span', {}, 'sem frete/custo na base')),
+    el('div', {class:'card'}, el('b', {}, num(cont.sem_dados || 0)), el('span', {}, 'sem frete ou custo')),
     el('div', {class:'card'}, el('b', {}, num(cont.nao_precisa || 0)), el('span', {}, 'já têm estoque suficiente')));
   const fb = $('filtros'); fb.replaceChildren();
   const abas = [['enviar', 'Enviar'], ['marcados', 'Marcados'], ['frete_alto', 'Frete alto'], ['sem_dados', 'Sem frete/custo'], ['impedido', 'Impedidos'], ['nao_precisa', 'Não precisa'], ['todos', 'Todos']];
@@ -164,4 +180,4 @@ async function baixar(tipo){
 $('baixarEnvio').onclick = () => baixar('envio');
 $('baixarSku').onclick = () => baixar('producao');
 
-carregarBase(); mostrarBase();
+atualizarBotao();

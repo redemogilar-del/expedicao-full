@@ -13,3 +13,11 @@ services:
         sync: false
       - key: EXP_LOGIN_PASSWORD_HASH
         sync: false
+      - key: EXP_SHEETS_URL
+        sync: false
+      - key: EXP_SHEETS_KEY
+        sync: false
+      - key: EXP_TOKEN_URL_ML19
+        sync: false
+      - key: EXP_TOKEN_URL_ML44
+        sync: false

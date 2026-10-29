@@ -11,8 +11,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openpyxl import Workbook, load_workbook
 
+from unittest import mock
+
 import app as app_mod
 import envios as e
+import fontes
 
 CAB = ['Código ML', 'Código universal', 'SKU', 'Agrupador de variações', 'Produto', 'Variaçao', 'Número de produto', 'Anúncios com este produto',
        'Tamanho', 'Volume do produto (cm3)', 'Produto Estrela\nSão os...', 'Vendas\núlt. 30 dias (R$)', 'Unidades vendidas\núlt. 30 dias',
@@ -48,7 +51,7 @@ def base_xlsx(itens, aba='anuncios'):
 def decidir(vendas, aptas, pend, frete=10, custo=100, **kw):
     item = {'mlbu': 'MLBU1', 'sku': 'S1', 'vendas': vendas, 'aptas': aptas, 'pendentes': pend, 'sugeridas': kw.get('sug'), 'obs': kw.get('obs', ''),
             'codigo_ml': 'X', 'produto': 'p', 'mlbs': [], 'urgencia': '', 'prazo': ''}
-    base = {'MLBU1': {'sku': 'S1', 'frete': frete, 'custo': custo}} if not kw.get('sem_base') else {}
+    base = {'X': {'frete': frete, 'custo': custo, 'erro': kw.get('erro', '')}} if not kw.get('sem_base') else {}
     return e.decidir(item, base, e.validar_parametros(kw.get('params')))
 
 
@@ -131,16 +134,6 @@ class TestArquivos(unittest.TestCase):
         with self.assertRaises(e.ArquivoInvalido):
             e.ler_relatorio(relatorio([produto('AAA', 'S1', 'MLBU1', 1, 1, 1), produto('AAA', 'S2', 'MLBU2', 1, 1, 1)]))
 
-    def test_le_base(self):
-        b = e.ler_base(base_xlsx([('MLBU1', 'S1', 7.15, 10), ('MLBU2', 'S2', None, 20)]))
-        self.assertEqual(b['itens']['MLBU1'], {'sku': 'S1', 'frete': 7.15, 'custo': 10.0})
-        self.assertIsNone(b['itens']['MLBU2']['frete'])
-        self.assertEqual(b['sem_valor'], 1)
-
-    def test_base_sem_valores_pede_novo_download(self):
-        with self.assertRaises(e.ArquivoInvalido):
-            e.ler_base(base_xlsx([('MLBU1', 'S1', None, None)]))
-
     def test_numero_em_formato_brasileiro(self):
         self.assertEqual(e._numero('1.234,56'), e.D('1234.56'))
         self.assertIsNone(e._numero('-')); self.assertIsNone(e._numero('N/A')); self.assertIsNone(e._numero('SKU NÃO ENCONTRADO'))
@@ -157,31 +150,64 @@ class TestSite(unittest.TestCase):
 
     def test_exige_login(self):
         self.assertEqual(self.c.get('/envios').status_code, 302)
-        for rota in ('/api/envios/base', '/api/envios/calcular', '/api/envios/exportar'):
+        for rota in ('/api/envios/ler', '/api/envios/custos', '/api/envios/fretes', '/api/envios/calcular', '/api/envios/exportar'):
             self.assertEqual(self.c.post(rota).status_code, 401)
         self.assertEqual(self.c.get('/saude').status_code, 200)
         self.assertEqual(self.c.post('/login', data={'usuario': 'admin', 'senha': 'errada'}).status_code, 401)
 
     def test_origem_externa_recusada(self):
         self.entrar()
-        self.assertEqual(self.c.post('/api/envios/base', headers={'Origin': 'https://mau.example'}).status_code, 403)
+        self.assertEqual(self.c.post('/api/envios/ler', headers={'Origin': 'https://mau.example'}).status_code, 403)
 
     def test_fluxo_completo(self):
         self.entrar()
         self.assertEqual(self.c.get('/envios').status_code, 200)
-        r = self.c.post('/api/envios/base', data={'arquivo': (base_xlsx([('MLBU1', 'S1', 7.15, 10), ('MLBU2', 'S2', 30, 100), ('MLBU3', 'S3', 5, 100)]), 'base.xlsx')}).get_json()
-        self.assertTrue(r['ok']); base = r['itens']
         rel = relatorio([produto('AAA', 'S1', 'MLBU1', 17, 14, 0), produto('BBB', 'S2', 'MLBU2', 17, 14, 0),
-                         produto('CCC', 'S3', 'MLBU3', 0, 0, 0), produto('DDD', 'S4', 'MLBU4', 5, 0, 0), produto('EEE', 'S3', 'MLBU5', 21, 43, 53)])
+                         produto('CCC', 'S3', 'MLBU3', 0, 0, 0), produto('DDD', 'S4', 'MLBU4', 5, 0, 0), produto('EEE', 'S3', 'MLBU5', 21, 43, 53),
+                         produto('FFF', 'S6', 'MLBU6', 0, 0, 0, obs='Os dados são necessários para começar a oferecer o Full.')])
         import json
-        d = self.c.post('/api/envios/calcular', data={'relatorio': (rel, 'rel.xlsx'), 'base': json.dumps(base), 'meses': '1.5', 'limite_frete_pct': '45', 'qtd_teste': '3'}).get_json()
+        d = self.c.post('/api/envios/ler', data={'relatorio': (rel, 'rel.xlsx'), 'meses': '1.5', 'limite_frete_pct': '45', 'qtd_teste': '3'}).get_json()
+        self.assertTrue(d['ok'])
+        # só buscam frete/custo os que precisam de envio e que o ML não impede (EEE já tem estoque, FFF é impedido)
+        self.assertEqual([p['codigo_ml'] for p in d['pendencias']], ['AAA', 'BBB', 'CCC', 'DDD'])
+        self.assertEqual(d['skus'], ['S1', 'S2', 'S3', 'S4'])
+        base = {'AAA': {'frete': 7.15, 'custo': 10}, 'BBB': {'frete': 30, 'custo': 100}, 'CCC': {'frete': 5, 'custo': 100},
+                'DDD': {'frete': None, 'custo': 20, 'erro': 'MLB1: Anúncio não ativo'}}
+        rel2 = relatorio([produto('AAA', 'S1', 'MLBU1', 17, 14, 0), produto('BBB', 'S2', 'MLBU2', 17, 14, 0),
+                          produto('CCC', 'S3', 'MLBU3', 0, 0, 0), produto('DDD', 'S4', 'MLBU4', 5, 0, 0), produto('EEE', 'S3', 'MLBU5', 21, 43, 53)])
+        d = self.c.post('/api/envios/calcular', data={'relatorio': (rel2, 'rel.xlsx'), 'base': json.dumps(base), 'meses': '1.5', 'limite_frete_pct': '45', 'qtd_teste': '3'}).get_json()
         self.assertTrue(d['ok'])
         st = {l['codigo_ml']: (l['status'], l['qtd']) for l in d['linhas']}
         self.assertEqual(st['AAA'], ('frete_alto', 12))          # 7,15 / 10 = 71,5%
         self.assertEqual(st['BBB'], ('enviar', 12))              # 30 / 100 = 30%
         self.assertEqual(st['CCC'], ('enviar', 3))
         self.assertEqual(st['DDD'], ('sem_dados', 8))
+        self.assertIn('Anúncio não ativo', {l['codigo_ml']: l['motivo'] for l in d['linhas']}['DDD'])
         self.assertEqual(st['EEE'][0], 'nao_precisa')
+
+    def test_custos_endpoint(self):
+        self.entrar()
+        with mock.patch.object(fontes, 'custos', lambda skus: {s: 10.0 for s in skus}):
+            d = self.c.post('/api/envios/custos', json={'skus': ['A', 'B']}).get_json()
+        self.assertEqual(d['custos'], {'A': 10.0, 'B': 10.0})
+        self.assertEqual(self.c.post('/api/envios/custos', json={'skus': []}).status_code, 400)
+        self.assertEqual(self.c.post('/api/envios/custos', json={'skus': [1]}).status_code, 400)
+        with mock.patch.object(fontes, 'custos', side_effect=fontes.FonteIndisponivel('fora do ar')):
+            r = self.c.post('/api/envios/custos', json={'skus': ['A']})
+        self.assertEqual((r.status_code, r.get_json()['error']), (503, 'fora do ar'))
+
+    def test_fretes_endpoint_valida_e_repassa(self):
+        self.entrar()
+        chamadas = []
+        def falso(conta, itens, espera_max=24):
+            chamadas.append((conta, itens)); return {i['codigo_ml']: {'frete': 9.75, 'erro': '', 'mlb': 'MLB1'} for i in itens}, []
+        with mock.patch.object(fontes, 'fretes', falso):
+            d = self.c.post('/api/envios/fretes', json={'conta': 'ML19', 'itens': [{'codigo_ml': 'AAA', 'mlbs': ['MLB123']}]}).get_json()
+        self.assertEqual(d['fretes']['AAA']['frete'], 9.75); self.assertEqual(chamadas[0][0], 'ML19')
+        for ruim in ({'conta': 'XX', 'itens': [{'codigo_ml': 'A', 'mlbs': ['MLB1']}]}, {'conta': 'ML19', 'itens': []},
+                     {'conta': 'ML19', 'itens': [{'codigo_ml': 'A', 'mlbs': ['http://x']}]},
+                     {'conta': 'ML19', 'itens': [{'codigo_ml': 'A', 'mlbs': ['MLB1']}] * 11}):
+            self.assertEqual(self.c.post('/api/envios/fretes', json=ruim).status_code, 400)
 
     def test_calcular_valida_arquivo_e_base(self):
         self.entrar()
@@ -189,7 +215,7 @@ class TestSite(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         r = self.c.post('/api/envios/calcular', data={'relatorio': (relatorio([produto('A', 'S', 'M', 1, 1, 1)]), 'rel.csv'), 'base': '{"a":{}}'})
         self.assertEqual(r.status_code, 400)
-        r = self.c.post('/api/envios/calcular', data={'relatorio': (relatorio([produto('A', 'S', 'M', 1, 1, 1)]), 'rel.xlsx'), 'base': '{}'})
+        r = self.c.post('/api/envios/calcular', data={'relatorio': (relatorio([produto('A', 'S', 'M', 1, 1, 1)]), 'rel.xlsx'), 'base': '[1]'})
         self.assertEqual(r.status_code, 400)
 
     def linhas_exp(self):

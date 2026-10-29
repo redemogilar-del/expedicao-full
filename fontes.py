@@ -558,17 +558,10 @@ def atualizar_referencia(conta, itens):
     return saida
 
 
-_IMPOSTOS = {}
-
-
 def impostos_conta(conta):
-    """Imposto/embalagem (% do valor da venda) da aba TaxasML: {'normal': %, 'full': %}. Falha vira erro explicativo, nunca zero."""
+    """Imposto/embalagem (% do valor da venda) da aba TaxasML da conta: {'normal': %, 'full': %}. Sempre lido na hora (sem cache): mudou na planilha, vale na próxima busca. Falha vira erro explicativo, nunca zero."""
     if conta not in CONTAS:
         raise FonteIndisponivel('Conta inválida.')
-    with _LOCK:
-        c = _IMPOSTOS.get(conta)
-        if c and time.monotonic() - c[1] < 300:
-            return c[0]
     url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
     if not url.startswith('https://script.google.com/') or not chave:
         raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
@@ -586,6 +579,4 @@ def impostos_conta(conta):
         if v is None or not 0 <= v < 60:
             raise FonteIndisponivel('Imposto "%s" inválido ou vazio na aba TaxasML (%s).' % (nome, conta))
         saida[nome] = v
-    with _LOCK:
-        _IMPOSTOS[conta] = (saida, time.monotonic())
     return saida

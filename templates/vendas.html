@@ -12,7 +12,7 @@
     <label>Imposto (% do valor da venda)<input type="number" id="vImposto" min="0" max="60" step="0.1" value="" placeholder="vazio = da planilha"></label>
     <label>Margem mínima padrão (%)<input type="number" id="vMargem" min="0" max="1000" step="0.1" value="{{ padrao.margem_padrao }}"></label>
   </div>
-  <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. O imposto vem da aba TaxasML da planilha (por conta, Full ou normal); se você digitar um valor aqui, ele vale para tudo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
+  <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. O imposto vem da aba TaxasML da planilha (por CNPJ/conta, Full ou normal), lido de novo a cada busca; se você digitar um valor aqui, ele vale para tudo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
   <button class="primario" id="vBuscar">Buscar vendas e calcular</button>
 </section>
 

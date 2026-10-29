@@ -24,6 +24,32 @@ def cotacao(valor, moeda='BRL'):
     return {'coverage': {'all_country': {'currency_id': moeda, 'list_cost': valor}}}
 
 
+class TestImpostos(unittest.TestCase):
+    def setUp(self):
+        os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'
+
+    def test_le_a_taxasml_de_cada_conta_sempre_na_hora(self):
+        valores = {'ML19': (16.0, 18.0), 'ML44': (10.0, 12.0)}
+        def falso(url, json=None, **kw):
+            assert json['acao'] == 'catalogo_taxas'
+            n, f = valores[json['conta']]
+            return Resp({'ok': True, 'conta': json['conta'], 'imposto_embalagem_normal_pct': n, 'imposto_embalagem_full_pct': f})
+        with mock.patch.object(fontes._SESS, 'post', falso):
+            self.assertEqual(fontes.impostos_conta('ML19'), {'normal': 16.0, 'full': 18.0})
+            self.assertEqual(fontes.impostos_conta('ML44'), {'normal': 10.0, 'full': 12.0})
+            valores['ML19'] = (17.5, 18.0)                                         # alterou na planilha: vale na hora
+            self.assertEqual(fontes.impostos_conta('ML19')['normal'], 17.5)
+
+    def test_falhas_viram_erro_nunca_zero(self):
+        casos = [Resp({'ok': True, 'conta': 'ML44', 'imposto_embalagem_normal_pct': 16, 'imposto_embalagem_full_pct': 18}),     # conta errada
+                 Resp({'ok': True, 'conta': 'ML19', 'imposto_embalagem_normal_pct': None, 'imposto_embalagem_full_pct': 18}),     # vazio
+                 Resp({'ok': True, 'conta': 'ML19', 'imposto_embalagem_normal_pct': 16, 'imposto_embalagem_full_pct': -1}),
+                 Resp({'ok': False, 'erro': 'CNPJ divergente'})]
+        for r in casos:
+            with mock.patch.object(fontes._SESS, 'post', return_value=r), self.assertRaises(fontes.FonteIndisponivel):
+                fontes.impostos_conta('ML19')
+
+
 class TestCustos(unittest.TestCase):
     def setUp(self):
         os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'

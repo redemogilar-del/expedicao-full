@@ -37,10 +37,21 @@
 
   <div class="barra">
     <div class="filtros" id="filtros"></div>
+    <div class="pop">
+      <button class="secundario" id="btnSku" type="button" aria-haspopup="true" aria-expanded="false">SKUs: todos ▾</button>
+      <div class="pop-caixa" id="popSku" hidden>
+        <input type="search" id="buscaSku" placeholder="Buscar SKU">
+        <div class="pop-topo"><span><button type="button" class="link" id="skuTodos"></button> · <button type="button" class="link" id="skuLimpar">Limpar</button></span><span class="suave" id="skuCont"></span></div>
+        <div class="pop-lista" id="listaSku"></div>
+        <div class="pop-fim"><button type="button" class="secundario" id="skuCancelar">Cancelar</button><button type="button" class="primario" id="skuOk">OK</button></div>
+      </div>
+    </div>
     <input type="search" id="busca" placeholder="Buscar SKU, produto, MLB…">
   </div>
   <div class="barra" id="barraTeste" hidden>
     <span class="aviso inline" id="avisoTeste"></span>
+    <label class="inline-campo">Qtd dos testes<input type="number" id="qtdTesteTopo" min="1" max="100000" step="1" placeholder="ex.: 3"></label>
+    <button class="primario" id="aplicarQtdTeste">Aplicar e marcar os testes da tela</button>
     <button class="secundario" id="marcarTestes">Marcar todos os testes</button>
     <button class="secundario" id="marcarTestesUrg">Marcar só os urgentes</button>
     <button class="secundario" id="limparTestes">Desmarcar testes</button>

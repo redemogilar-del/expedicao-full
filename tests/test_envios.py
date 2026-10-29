@@ -67,6 +67,10 @@ class TestRegras(unittest.TestCase):
         r = decidir(0, 0, 0)
         self.assertEqual((r['qtd'], r['tipo'], r['status']), (3, 'Teste', 'enviar'))
 
+    def test_venda_zero_em_30_dias_e_teste_mesmo_com_estoque(self):
+        r = decidir(0, 5, 0)
+        self.assertEqual((r['qtd'], r['tipo'], r['status']), (3, 'Teste', 'enviar'))
+
     def test_sem_estoque_com_poucas_vendas_nunca_menos_que_o_teste(self):
         self.assertEqual(decidir(1, 0, 0)['qtd'], 3)
 

@@ -196,7 +196,9 @@ def calcular_qtd(item, params):
     qtd, tipo = max(0, int(necessidade)), 'Reposição'
     if sug is not None and sug > qtd:
         qtd = sug
-    if total == 0 and qtd < teste:
+    if vendas == 0:
+        qtd, tipo = max(qtd, teste), 'Teste'        # sem venda nos últimos 30 dias = anúncio de teste
+    elif total == 0 and qtd < teste:
         qtd, tipo = teste, 'Teste'
     elif sug is not None and 0 < sug < teste:
         qtd, tipo = max(qtd, teste), 'Teste'

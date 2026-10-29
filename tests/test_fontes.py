@@ -34,10 +34,22 @@ class TestCustos(unittest.TestCase):
             r = fontes.custos(['A', 'B', 'C', 'D'])
         self.assertEqual(r, {'A': 12.5, 'B': None, 'C': 1234.5, 'D': None})
 
+    def test_sku_com_maiuscula_diferente_acha_custo(self):
+        def falso(url, json=None, **kw):
+            base = {'PO_5Kg': {'custo': 7.5}}
+            return Resp({'ok': True, 'items': {s: base[s] for s in json['skus'] if s in base}})
+        with mock.patch.object(fontes._SESS, 'post', falso):
+            self.assertEqual(fontes.custos(['PO_5kg', 'XX']), {'PO_5kg': 7.5, 'XX': None})
+        def ambiguo(url, json=None, **kw):
+            base = {'PO_5Kg': {'custo': 7.5}, 'PO_5KG': {'custo': 8}}
+            return Resp({'ok': True, 'items': {s: base[s] for s in json['skus'] if s in base}})
+        with mock.patch.object(fontes._SESS, 'post', ambiguo):
+            self.assertEqual(fontes.custos(['PO_5kg']), {'PO_5kg': None})
+
     def test_lotes_de_50_e_erros(self):
         chamadas = []
         def falso(url, json=None, **kw):
-            chamadas.append(len(json['skus'])); return Resp({'ok': True, 'items': {}})
+            chamadas.append(len(json['skus'])); return Resp({'ok': True, 'items': {s: {'custo': 1} for s in json['skus']}})
         with mock.patch.object(fontes._SESS, 'post', falso):
             fontes.custos(['S%d' % i for i in range(120)])
         self.assertEqual(chamadas, [50, 50, 20])
@@ -63,17 +75,22 @@ class TestFrete(unittest.TestCase):
         return mock.patch.object(fontes, '_ml', falso)
 
     def test_cota_o_primeiro_anuncio_ativo(self):
-        itens = {'MLB1': item('MLB1', status='paused'), 'MLB2': item('MLB2')}
+        itens = {'MLB1': item('MLB1', status='closed'), 'MLB2': item('MLB2')}
         with self.com_ml(itens, {'MLB2': cotacao(7.15)}):
             r = fontes.frete_produto('ML19', 'tk', '99', ['MLB1', 'MLB2'])
         self.assertEqual((r['frete'], r['mlb']), (7.15, 'MLB2'))
 
+    def test_anuncio_pausado_tambem_cota(self):
+        with self.com_ml({'MLB1': item('MLB1', status='paused')}, {'MLB1': cotacao(11.05)}):
+            r = fontes.frete_produto('ML19', 'tk', '99', ['MLB1'])
+        self.assertEqual((r['frete'], r['mlb']), (11.05, 'MLB1'))
+
     def test_falha_nunca_vira_zero_e_diz_o_motivo(self):
-        itens = {'MLB1': item('MLB1', status='paused'), 'MLB2': item('MLB2', seller='5'), 'MLB3': item('MLB3')}
+        itens = {'MLB1': item('MLB1', status='closed'), 'MLB2': item('MLB2', seller='5'), 'MLB3': item('MLB3')}
         with self.com_ml(itens, {'MLB3': cotacao(None)}):
             r = fontes.frete_produto('ML19', 'tk', '99', ['MLB1', 'MLB2', 'MLB3'])
         self.assertIsNone(r['frete'])
-        self.assertIn('não ativo', r['erro']); self.assertIn('não pertence', r['erro']); self.assertIn('não retornado', r['erro'])
+        self.assertIn('encerrado', r['erro']); self.assertIn('não pertence', r['erro']); self.assertIn('não retornado', r['erro'])
         with self.com_ml({'MLB1': item('MLB1')}, {'MLB1': cotacao(5, moeda='USD')}):
             self.assertIsNone(fontes.frete_produto('ML19', 'tk', '99', ['MLB1'])['frete'])
         self.assertIsNone(fontes.frete_produto('ML19', 'tk', '99', [])['frete'])

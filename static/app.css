@@ -103,3 +103,7 @@ td input[type=number]{width:84px}
 .neg-claro{color:var(--verm);font-weight:700}
 .painel-preco{border-color:var(--amarelo-esc);margin:12px 0}.painel-preco .mini{max-height:240px;margin:8px 0}.painel-preco label{margin:6px 0}
 .inline-campo input[type=checkbox]{width:auto}
+.progresso #sBarra{height:100%;background:var(--destaque,#ffc933);opacity:.35;transition:width .3s}
+#sTabela td.aviso-linha{color:var(--verm);font-size:12px}
+.ok-linha{color:var(--verde);font-size:12px}
+button[hidden]{display:none!important}

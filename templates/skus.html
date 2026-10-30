@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Trocar SKU — Expedição Mogilar{% endblock %}
+{% block corpo %}
+<h1>Trocar SKU em massa</h1>
+<p class="suave">Procura o SKU nos <b>anúncios do Mercado Livre</b> (ML19 e ML44) e troca pelo SKU que você digitar. Primeiro o painel só <b>mostra o que vai mudar</b> — nada é alterado até você marcar os anúncios, digitar <b>TROCAR</b> e clicar em trocar. Depois de cada troca o painel confere no Mercado Livre se o SKU ficou certo.</p>
+
+<section class="cartao">
+  <div class="regras">
+    <label>Conta<select id="sConta"><option value="ML19">ML19</option><option value="ML44">ML44</option><option value="AMBAS">As duas (ML19 e ML44)</option></select></label>
+    <label>Como buscar<select id="sModo"><option value="igual">SKU igual a…</option><option value="contem">SKU que contém…</option><option value="comeca">SKU que começa com…</option></select></label>
+    <label>SKU procurado<input type="text" id="sTermo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25kg"></label>
+    <label>SKU novo<input type="text" id="sNovo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label id="sEscopoCaixa" hidden>O que trocar<select id="sEscopo"><option value="inteiro">O SKU inteiro pelo SKU novo</option><option value="trecho">Só o trecho encontrado</option></select></label>
+  </div>
+  <p class="suave pequeno" id="sAjuda">A busca não diferencia maiúsculas de minúsculas. Anúncios com variações são tratados variação por variação. A busca lê todos os anúncios da conta e pode levar alguns minutos; você pode parar quando quiser.</p>
+  <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sParar" hidden>Parar busca</button></div>
+</section>
+
+<p id="sMsg" class="aviso" hidden role="status"></p>
+<div id="sProg" class="progresso" hidden><div id="sBarra"></div><span id="sTxt"></span></div>
+
+<section id="sResultado" hidden>
+  <div class="barra">
+    <span id="sResumo"></span>
+    <button id="sTodos">Marcar todos os liberados</button>
+    <button id="sNenhum">Desmarcar todos</button>
+  </div>
+  <div class="tabela-caixa">
+    <table id="sTabela">
+      <thead><tr><th></th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação</th><th>SKU atual</th><th>SKU novo</th><th>Situação</th></tr></thead>
+      <tbody id="sCorpo"></tbody>
+    </table>
+    <p id="sVazio" class="suave centro" hidden>Nenhum anúncio encontrado com esse SKU.</p>
+  </div>
+  <section class="cartao" id="sAplicar" hidden>
+    <p><b id="sMarcados">0</b> marcado(s). Para trocar, digite <b>TROCAR</b> abaixo.</p>
+    <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Trocar SKU dos marcados</button></div>
+  </section>
+  <section id="sFeitos" hidden>
+    <h2>Resultado das trocas</h2>
+    <div class="tabela-caixa"><table><thead><tr><th>Conta</th><th>MLB</th><th>Resultado</th><th>O que aconteceu</th></tr></thead><tbody id="sFeitosCorpo"></tbody></table></div>
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='skus.js') }}"></script>{% endblock %}

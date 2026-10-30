@@ -18,6 +18,7 @@ from werkzeug.security import check_password_hash
 import envios
 import fontes
 import precos
+import skus
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -36,7 +37,7 @@ app.config.update(
 USUARIO = os.environ.get('EXP_LOGIN_USER', '')
 SENHA_HASH = os.environ.get('EXP_LOGIN_PASSWORD_HASH', '')
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True)]
+ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True), ('skus', 'Trocar SKU', True)]
 
 
 def _configurado():
@@ -118,6 +119,11 @@ def envios_pagina():
 @app.get('/candidatos')
 def candidatos_pagina():
     return render_template('candidatos.html', abas=ABAS, ativa='candidatos')
+
+
+@app.get('/skus')
+def skus_pagina():
+    return render_template('skus.html', abas=ABAS, ativa='skus', confirmacao=skus.CONFIRMACAO)
 
 
 @app.get('/vendas')
@@ -936,6 +942,67 @@ def api_vendas_preco_aplicar():
                 if r['status'] == 'OK':
                     r['historico'] = aviso_hist
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, atualizados=sum(r['status'] == 'OK' for r in resultados))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/skus/buscar')
+def api_skus_buscar():
+    """Um passo da varredura dos anúncios da conta. Somente leitura: mostra o que mudaria, não altera nada."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        try:
+            regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
+        except skus.Bloqueio as exc:
+            raise envios.ArquivoInvalido(str(exc))
+        d = skus.varrer(c['conta'], regra, c.get('scroll_id'))
+        return jsonify(ok=True, somente_leitura=True, conta=c['conta'], **d)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/skus/aplicar')
+def api_skus_aplicar():
+    """Troca o SKU dos anúncios marcados. Lê cada anúncio de novo, só troca se o SKU ainda for o que a pessoa viu e confere depois."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        if c.get('confirmacao') != skus.CONFIRMACAO:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para trocar SKU.')
+        try:
+            regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
+        except skus.Bloqueio as exc:
+            raise envios.ArquivoInvalido(str(exc))
+        itens = c.get('itens')
+        if not isinstance(itens, list) or not 1 <= len(itens) <= skus.MAX_APLICAR * 20:
+            raise envios.ArquivoInvalido('Envie de 1 a %d locais por vez.' % (skus.MAX_APLICAR * 20))
+        grupos = {}
+        for x in itens:
+            if not isinstance(x, dict):
+                raise envios.ArquivoInvalido('Item inválido.')
+            mlb = str(x.get('mlb') or '').strip().upper()
+            var = x.get('variacao')
+            visto = str(x.get('sku_visto') or '').strip()
+            if not fontes._MLB.match(mlb) or not visto or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
+                raise envios.ArquivoInvalido('Item inválido.')
+            alvos = grupos.setdefault(mlb, [])
+            if any(a[0] == var for a in alvos):
+                raise envios.ArquivoInvalido('Item repetido.')
+            alvos.append((var, visto))
+        if len(grupos) > skus.MAX_APLICAR:
+            raise envios.ArquivoInvalido('Envie no máximo %d anúncios por vez.' % skus.MAX_APLICAR)
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+        resultados = []
+        for mlb, alvos in grupos.items():
+            r = skus.trocar_item(conta, tk, vendedor, mlb, alvos, regra)
+            log.info('SKU %s %s: %s %s', conta, mlb, r['status'], r['trocas'])
+            resultados.append(r)
+        return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)
 

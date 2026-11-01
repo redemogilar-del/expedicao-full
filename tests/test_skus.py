@@ -148,14 +148,35 @@ class TestSemSku(unittest.TestCase):
         self.assertEqual(sorted(a['mlb'] for a in d['achados']), ['MLB200000001', 'MLB200000004', 'MLB200000005'])
         self.assertEqual(self.fake.puts, [])
 
-    def test_ver_todos_sem_sku_nao_permite_trocar(self):
+    def test_ver_todos_sem_sku_lista_e_libera_o_preenchimento(self):
         d = self.buscar('sem_todos', '', '')
         self.assertTrue(d['ok'] and len(d['achados']) == 5)
-        self.assertFalse(any(a['permitido'] for a in d['achados']))
+        livres = {a['mlb']: a['permitido'] for a in d['achados']}
+        self.assertEqual((livres['MLB200000001'], livres['MLB200000005']), (True, False))        # encerrado: só olhar
+
+    def aplicar_individual(self, itens):
         with self.com():
-            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'sem_todos', 'termo': '', 'novo': 'X',
-                                                      'itens': [{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': ''}]}).get_json()
-        self.assertEqual(r['resultados'][0]['status'], 'PULADO')
+            return self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'sem_todos', 'termo': '', 'novo': '', 'itens': itens}).get_json()
+
+    def test_preenche_cada_anuncio_com_o_seu_proprio_sku_e_confere(self):
+        d = self.aplicar_individual([{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': '', 'sku_novo': 'GR_5KG'},
+                                     {'mlb': 'MLB200000002', 'variacao': None, 'sku_visto': '', 'sku_novo': 'MANTA_10M'},
+                                     {'mlb': 'MLB200000004', 'variacao': 22, 'sku_visto': '', 'sku_novo': 'GR_VAR'}])
+        self.assertEqual([r['status'] for r in d['resultados']], ['OK', 'OK', 'OK'])
+        self.assertEqual((self.fake.itens['MLB200000001']['seller_custom_field'], self.fake.itens['MLB200000002']['seller_custom_field']), ('GR_5KG', 'MANTA_10M'))
+        v = {x['id']: x for x in self.fake.itens['MLB200000004']['variations']}
+        self.assertEqual((v[21]['seller_custom_field'], v[22]['seller_custom_field']), ('JA_TEM', 'GR_VAR'))
+
+    def test_preenchimento_exige_sku_em_cada_anuncio_e_nao_mexe_em_quem_ja_tem(self):
+        for item in ({'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': ''}, {'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': '', 'sku_novo': '  '},
+                     {'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': '', 'sku_novo': 'x' * 101}):
+            with self.com():
+                r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'sem_todos', 'itens': [item]})
+            self.assertEqual(r.status_code, 400)
+        self.fake.itens['MLB200000001']['seller_custom_field'] = 'ALGUEM_PREENCHEU'
+        d = self.aplicar_individual([{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': '', 'sku_novo': 'NOVO'}])
+        self.assertEqual(d['resultados'][0]['status'], 'PULADO')
+        self.assertEqual(self.fake.itens['MLB200000001']['seller_custom_field'], 'ALGUEM_PREENCHEU')
         self.assertEqual(self.fake.puts, [])
 
     def test_exige_palavra_e_sku_novo(self):

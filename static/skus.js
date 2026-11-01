@@ -74,9 +74,19 @@ async function buscar(){
   else mensagem(LINHAS.length ? 'Busca concluída. Marque os anúncios que quer trocar.' : 'Busca concluída: nenhum anúncio com esse SKU.', LINHAS.length ? 'ok' : '');
 }
 
+// filtro da lista (só sobre o que já foi encontrado): ignora maiúsculas e acentos; várias palavras separadas por espaço
+const limpa = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function aparece(l){
+  const palavras = limpa($('sFiltro').value).split(/\s+/).filter(Boolean);
+  if (!palavras.length) return true;
+  const t = limpa(l.titulo);
+  return $('sFiltroModo').value === 'qualquer' ? palavras.some(p => t.includes(p)) : palavras.every(p => t.includes(p));
+}
+function filtrar(){ LINHAS.forEach(l => { if (!aparece(l)) l.marcado = false; }); desenhar(); }   // o que some da tela nunca fica marcado
+
 function desenhar(){
   const corpo = $('sCorpo'); corpo.replaceChildren();
-  for (const l of LINHAS) {
+  for (const l of LINHAS.filter(aparece)) {
     const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: !l.permitido || OCUPADO || !!(l.resultado && l.resultado.status === 'OK')});
     cx.addEventListener('change', () => { l.marcado = cx.checked; resumo(); });
     const mlb = l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb;
@@ -88,14 +98,17 @@ function desenhar(){
     corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)),
       el('td', null, l.sku_atual || '(sem SKU)'), el('td', null, l.sku_novo || '—'), celSit));
   }
-  $('sVazio').hidden = LINHAS.length > 0 || OCUPADO;
-  $('sTabela').hidden = !LINHAS.length;
+  const visiveis = LINHAS.filter(aparece).length;
+  $('sVazio').hidden = visiveis > 0 || OCUPADO;
+  $('sVazio').textContent = LINHAS.length ? 'Nenhum anúncio da lista tem essas palavras no título.' : 'Nenhum anúncio encontrado com esse SKU.';
+  $('sTabela').hidden = !visiveis;
   resumo();
 }
 
 function resumo(){
   const marcados = LINHAS.filter(l => l.marcado).length, liberados = LINHAS.filter(l => l.permitido).length;
-  $('sResumo').textContent = LINHAS.length + ' encontrado(s) · ' + liberados + ' liberado(s) para trocar';
+  const vis = LINHAS.filter(aparece), filtrando = vis.length !== LINHAS.length;
+  $('sResumo').textContent = LINHAS.length + ' encontrado(s)' + (filtrando ? ' · ' + vis.length + ' aparecendo no filtro' : '') + ' · ' + liberados + ' liberado(s) para trocar';
   $('sMarcados').textContent = String(marcados);
   $('sAplicar').hidden = !LINHAS.length;
   $('sTrocar').disabled = OCUPADO || marcados === 0 || $('sConfirma').value.trim() !== 'TROCAR';
@@ -103,7 +116,7 @@ function resumo(){
 
 async function trocar(){
   if (OCUPADO) return;
-  const sel = LINHAS.filter(l => l.marcado && l.permitido && !(l.resultado && l.resultado.status === 'OK'));
+  const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK'));
   if (!sel.length || $('sConfirma').value.trim() !== 'TROCAR') return;
   OCUPADO = true; $('sTrocar').disabled = true; $('sBuscar').disabled = true; mensagem('');
   $('sFeitos').hidden = false;
@@ -138,7 +151,8 @@ $('sModo').addEventListener('change', atualizarForm);
 $('sBuscar').addEventListener('click', buscar);
 $('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
-$('sTodos').addEventListener('click', () => { LINHAS.forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
+$('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
+$('sFiltro').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });
 $('sConfirma').addEventListener('input', resumo);
 $('sTrocar').addEventListener('click', trocar);

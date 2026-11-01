@@ -111,6 +111,101 @@ class TestVarredura(unittest.TestCase):
         self.assertFalse(a[0]['permitido'])
 
 
+class TestSemSku(unittest.TestCase):
+    def setUp(self):
+        app_mod.app.config['TESTING'] = True
+        self.c = app_mod.app.test_client()
+        self.assertEqual(self.c.post('/login', data={'usuario': 'admin', 'senha': 'senha-de-teste'}).status_code, 302)
+        skus._RECENTES.clear()
+        self.fake = FakeML()
+        novos = {
+            'MLB200000001': {'id': 'MLB200000001', 'seller_id': 99, 'title': 'Granito Grafiato 5kg', 'status': 'active', 'seller_custom_field': None, 'attributes': []},
+            'MLB200000002': {'id': 'MLB200000002', 'seller_id': 99, 'title': 'Manta Asfaltica 10m', 'status': 'active', 'seller_custom_field': '', 'attributes': []},
+            'MLB200000003': {'id': 'MLB200000003', 'seller_id': 99, 'title': '5kg Granito Rustico', 'status': 'paused', 'seller_custom_field': None, 'attributes': []},
+            'MLB200000004': {'id': 'MLB200000004', 'seller_id': 99, 'title': 'Granito com variacoes', 'status': 'active', 'seller_custom_field': None, 'attributes': [],
+                             'variations': [{'id': 21, 'seller_custom_field': 'JA_TEM', 'attributes': []}, {'id': 22, 'seller_custom_field': None, 'attributes': []}]},
+            'MLB200000005': {'id': 'MLB200000005', 'seller_id': 99, 'title': 'Granito fechado', 'status': 'closed', 'seller_custom_field': None, 'attributes': []},
+        }
+        self.fake.itens = dict(novos, **{k: v for k, v in self.fake.itens.items() if k in ('MLB100000001',)})      # um com SKU para provar que não entra
+
+    def com(self):
+        from contextlib import ExitStack
+        pilha = ExitStack()
+        for p in self.fake.patches():
+            pilha.enter_context(p)
+        return pilha
+
+    def buscar(self, modo, termo, novo='NOVO'):
+        with self.com():
+            return self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': modo, 'termo': termo, 'novo': novo}).get_json()
+
+    def test_acha_so_os_sem_sku_pelo_titulo_contem_e_comeca(self):
+        d = self.buscar('sem_contem', 'granito')
+        achados = sorted((a['mlb'], a['variacao']) for a in d['achados'])
+        self.assertEqual(achados, [('MLB200000001', None), ('MLB200000003', None), ('MLB200000004', 22), ('MLB200000005', None)])     # variação com SKU e anúncio com SKU ficam de fora
+        self.assertEqual({a['mlb']: a['permitido'] for a in d['achados']}['MLB200000005'], False)                                      # encerrado: só olhar
+        d = self.buscar('sem_comeca', 'granito')
+        self.assertEqual(sorted(a['mlb'] for a in d['achados']), ['MLB200000001', 'MLB200000004', 'MLB200000005'])
+        self.assertEqual(self.fake.puts, [])
+
+    def test_ver_todos_sem_sku_nao_permite_trocar(self):
+        d = self.buscar('sem_todos', '', '')
+        self.assertTrue(d['ok'] and len(d['achados']) == 5)
+        self.assertFalse(any(a['permitido'] for a in d['achados']))
+        with self.com():
+            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'sem_todos', 'termo': '', 'novo': 'X',
+                                                      'itens': [{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': ''}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'PULADO')
+        self.assertEqual(self.fake.puts, [])
+
+    def test_exige_palavra_e_sku_novo(self):
+        with self.com():
+            for corpo in ({'modo': 'sem_contem', 'termo': '', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'g', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'granito', 'novo': ''}):
+                self.assertEqual(self.c.post('/api/skus/buscar', json=dict({'conta': 'ML19'}, **corpo)).status_code, 400)
+
+    def aplicar(self, itens, termo='granito', novo='GR_5KG', modo='sem_contem'):
+        with self.com():
+            return self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': modo, 'termo': termo, 'novo': novo, 'escopo': 'inteiro', 'itens': itens}).get_json()
+
+    def test_coloca_sku_em_anuncio_sem_sku_e_confere(self):
+        d = self.aplicar([{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': ''}])
+        r = d['resultados'][0]
+        self.assertEqual((r['status'], d['trocados']), ('OK', 1))
+        self.assertEqual(self.fake.puts[0][1], {'seller_custom_field': 'GR_5KG', 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'GR_5KG'}]})
+        self.assertEqual(self.fake.itens['MLB200000001']['seller_custom_field'], 'GR_5KG')
+
+    def test_coloca_sku_so_na_variacao_sem_sku(self):
+        d = self.aplicar([{'mlb': 'MLB200000004', 'variacao': 22, 'sku_visto': ''}])
+        self.assertEqual(d['resultados'][0]['status'], 'OK')
+        v = {x['id']: x for x in self.fake.itens['MLB200000004']['variations']}
+        self.assertEqual((v[21]['seller_custom_field'], v[22]['seller_custom_field']), ('JA_TEM', 'GR_5KG'))
+
+    def test_se_o_ml_recusar_o_atributo_tenta_so_o_campo_de_sku(self):
+        original = self.fake.put
+        def put(url, json=None, **kw):
+            if json and 'attributes' in json:
+                self.fake.puts.append((url, json))
+                return mock.Mock(ok=False, status_code=400, text='atributo recusado')
+            return original(url, json=json, **kw)
+        self.fake.put = put
+        d = self.aplicar([{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': ''}])
+        self.assertEqual(d['resultados'][0]['status'], 'OK')
+        self.assertEqual(self.fake.puts[-1][1], {'seller_custom_field': 'GR_5KG'})
+
+    def test_anuncio_que_ganhou_sku_ou_mudou_de_titulo_nao_e_alterado(self):
+        self.fake.itens['MLB200000001']['seller_custom_field'] = 'ALGUEM_PREENCHEU'
+        self.fake.itens['MLB200000002']['title'] = 'Manta sem a palavra'
+        for mlb in ('MLB200000001', 'MLB200000002'):
+            d = self.aplicar([{'mlb': mlb, 'variacao': None, 'sku_visto': ''}], termo='granito' if mlb.endswith('1') else 'manta asf')
+            self.assertEqual(d['resultados'][0]['status'], 'PULADO', mlb)
+        self.assertEqual(self.fake.puts, [])
+
+    def test_sku_visto_vazio_continua_proibido_nos_modos_com_sku(self):
+        with self.com():
+            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'igual', 'termo': 'GR_25kg', 'novo': 'X', 'itens': [{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': ''}]})
+        self.assertEqual(r.status_code, 400)
+
+
 class TestEndpoints(unittest.TestCase):
     def setUp(self):
         app_mod.app.config['TESTING'] = True

@@ -7,13 +7,20 @@
 <section class="cartao">
   <div class="regras">
     <label>Conta<select id="sConta"><option value="ML19">ML19</option><option value="ML44">ML44</option><option value="AMBAS">As duas (ML19 e ML44)</option></select></label>
-    <label>Como buscar<select id="sModo"><option value="igual">SKU igual a…</option><option value="contem">SKU que contém…</option><option value="comeca">SKU que começa com…</option></select></label>
-    <label>SKU procurado<input type="text" id="sTermo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25kg"></label>
-    <label>SKU novo<input type="text" id="sNovo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label>Como buscar<select id="sModo">
+      <optgroup label="Pelo SKU que já existe">
+        <option value="igual">SKU igual a…</option><option value="contem">SKU que contém…</option><option value="comeca">SKU que começa com…</option>
+      </optgroup>
+      <optgroup label="Anúncios SEM SKU (busca pelo título)">
+        <option value="sem_contem">Sem SKU, título que contém…</option><option value="sem_comeca">Sem SKU, título que começa com…</option><option value="sem_todos">Sem SKU: só ver a lista toda</option>
+      </optgroup>
+    </select></label>
+    <label id="sTermoRot"><span id="sTermoTxt">SKU procurado</span><input type="text" id="sTermo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25kg"></label>
+    <label id="sNovoCaixa">SKU novo<input type="text" id="sNovo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
     <label id="sEscopoCaixa" hidden>O que trocar<select id="sEscopo"><option value="inteiro">O SKU inteiro pelo SKU novo</option><option value="trecho">Só o trecho encontrado</option></select></label>
   </div>
-  <p class="suave pequeno" id="sAjuda">A busca não diferencia maiúsculas de minúsculas. Anúncios com variações são tratados variação por variação. A busca lê todos os anúncios da conta e pode levar alguns minutos; você pode parar quando quiser.</p>
-  <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sParar" hidden>Parar busca</button></div>
+  <p class="suave pequeno" id="sAjuda"><b>Anúncios sem SKU:</b> o painel acha os anúncios (ou variações) que estão sem SKU e você filtra pela palavra do título, por exemplo "granito"; o SKU novo é colocado em todos os que você marcar, então confira o título de cada um. A busca não diferencia maiúsculas de minúsculas. Anúncios com variações são tratados variação por variação. A busca lê todos os anúncios da conta e pode levar alguns minutos; você pode parar quando quiser.</p>
+  <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sSemSku">Ver anúncios sem SKU</button><button id="sParar" hidden>Parar busca</button></div>
 </section>
 
 <p id="sMsg" class="aviso" hidden role="status"></p>

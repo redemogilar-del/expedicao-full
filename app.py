@@ -986,7 +986,7 @@ def api_skus_aplicar():
             mlb = str(x.get('mlb') or '').strip().upper()
             var = x.get('variacao')
             visto = str(x.get('sku_visto') or '').strip()
-            if not fontes._MLB.match(mlb) or not visto or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
+            if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_SEM_SKU) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
                 raise envios.ArquivoInvalido('Item inválido.')
             alvos = grupos.setdefault(mlb, [])
             if any(a[0] == var for a in alvos):

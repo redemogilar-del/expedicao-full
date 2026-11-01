@@ -179,6 +179,26 @@ class TestSemSku(unittest.TestCase):
         self.assertEqual(self.fake.itens['MLB200000001']['seller_custom_field'], 'ALGUEM_PREENCHEU')
         self.assertEqual(self.fake.puts, [])
 
+    def test_baixa_a_lista_em_excel(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        itens = [{'conta': 'ML19', 'mlb': 'MLB200000001', 'titulo': '=SOMA(1)', 'variacao': None, 'status': 'Ativo', 'sku_atual': '', 'sku_novo': 'GR_5KG', 'link': 'https://x'},
+                 {'conta': 'ML44', 'mlb': 'MLB200000004', 'titulo': 'Granito', 'variacao': 22, 'status': 'Ativo', 'sku_atual': '', 'sku_novo': '', 'link': ''}]
+        r = self.c.post('/api/skus/exportar', json={'itens': itens, 'busca': 'Todos sem SKU'})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('spreadsheetml', r.mimetype)
+        ws = load_workbook(BytesIO(r.data))['Anúncios']
+        linhas = [[c.value for c in l] for l in ws.iter_rows()]
+        self.assertEqual(linhas[0][:3], ['Conta', 'MLB', 'Título do anúncio'])
+        self.assertEqual((linhas[1][1], linhas[1][5], linhas[1][6], linhas[2][3]), ('MLB200000001', '(sem SKU)', 'GR_5KG', '22'))
+        self.assertTrue(linhas[1][2].startswith("'"))                                   # nada vira fórmula no Excel
+        self.assertEqual(self.fake.puts, [])
+
+    def test_baixar_exige_login_e_dados_validos(self):
+        self.assertEqual(app_mod.app.test_client().post('/api/skus/exportar').status_code, 401)
+        for corpo in ({'itens': []}, {'itens': [{'conta': 'XX', 'mlb': 'MLB200000001'}]}, {'itens': [{'conta': 'ML19', 'mlb': 'abc'}]}):
+            self.assertEqual(self.c.post('/api/skus/exportar', json=corpo).status_code, 400)
+
     def test_exige_palavra_e_sku_novo(self):
         with self.com():
             for corpo in ({'modo': 'sem_contem', 'termo': '', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'g', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'granito', 'novo': ''}):

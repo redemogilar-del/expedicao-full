@@ -175,3 +175,22 @@ $('sPreencher').addEventListener('click', () => {
 });
 $('sTrocar').addEventListener('click', trocar);
 atualizarForm();
+
+// baixar em Excel o que está na tela (já com o filtro de título); só leitura
+async function baixarExcel(){
+  const itens = LINHAS.filter(aparece).map(l => ({conta: l.conta, mlb: l.mlb, titulo: l.titulo, variacao: l.variacao, status: STATUS[l.status] || l.status || '', sku_atual: l.sku_atual, sku_novo: (l.novo || l.sku_novo || ''), link: l.link || ''}));
+  if (!itens.length) { mensagem('Não há anúncios na lista para baixar.', 'erro'); return; }
+  $('sExcel').disabled = true;
+  try {
+    const busca = REGRA ? ({igual: 'SKU igual a ', contem: 'SKU contém ', comeca: 'SKU começa com ', sem_contem: 'Sem SKU, título contém ', sem_comeca: 'Sem SKU, título começa com ', sem_todos: 'Todos sem SKU'}[REGRA.modo] || '') + (REGRA.modo === 'sem_todos' ? '' : REGRA.termo) : '';
+    const filtro = $('sFiltro').value.trim();
+    const r = await fetch('/api/skus/exportar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, busca: busca + (filtro ? ' | filtro do título: ' + filtro : '')})});
+    if (r.status === 401) { location.href = '/login'; return; }
+    if (!r.ok) { let d = null; try { d = await r.json(); } catch (e) {} throw new Error((d && d.error) || ('Erro ' + r.status)); }
+    const blob = await r.blob(), a = el('a', {href: URL.createObjectURL(blob), download: 'anuncios_sem_sku.xlsx'});
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    mensagem(itens.length + ' anúncio(s) na planilha baixada.', 'ok');
+  } catch (e) { mensagem('Não consegui baixar: ' + e.message, 'erro'); }
+  $('sExcel').disabled = false;
+}
+$('sExcel').addEventListener('click', baixarExcel);

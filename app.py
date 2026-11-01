@@ -946,6 +946,31 @@ def api_vendas_preco_aplicar():
         return _erro_fonte(exc)
 
 
+@app.post('/api/skus/exportar')
+def api_skus_exportar():
+    """Baixa em Excel a lista que está na tela (anúncios encontrados, em geral os sem SKU). Somente leitura: não altera nada no Mercado Livre."""
+    try:
+        c = request.get_json(silent=True) or {}
+        bruto = c.get('itens')
+        if not isinstance(bruto, list) or not 1 <= len(bruto) <= 20000:
+            raise envios.ArquivoInvalido('Não há anúncios na lista para baixar.')
+        linhas = []
+        for r in bruto:
+            if not isinstance(r, dict) or r.get('conta') not in fontes.CONTAS or not fontes._MLB.match(str(r.get('mlb') or '')):
+                raise envios.ArquivoInvalido('Dados inválidos na lista.')
+            t = lambda k, n=300: _seguro(str(r.get(k) or '')[:n])
+            var = r.get('variacao')
+            linhas.append([t('conta'), t('mlb'), t('titulo', 200), '' if var is None else _seguro(str(var)[:30]), t('status', 30), t('sku_atual', 100) or '(sem SKU)',
+                           t('sku_novo', 100), t('link', 200)])
+        busca = _seguro(str(c.get('busca') or '')[:120])
+        buf = _gerar_xlsx_vendas('Anúncios', ['Conta', 'MLB', 'Título do anúncio', 'Variação', 'Status', 'SKU atual', 'SKU novo (digitado)', 'Link'], linhas,
+                                 [8, 16, 70, 12, 12, 22, 22, 45], (), [['Busca', busca], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')],
+                                 ['Anúncios na lista', len(linhas)], ['Observação', 'Lista só para consulta. Para preencher o SKU use a aba Trocar SKU.']])
+        return send_file(buf, mimetype=XLSX, as_attachment=True, download_name='anuncios_sem_sku_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M'))
+    except Exception as exc:
+        return _erro(exc)
+
+
 @app.post('/api/skus/buscar')
 def api_skus_buscar():
     """Um passo da varredura dos anúncios da conta. Somente leitura: mostra o que mudaria, não altera nada."""

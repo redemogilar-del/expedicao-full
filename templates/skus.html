@@ -28,8 +28,13 @@
 
 <section id="sResultado" hidden>
   <div class="barra">
+    <input type="search" id="sFiltro" placeholder="Filtrar esta lista por palavras do título (ex.: granito 5kg)" autocomplete="off">
+    <label class="inline-campo"><select id="sFiltroModo"><option value="todas">que tenham todas as palavras</option><option value="qualquer">que tenham qualquer uma</option></select></label>
+  </div>
+  <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou e procura trechos do título (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados.</p>
+  <div class="barra">
     <span id="sResumo"></span>
-    <button id="sTodos">Marcar todos os liberados</button>
+    <button id="sTodos">Marcar todos os que aparecem</button>
     <button id="sNenhum">Desmarcar todos</button>
   </div>
   <div class="tabela-caixa">

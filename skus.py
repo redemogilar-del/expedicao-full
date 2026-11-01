@@ -15,7 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 import fontes
 
 CONFIRMACAO = 'TROCAR_SKU'
-MODOS = ('igual', 'contem', 'comeca')
+MODOS = ('igual', 'contem', 'comeca', 'sem_contem', 'sem_comeca', 'sem_todos')
+MODOS_SEM_SKU = ('sem_contem', 'sem_comeca', 'sem_todos')     # anúncios que estão SEM SKU; o termo é buscado no TÍTULO
 ESCOPOS = ('inteiro', 'trecho')
 MAX_APLICAR = 5                 # anúncios por chamada
 MAX_SKU = 100
@@ -34,21 +35,30 @@ class Bloqueio(Exception):
 
 def validar_regra(modo, termo, novo, escopo):
     if modo not in MODOS:
-        raise Bloqueio('Escolha como buscar: igual, contém ou começa com.')
+        raise Bloqueio('Escolha como buscar.')
     termo, novo = str(termo or '').strip(), str(novo or '').strip()
+    if len(termo) > MAX_SKU or _CTRL.search(termo) or len(novo) > MAX_SKU or _CTRL.search(novo):
+        raise Bloqueio('Texto inválido (máximo %d caracteres, sem caracteres especiais de controle).' % MAX_SKU)
+    if modo == 'sem_todos':                    # só olhar a lista: não troca nada
+        return modo, termo, novo, 'inteiro'
     if not termo:
-        raise Bloqueio('Digite o SKU que será procurado.')
+        raise Bloqueio('Digite o SKU que será procurado.' if modo in ('igual', 'contem', 'comeca') else 'Digite a palavra que está no título do produto.')
     if modo != 'igual' and len(termo) < MIN_TERMO_PARCIAL:
-        raise Bloqueio('Para "contém" e "começa com", digite pelo menos %d caracteres.' % MIN_TERMO_PARCIAL)
+        raise Bloqueio('Digite pelo menos %d caracteres para buscar por "contém" ou "começa com".' % MIN_TERMO_PARCIAL)
     if escopo not in ESCOPOS:
         escopo = 'inteiro'
-    if modo == 'igual':
+    if modo == 'igual' or modo in MODOS_SEM_SKU:
         escopo = 'inteiro'
     if not novo:
         raise Bloqueio('Digite o SKU novo.')
-    if len(novo) > MAX_SKU or _CTRL.search(novo) or _CTRL.search(termo) or len(termo) > MAX_SKU:
-        raise Bloqueio('SKU inválido (máximo %d caracteres, sem caracteres especiais de controle).' % MAX_SKU)
     return modo, termo, novo, escopo
+
+
+def titulo_casa(titulo, modo, termo):
+    t, a = str(termo).casefold(), str(titulo or '').strip().casefold()
+    if modo == 'sem_todos':
+        return True
+    return a.startswith(t) if modo == 'sem_comeca' else t in a
 
 
 def trocar(valor, modo, termo, novo, escopo):
@@ -92,6 +102,17 @@ def locais(item):
     return saida
 
 
+def locais_sem_sku(item):
+    """[{variacao, scf, attr}] dos lugares SEM SKU: o anúncio (se não tem variações) ou cada variação sem SKU."""
+    variacoes = [v for v in item.get('variations') or [] if isinstance(v, dict) and v.get('id') is not None]
+    if not variacoes:
+        if not str(item.get('seller_custom_field') or '').strip() and not _attr_sku(item.get('attributes')):
+            return [{'variacao': None, 'scf': '', 'attr': ''}]
+        return []
+    return [{'variacao': v['id'], 'scf': '', 'attr': ''} for v in variacoes
+            if not str(v.get('seller_custom_field') or '').strip() and not _attr_sku(v.get('attributes'))]
+
+
 def _novos_campos(loc, regra):
     """{'scf': novo, 'attr': novo} só para os campos que casam com a regra e mudam de valor."""
     r = {}
@@ -107,8 +128,24 @@ def _valida_novo(n):
         raise Bloqueio('O SKU novo ficaria vazio ou com mais de %d caracteres.' % MAX_SKU)
 
 
+def _achados_sem_sku(item, regra):
+    modo, termo, novo, _escopo = regra
+    if not titulo_casa(item.get('title'), modo, termo):
+        return []
+    pode = item.get('status') in ATIVOS and modo != 'sem_todos'
+    aviso = '' if modo != 'sem_todos' else 'Para trocar, procure por uma palavra do título e digite o SKU novo.'
+    if modo != 'sem_todos' and len(novo) > MAX_SKU:
+        pode, aviso = False, 'O SKU novo ficaria vazio ou com mais de %d caracteres.' % MAX_SKU
+    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'variacao': loc['variacao'],
+             'sku_atual': '', 'sku_novo': novo if modo != 'sem_todos' else '', 'aviso': aviso, 'permitido': pode,
+             'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''}
+            for loc in locais_sem_sku(item)]
+
+
 def achados(item, regra):
-    """Linhas de pré-visualização para um anúncio (uma por local com SKU que casa com a regra)."""
+    """Linhas de pré-visualização para um anúncio (uma por local que casa com a regra)."""
+    if regra[0] in MODOS_SEM_SKU:
+        return _achados_sem_sku(item, regra)
     saida = []
     for loc in locais(item):
         mud = _novos_campos(loc, regra)
@@ -214,15 +251,20 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
             raise Bloqueio('Anúncio não pertence à conta.')
         if item.get('status') not in ATIVOS:
             raise Bloqueio('Anúncio %s: não dá para alterar.' % (item.get('status') or 'sem status'))
-        atuais = {l['variacao']: l for l in locais(item)}
+        sem = regra[0] in MODOS_SEM_SKU
+        if regra[0] == 'sem_todos':
+            raise Bloqueio('Esta busca é só para olhar a lista. Procure por uma palavra do título e digite o SKU novo para trocar.')
+        if sem and not titulo_casa(item.get('title'), regra[0], regra[1]):
+            raise Bloqueio('O título do anúncio mudou e não casa mais com a busca. Busque de novo.')
+        atuais = {l['variacao']: l for l in (locais_sem_sku(item) if sem else locais(item))}
         mudancas, previstos = [], []
         for var, visto in alvos:
             loc = atuais.get(var)
             if loc is None:
-                raise Bloqueio('O SKU deste anúncio mudou desde que você viu. Busque de novo.')
-            if visto not in (loc['scf'], loc['attr']):
+                raise Bloqueio('Este anúncio já tem SKU (ou mudou) desde que você viu. Busque de novo.' if sem else 'O SKU deste anúncio mudou desde que você viu. Busque de novo.')
+            if not sem and visto not in (loc['scf'], loc['attr']):
                 raise Bloqueio('O SKU mudou no Mercado Livre desde que você viu (agora: %s). Busque de novo.' % (loc['scf'] or loc['attr']))
-            mud = _novos_campos(loc, regra)
+            mud = {'scf': regra[2], 'attr': regra[2]} if sem else _novos_campos(loc, regra)
             if not mud:
                 raise Bloqueio('O SKU não casa mais com a busca. Busque de novo.')
             for n in mud.values():
@@ -232,16 +274,20 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
         if not reservar(conta, mlb):
             raise Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
         resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(mudancas), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        if not resp.ok and sem:                  # anúncio sem SKU: se o ML recusar o atributo SELLER_SKU, tenta só o campo de SKU do vendedor
+            mudancas = [(v, {'scf': m['scf']}) for v, m in mudancas]
+            previstos = [(v, l, {'scf': m['scf']}) for v, l, m in previstos]
+            resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(mudancas), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
         if not resp.ok:
             r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
             return r
-        conf = {l['variacao']: l for l in locais(fontes._ml(tk, '/items/' + mlb))}
+        conf = {l['variacao']: l for l in locais(fontes._ml(tk, '/items/' + mlb))}      # (locais sem SKU não aparecem aqui; um SKU novo aparece)
         tudo_ok = True
         for var, loc, mud in previstos:
             lido = conf.get(var) or {'scf': '', 'attr': ''}
             ok = all(lido[campo] == n for campo, n in mud.items())
             tudo_ok = tudo_ok and ok
-            r['trocas'].append({'variacao': var, 'sku_antes': loc['scf'] or loc['attr'], 'sku_depois': lido['scf'] or lido['attr'], 'conferido': ok})
+            r['trocas'].append({'variacao': var, 'sku_antes': loc['scf'] or loc['attr'] or '(sem SKU)', 'sku_depois': lido['scf'] or lido['attr'], 'conferido': ok})
         if tudo_ok:
             r.update(status='OK', mensagem='SKU trocado e conferido no Mercado Livre.')
         else:

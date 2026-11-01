@@ -30,18 +30,24 @@ async function comTentativas(fn, n = 3){
 }
 const lerRegra = () => ({modo: $('sModo').value, termo: $('sTermo').value.trim(), novo: $('sNovo').value.trim(), escopo: $('sModo').value === 'igual' ? 'inteiro' : $('sEscopo').value});
 
+const SEM_SKU = m => m.startsWith('sem_');
 function atualizarForm(){
-  const parcial = $('sModo').value !== 'igual';
-  $('sEscopoCaixa').hidden = !parcial;
-  $('sTermo').placeholder = $('sModo').value === 'igual' ? 'ex.: GRANITO_25kg' : ($('sModo').value === 'contem' ? 'ex.: _25kg' : 'ex.: GRANITO');
+  const m = $('sModo').value, sem = SEM_SKU(m);
+  $('sEscopoCaixa').hidden = sem || m === 'igual';
+  $('sTermoRot').hidden = m === 'sem_todos'; $('sNovoCaixa').hidden = m === 'sem_todos';
+  $('sTermoTxt').textContent = sem ? 'Palavra do título' : 'SKU procurado';
+  $('sTermo').placeholder = sem ? 'ex.: granito' : (m === 'igual' ? 'ex.: GRANITO_25kg' : (m === 'contem' ? 'ex.: _25kg' : 'ex.: GRANITO'));
+  $('sBuscar').textContent = m === 'sem_todos' ? 'Ver todos sem SKU' : 'Buscar anúncios';
 }
 
 async function buscar(){
   if (OCUPADO) return;
   const regra = lerRegra();
-  if (!regra.termo) { mensagem('Digite o SKU que será procurado.', 'erro'); return; }
-  if (!regra.novo) { mensagem('Digite o SKU novo.', 'erro'); return; }
-  if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Para "contém" e "começa com", digite pelo menos 2 caracteres.', 'erro'); return; }
+  if (regra.modo !== 'sem_todos') {
+    if (!regra.termo) { mensagem(SEM_SKU(regra.modo) ? 'Digite a palavra que está no título do produto.' : 'Digite o SKU que será procurado.', 'erro'); return; }
+    if (!regra.novo) { mensagem('Digite o SKU novo.', 'erro'); return; }
+    if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Digite pelo menos 2 caracteres para buscar por "contém" ou "começa com".', 'erro'); return; }
+  }
   const contas = $('sConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('sConta').value];
   OCUPADO = true; PARAR = false; REGRA = regra; LINHAS = []; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
   $('sBuscar').disabled = true; $('sParar').hidden = false; $('sResultado').hidden = false; desenhar();
@@ -80,7 +86,7 @@ function desenhar(){
     if (l.aviso) celSit.append(el('div', {class: 'aviso-linha'}, l.aviso));
     if (l.resultado) celSit.append(el('div', {class: l.resultado.status === 'OK' ? 'ok-linha' : 'aviso-linha'}, l.resultado.status === 'OK' ? 'Trocado e conferido ✔' : l.resultado.mensagem));
     corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)),
-      el('td', null, l.sku_atual), el('td', null, l.sku_novo || '—'), celSit));
+      el('td', null, l.sku_atual || '(sem SKU)'), el('td', null, l.sku_novo || '—'), celSit));
   }
   $('sVazio').hidden = LINHAS.length > 0 || OCUPADO;
   $('sTabela').hidden = !LINHAS.length;
@@ -130,6 +136,7 @@ async function trocar(){
 
 $('sModo').addEventListener('change', atualizarForm);
 $('sBuscar').addEventListener('click', buscar);
+$('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });

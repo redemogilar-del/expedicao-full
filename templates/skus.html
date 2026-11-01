@@ -12,7 +12,7 @@
         <option value="igual">SKU igual a…</option><option value="contem">SKU que contém…</option><option value="comeca">SKU que começa com…</option>
       </optgroup>
       <optgroup label="Anúncios SEM SKU (busca pelo título)">
-        <option value="sem_contem">Sem SKU, título que contém…</option><option value="sem_comeca">Sem SKU, título que começa com…</option><option value="sem_todos">Sem SKU: só ver a lista toda</option>
+        <option value="sem_contem">Sem SKU, título que contém…</option><option value="sem_comeca">Sem SKU, título que começa com…</option><option value="sem_todos">Sem SKU: ver todos e preencher o SKU</option>
       </optgroup>
     </select></label>
     <label id="sTermoRot"><span id="sTermoTxt">SKU procurado</span><input type="text" id="sTermo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25kg"></label>
@@ -20,7 +20,7 @@
     <label id="sEscopoCaixa" hidden>O que trocar<select id="sEscopo"><option value="inteiro">O SKU inteiro pelo SKU novo</option><option value="trecho">Só o trecho encontrado</option></select></label>
   </div>
   <p class="suave pequeno" id="sAjuda"><b>Anúncios sem SKU:</b> o painel acha os anúncios (ou variações) que estão sem SKU e você filtra pela palavra do título, por exemplo "granito"; o SKU novo é colocado em todos os que você marcar, então confira o título de cada um. A busca não diferencia maiúsculas de minúsculas. Anúncios com variações são tratados variação por variação. A busca lê todos os anúncios da conta e pode levar alguns minutos; você pode parar quando quiser.</p>
-  <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sSemSku">Ver anúncios sem SKU</button><button id="sParar" hidden>Parar busca</button></div>
+  <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sSemSku">Ver anúncios sem SKU e preencher</button><button id="sParar" hidden>Parar busca</button></div>
 </section>
 
 <p id="sMsg" class="aviso" hidden role="status"></p>
@@ -28,7 +28,7 @@
 
 <section id="sResultado" hidden>
   <div class="barra">
-    <input type="search" id="sFiltro" placeholder="Filtrar esta lista por palavras do título (ex.: granito 5kg)" autocomplete="off">
+    <input type="search" id="sFiltro" placeholder="Buscar no título do anúncio (uma ou mais palavras, ex.: granito 5kg)" autocomplete="off">
     <label class="inline-campo"><select id="sFiltroModo"><option value="todas">que tenham todas as palavras</option><option value="qualquer">que tenham qualquer uma</option></select></label>
   </div>
   <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou e procura trechos do título (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados.</p>
@@ -44,8 +44,16 @@
     </table>
     <p id="sVazio" class="suave centro" hidden>Nenhum anúncio encontrado com esse SKU.</p>
   </div>
+  <section class="cartao" id="sMassaCaixa" hidden>
+    <p><b>Preencher o SKU dos anúncios sem SKU.</b> Duas formas, que podem ser combinadas:</p>
+    <ul class="suave pequeno">
+      <li><b>Individual:</b> digite o SKU direto no campo da linha do anúncio (a linha é marcada sozinha).</li>
+      <li><b>Em massa:</b> busque pelo título, marque os anúncios (ou "Marcar todos os que aparecem"), digite o SKU aqui e clique em <b>Preencher os marcados</b>. O SKU vai para os campos das linhas, e você ainda pode corrigir qualquer um à mão antes de gravar.</li>
+    </ul>
+    <div class="barra"><input type="text" id="sMassa" maxlength="100" autocomplete="off" placeholder="SKU para todos os marcados"><button id="sPreencher">Preencher os marcados</button></div>
+  </section>
   <section class="cartao" id="sAplicar" hidden>
-    <p><b id="sMarcados">0</b> marcado(s). Para trocar, digite <b>TROCAR</b> abaixo.</p>
+    <p><b id="sMarcados">0</b> marcado(s). Para gravar, digite <b>TROCAR</b> abaixo.</p>
     <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Trocar SKU dos marcados</button></div>
   </section>
   <section id="sFeitos" hidden>

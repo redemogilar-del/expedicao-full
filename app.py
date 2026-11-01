@@ -988,10 +988,13 @@ def api_skus_aplicar():
             visto = str(x.get('sku_visto') or '').strip()
             if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_SEM_SKU) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
                 raise envios.ArquivoInvalido('Item inválido.')
+            individual = str(x.get('sku_novo') or '').strip()
+            if regra[0] == 'sem_todos' and (not individual or len(individual) > skus.MAX_SKU or skus._CTRL.search(individual)):
+                raise envios.ArquivoInvalido('Digite um SKU válido (até %d caracteres) em cada anúncio marcado.' % skus.MAX_SKU)
             alvos = grupos.setdefault(mlb, [])
             if any(a[0] == var for a in alvos):
                 raise envios.ArquivoInvalido('Item repetido.')
-            alvos.append((var, visto))
+            alvos.append((var, visto, individual))
         if len(grupos) > skus.MAX_APLICAR:
             raise envios.ArquivoInvalido('Envie no máximo %d anúncios por vez.' % skus.MAX_APLICAR)
         conta = c['conta']

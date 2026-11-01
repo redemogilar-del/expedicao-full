@@ -95,8 +95,14 @@ function desenhar(){
     const celSit = el('td', null, sit);
     if (l.aviso) celSit.append(el('div', {class: 'aviso-linha'}, l.aviso));
     if (l.resultado) celSit.append(el('div', {class: l.resultado.status === 'OK' ? 'ok-linha' : 'aviso-linha'}, l.resultado.status === 'OK' ? 'Trocado e conferido ✔' : l.resultado.mensagem));
+    let celNovo;
+    if (REGRA && REGRA.modo === 'sem_todos' && l.permitido && !(l.resultado && l.resultado.status === 'OK')) {
+      const campo = el('input', {type: 'text', value: l.novo || '', maxLength: 100, placeholder: 'SKU deste anúncio', disabled: OCUPADO});
+      campo.addEventListener('input', () => { l.novo = campo.value; if (campo.value.trim() && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou: marca a linha sozinha
+      celNovo = el('td', null, campo);
+    } else celNovo = el('td', null, (l.resultado && l.resultado.status === 'OK' && l.novo) ? l.novo : (l.sku_novo || '—'));
     corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)),
-      el('td', null, l.sku_atual || '(sem SKU)'), el('td', null, l.sku_novo || '—'), celSit));
+      el('td', null, l.sku_atual || '(sem SKU)'), celNovo, celSit));
   }
   const visiveis = LINHAS.filter(aparece).length;
   $('sVazio').hidden = visiveis > 0 || OCUPADO;
@@ -106,17 +112,21 @@ function desenhar(){
 }
 
 function resumo(){
-  const marcados = LINHAS.filter(l => l.marcado).length, liberados = LINHAS.filter(l => l.permitido).length;
+  const indiv = !!REGRA && REGRA.modo === 'sem_todos';
+  $('sMassaCaixa').hidden = !(indiv && LINHAS.length);
+  const marcados = LINHAS.filter(l => l.marcado && (!indiv || (l.novo || '').trim())).length, liberados = LINHAS.filter(l => l.permitido).length;
   const vis = LINHAS.filter(aparece), filtrando = vis.length !== LINHAS.length;
   $('sResumo').textContent = LINHAS.length + ' encontrado(s)' + (filtrando ? ' · ' + vis.length + ' aparecendo no filtro' : '') + ' · ' + liberados + ' liberado(s) para trocar';
-  $('sMarcados').textContent = String(marcados);
+  const semSku = indiv ? LINHAS.filter(l => l.marcado && !(l.novo || '').trim()).length : 0;
+  $('sMarcados').textContent = String(marcados) + (semSku ? ' (' + semSku + ' marcado(s) sem SKU digitado ficam de fora)' : '');
   $('sAplicar').hidden = !LINHAS.length;
   $('sTrocar').disabled = OCUPADO || marcados === 0 || $('sConfirma').value.trim() !== 'TROCAR';
 }
 
 async function trocar(){
   if (OCUPADO) return;
-  const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK'));
+  const indiv = REGRA && REGRA.modo === 'sem_todos';
+  const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK') && (!indiv || (l.novo || '').trim()));
   if (!sel.length || $('sConfirma').value.trim() !== 'TROCAR') return;
   OCUPADO = true; $('sTrocar').disabled = true; $('sBuscar').disabled = true; mensagem('');
   $('sFeitos').hidden = false;
@@ -129,7 +139,7 @@ async function trocar(){
     for (const conta of Object.keys(lotes)) {
       for (let i = 0; i < lotes[conta].length; i += 5) {
         const grupo = lotes[conta].slice(i, i + 5), itens = [];
-        for (const ls of grupo) for (const l of ls) itens.push({mlb: l.mlb, variacao: l.variacao, sku_visto: l.sku_atual});
+        for (const ls of grupo) for (const l of ls) itens.push({mlb: l.mlb, variacao: l.variacao, sku_visto: l.sku_atual, sku_novo: indiv ? l.novo.trim() : undefined});
         progresso('Trocando ' + (feitos + 1) + ' de ' + total + '…', (feitos / total) * 100);
         // sem repetir automaticamente: se der erro, a pessoa busca de novo e confere o que ficou feito
         const d = await json('/api/skus/aplicar', Object.assign({conta, confirmacao: CONFIRMACAO, itens}, REGRA));
@@ -155,5 +165,13 @@ $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l =
 $('sFiltro').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });
 $('sConfirma').addEventListener('input', resumo);
+$('sPreencher').addEventListener('click', () => {
+  const v = $('sMassa').value.trim();
+  if (!v) { mensagem('Digite o SKU que será colocado nos anúncios marcados.', 'erro'); return; }
+  const alvo = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK'));
+  if (!alvo.length) { mensagem('Marque primeiro os anúncios que vão receber esse SKU (ou use "Marcar todos os que aparecem").', 'erro'); return; }
+  alvo.forEach(l => { l.novo = v; });
+  mensagem('SKU "' + v + '" preenchido em ' + alvo.length + ' anúncio(s). Confira, corrija o que precisar, digite TROCAR e grave.', 'ok'); desenhar();
+});
 $('sTrocar').addEventListener('click', trocar);
 atualizarForm();

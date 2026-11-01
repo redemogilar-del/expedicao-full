@@ -132,8 +132,8 @@ def _achados_sem_sku(item, regra):
     modo, termo, novo, _escopo = regra
     if not titulo_casa(item.get('title'), modo, termo):
         return []
-    pode = item.get('status') in ATIVOS and modo != 'sem_todos'
-    aviso = '' if modo != 'sem_todos' else 'Para trocar, procure por uma palavra do título e digite o SKU novo.'
+    pode = item.get('status') in ATIVOS
+    aviso = ''
     if modo != 'sem_todos' and len(novo) > MAX_SKU:
         pode, aviso = False, 'O SKU novo ficaria vazio ou com mais de %d caracteres.' % MAX_SKU
     return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'variacao': loc['variacao'],
@@ -241,7 +241,7 @@ def _corpo(mudancas):
 
 
 def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
-    """Troca o SKU dos locais `alvos` ({variacao, sku_visto}) de um anúncio. Devolve um dicionário de resultado."""
+    """Troca o SKU dos locais `alvos` [(variacao, sku_visto, sku_novo_individual)] de um anúncio. Devolve um dicionário de resultado."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': '', 'trocas': []}
     try:
         item = fontes._ml(tk, '/items/' + mlb)
@@ -252,19 +252,23 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
         if item.get('status') not in ATIVOS:
             raise Bloqueio('Anúncio %s: não dá para alterar.' % (item.get('status') or 'sem status'))
         sem = regra[0] in MODOS_SEM_SKU
-        if regra[0] == 'sem_todos':
-            raise Bloqueio('Esta busca é só para olhar a lista. Procure por uma palavra do título e digite o SKU novo para trocar.')
         if sem and not titulo_casa(item.get('title'), regra[0], regra[1]):
             raise Bloqueio('O título do anúncio mudou e não casa mais com a busca. Busque de novo.')
         atuais = {l['variacao']: l for l in (locais_sem_sku(item) if sem else locais(item))}
         mudancas, previstos = [], []
-        for var, visto in alvos:
+        for var, visto, individual in alvos:
             loc = atuais.get(var)
             if loc is None:
                 raise Bloqueio('Este anúncio já tem SKU (ou mudou) desde que você viu. Busque de novo.' if sem else 'O SKU deste anúncio mudou desde que você viu. Busque de novo.')
             if not sem and visto not in (loc['scf'], loc['attr']):
                 raise Bloqueio('O SKU mudou no Mercado Livre desde que você viu (agora: %s). Busque de novo.' % (loc['scf'] or loc['attr']))
-            mud = {'scf': regra[2], 'attr': regra[2]} if sem else _novos_campos(loc, regra)
+            if regra[0] == 'sem_todos':                 # cada anúncio com o SKU que a pessoa digitou para ele
+                novo_ind = str(individual or '').strip()
+                if not novo_ind or len(novo_ind) > MAX_SKU or _CTRL.search(novo_ind):
+                    raise Bloqueio('SKU novo inválido para este anúncio (máximo %d caracteres).' % MAX_SKU)
+                mud = {'scf': novo_ind, 'attr': novo_ind}
+            else:
+                mud = {'scf': regra[2], 'attr': regra[2]} if sem else _novos_campos(loc, regra)
             if not mud:
                 raise Bloqueio('O SKU não casa mais com a busca. Busque de novo.')
             for n in mud.values():

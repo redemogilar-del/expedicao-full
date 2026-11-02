@@ -145,7 +145,12 @@ function resumo(){
   const semSku = indiv ? LINHAS.filter(l => l.marcado && !(l.novo || '').trim()).length : 0;
   $('sMarcados').textContent = String(marcados) + (semSku ? ' (' + semSku + ' marcado(s) sem SKU digitado ficam de fora)' : '');
   $('sAplicar').hidden = !LINHAS.length;
-  $('sTrocar').disabled = OCUPADO || marcados === 0 || $('sConfirma').value.trim() !== 'TROCAR';
+  const digitou = $('sConfirma').value.trim() === 'TROCAR';
+  $('sTrocar').disabled = OCUPADO || marcados === 0 || !digitou;
+  // diz por que o botão ainda não liga
+  $('sDica').textContent = OCUPADO ? 'O botão liga quando a busca ou a troca terminar. Espere a barra de progresso acabar (ou clique em Parar).'
+    : marcados === 0 ? 'Marque pelo menos um anúncio' + (indiv ? ' e preencha o SKU dele' : '') + ' para ligar o botão.'
+    : !digitou ? 'Digite TROCAR (só a palavra, em maiúsculas) no campo ao lado para ligar o botão.' : 'Tudo certo: clique no botão para gravar no Mercado Livre.';
 }
 
 async function trocar(){

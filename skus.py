@@ -144,6 +144,8 @@ def _achados_sem_sku(item, regra):
 
 def achados(item, regra):
     """Linhas de pré-visualização para um anúncio (uma por local que casa com a regra)."""
+    if item.get('status') not in ATIVOS:
+        return []            # só entram na lista anúncios que dá para alterar (ativos e pausados)
     if regra[0] in MODOS_SEM_SKU:
         return _achados_sem_sku(item, regra)
     saida = []

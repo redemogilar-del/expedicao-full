@@ -89,9 +89,7 @@ class TestVarredura(unittest.TestCase):
             d = skus.varrer('ML19', regra)
             fim = skus.varrer('ML19', regra, d['scroll_id'])
         mlbs = sorted(a['mlb'] for a in d['achados'])
-        self.assertEqual(mlbs, ['MLB100000001', 'MLB100000002', 'MLB100000005'])               # a de outra conta e as sem o trecho ficam de fora
-        enc = next(a for a in d['achados'] if a['mlb'] == 'MLB100000005')
-        self.assertFalse(enc['permitido'])
+        self.assertEqual(mlbs, ['MLB100000001', 'MLB100000002'])               # a de outra conta, as sem o trecho e a encerrada ficam de fora (só entra o que dá para alterar)
         self.assertEqual(d['lidos'], 5)
         self.assertTrue(fim['concluido'])
         self.assertEqual(fake.puts, [])
@@ -142,17 +140,17 @@ class TestSemSku(unittest.TestCase):
     def test_acha_so_os_sem_sku_pelo_titulo_contem_e_comeca(self):
         d = self.buscar('sem_contem', 'granito')
         achados = sorted((a['mlb'], a['variacao']) for a in d['achados'])
-        self.assertEqual(achados, [('MLB200000001', None), ('MLB200000003', None), ('MLB200000004', 22), ('MLB200000005', None)])     # variação com SKU e anúncio com SKU ficam de fora
-        self.assertEqual({a['mlb']: a['permitido'] for a in d['achados']}['MLB200000005'], False)                                      # encerrado: só olhar
+        self.assertEqual(achados, [('MLB200000001', None), ('MLB200000003', None), ('MLB200000004', 22)])     # variação com SKU, anúncio com SKU e encerrado ficam de fora
         d = self.buscar('sem_comeca', 'granito')
-        self.assertEqual(sorted(a['mlb'] for a in d['achados']), ['MLB200000001', 'MLB200000004', 'MLB200000005'])
+        self.assertEqual(sorted(a['mlb'] for a in d['achados']), ['MLB200000001', 'MLB200000004'])
         self.assertEqual(self.fake.puts, [])
 
     def test_ver_todos_sem_sku_lista_e_libera_o_preenchimento(self):
         d = self.buscar('sem_todos', '', '')
-        self.assertTrue(d['ok'] and len(d['achados']) == 5)
+        self.assertTrue(d['ok'] and len(d['achados']) == 4)
         livres = {a['mlb']: a['permitido'] for a in d['achados']}
-        self.assertEqual((livres['MLB200000001'], livres['MLB200000005']), (True, False))        # encerrado: só olhar
+        self.assertEqual(livres['MLB200000001'], True)
+        self.assertNotIn('MLB200000005', livres)                                                  # encerrado: nem aparece
 
     def aplicar_individual(self, itens):
         with self.com():

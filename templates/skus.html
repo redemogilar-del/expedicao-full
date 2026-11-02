@@ -37,11 +37,12 @@
     <label for="sFiltroNao"><b>Não pode conter</b> — anúncios que tenham qualquer uma destas palavras no título ou na variação saem da lista (ex.: <i>branco areia</i>)</label>
     <div class="barra"><input type="search" id="sFiltroNao" placeholder="Palavras que NÃO podem aparecer (ex.: branco areia)" autocomplete="off"></div>
     <p id="sFiltroRes"></p>
-    <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou (a lista vai crescendo enquanto a busca roda) e procura trechos do título e do nome da variação (juntos, então "laje cinza" acha o título com "laje" e a variação "Cor: Cinza"), ignorando maiúsculas e acentos (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados. Depois de filtrar, use "Marcar todos os que aparecem" e "Preencher os marcados".</p>
+    <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou (a lista vai crescendo enquanto a busca roda) e procura trechos do título e do nome da variação (juntos, então "laje cinza" acha o título com "laje" e a variação "Cor: Cinza"), ignorando maiúsculas e acentos (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados. Depois de filtrar, use "Marcar todos (todas as abas)" e "Preencher os marcados".</p>
   </section>
   <div class="barra">
     <span id="sResumo"></span>
-    <button id="sTodos">Marcar todos os que aparecem</button>
+    <button id="sTodosAba">Marcar só esta aba</button>
+    <button id="sTodos">Marcar todos (todas as abas)</button>
     <button id="sNenhum">Desmarcar todos</button>
     <button id="sExcel">Baixar esta lista em Excel</button>
   </div>
@@ -49,18 +50,19 @@
     <p><b>Preencher o SKU dos anúncios sem SKU.</b> Duas formas, que podem ser combinadas:</p>
     <ul class="suave pequeno">
       <li><b>Individual:</b> digite o SKU direto no campo da linha do anúncio (a linha é marcada sozinha).</li>
-      <li><b>Em massa:</b> busque pelo título, marque os anúncios (ou "Marcar todos os que aparecem"), digite o SKU aqui e clique em <b>Preencher os marcados</b>. O SKU vai para os campos das linhas, e você ainda pode corrigir qualquer um à mão antes de gravar.</li>
+      <li><b>Em massa:</b> busque pelo título, marque os anúncios (ou "Marcar todos (todas as abas)"), digite o SKU aqui e clique em <b>Preencher os marcados</b>. O SKU vai para os campos das linhas, e você ainda pode corrigir qualquer um à mão antes de gravar.</li>
     </ul>
     <div class="barra"><input type="text" id="sMassa" maxlength="100" autocomplete="off" placeholder="SKU para todos os marcados"><button id="sPreencher">Preencher os marcados</button></div>
   </section>
-  <p class="suave pequeno" id="sLimite" hidden></p>
+  <div class="barra" id="sAbas" hidden></div>
   <div class="tabela-caixa">
     <table id="sTabela">
-      <thead><tr><th><input type="checkbox" id="sCabTodos" title="Marcar ou desmarcar todos os que aparecem"></th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação (ID)</th><th>Nome da variação</th><th>SKU atual</th><th id="sColNovo">SKU novo</th><th>Situação</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="sCabTodos" title="Marcar ou desmarcar os desta aba"></th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação (ID)</th><th>Nome da variação</th><th>SKU atual</th><th id="sColNovo">SKU novo</th><th>Situação</th></tr></thead>
       <tbody id="sCorpo"></tbody>
     </table>
     <p id="sVazio" class="suave centro" hidden>Nenhum anúncio encontrado com esse SKU.</p>
   </div>
+  <div class="barra" id="sAbas2" hidden></div>
   <section class="cartao" id="sAplicar" hidden>
     <p><b id="sMarcados">0</b> marcado(s) com SKU pronto. Para gravar no Mercado Livre, digite <b>TROCAR</b> e clique no botão.</p>
     <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Atualizar todos os SKU marcados no Mercado Livre</button></div>

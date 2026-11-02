@@ -27,11 +27,16 @@
 <div id="sProg" class="progresso" hidden><div id="sBarra"></div><span id="sTxt"></span></div>
 
 <section id="sResultado" hidden>
-  <div class="barra">
-    <input type="search" id="sFiltro" placeholder="Buscar no título do anúncio (uma ou mais palavras, ex.: granito 5kg)" autocomplete="off">
-    <label class="inline-campo"><select id="sFiltroModo"><option value="todas">que tenham todas as palavras</option><option value="qualquer">que tenham qualquer uma</option></select></label>
-  </div>
-  <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou e procura trechos do título (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados.</p>
+  <section class="cartao filtro-grande" id="sFiltroCaixa">
+    <label for="sFiltro"><b>Filtrar pelo título do anúncio</b> — digite uma ou mais palavras para separar um grupo de produtos parecidos (ex.: <i>antimofo 15l</i>)</label>
+    <div class="barra">
+      <input type="search" id="sFiltro" placeholder="Palavras do título (ex.: tinta acrílica 3,6l)" autocomplete="off">
+      <label class="inline-campo"><select id="sFiltroModo"><option value="todas">que tenham todas as palavras</option><option value="qualquer">que tenham qualquer uma</option></select></label>
+      <button id="sFiltroLimpa" type="button">Limpar filtro</button>
+    </div>
+    <p id="sFiltroRes"></p>
+    <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou (a lista vai crescendo enquanto a busca roda) e procura trechos do título, ignorando maiúsculas e acentos (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados. Depois de filtrar, use "Marcar todos os que aparecem" e "Preencher os marcados".</p>
+  </section>
   <div class="barra">
     <span id="sResumo"></span>
     <button id="sTodos">Marcar todos os que aparecem</button>

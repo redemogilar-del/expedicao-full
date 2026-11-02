@@ -79,7 +79,7 @@ const limpa = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, 
 function aparece(l){
   const palavras = limpa($('sFiltro').value).split(/\s+/).filter(Boolean);
   if (!palavras.length) return true;
-  const t = limpa(l.titulo);
+  const t = limpa(l.titulo + ' ' + (l.variacao_nome || ''));      // procura no título e no nome da variação (em qualquer um dos dois)
   return $('sFiltroModo').value === 'qualquer' ? palavras.some(p => t.includes(p)) : palavras.every(p => t.includes(p));
 }
 function filtrar(){ LINHAS.forEach(l => { if (!aparece(l)) l.marcado = false; }); MOSTRAR = 300; desenhar(); }   // o que some da tela nunca fica marcado

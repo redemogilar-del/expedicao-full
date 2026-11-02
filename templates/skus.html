@@ -28,14 +28,14 @@
 
 <section id="sResultado" hidden>
   <section class="cartao filtro-grande" id="sFiltroCaixa">
-    <label for="sFiltro"><b>Filtrar pelo título do anúncio</b> — digite uma ou mais palavras para separar um grupo de produtos parecidos (ex.: <i>antimofo 15l</i>)</label>
+    <label for="sFiltro"><b>Filtrar pelo título e pela variação</b> — digite uma ou mais palavras; vale se estiverem no título ou no nome da variação (ex.: <i>laje 18kg cinza</i>)</label>
     <div class="barra">
-      <input type="search" id="sFiltro" placeholder="Palavras do título (ex.: tinta acrílica 3,6l)" autocomplete="off">
+      <input type="search" id="sFiltro" placeholder="Palavras do título ou da variação (ex.: laje 18kg cinza)" autocomplete="off">
       <label class="inline-campo"><select id="sFiltroModo"><option value="todas">que tenham todas as palavras</option><option value="qualquer">que tenham qualquer uma</option></select></label>
       <button id="sFiltroLimpa" type="button">Limpar filtro</button>
     </div>
     <p id="sFiltroRes"></p>
-    <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou (a lista vai crescendo enquanto a busca roda) e procura trechos do título, ignorando maiúsculas e acentos (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados. Depois de filtrar, use "Marcar todos os que aparecem" e "Preencher os marcados".</p>
+    <p class="suave pequeno" id="sFiltroAjuda">O filtro age só sobre os anúncios que a busca acima já encontrou (a lista vai crescendo enquanto a busca roda) e procura trechos do título e do nome da variação (juntos, então "laje cinza" acha o título com "laje" e a variação "Cor: Cinza"), ignorando maiúsculas e acentos (por isso "5kg" também aparece em "25kg"). Os que ficam escondidos pelo filtro são desmarcados e não são trocados. Depois de filtrar, use "Marcar todos os que aparecem" e "Preencher os marcados".</p>
   </section>
   <div class="barra">
     <span id="sResumo"></span>

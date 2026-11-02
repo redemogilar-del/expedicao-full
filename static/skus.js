@@ -77,9 +77,11 @@ async function buscar(){
 // filtro da lista (só sobre o que já foi encontrado): ignora maiúsculas e acentos; várias palavras separadas por espaço
 const limpa = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function aparece(l){
-  const palavras = limpa($('sFiltro').value).split(/\s+/).filter(Boolean);
-  if (!palavras.length) return true;
+  const palavras = limpa($('sFiltro').value).split(/\s+/).filter(Boolean), fora = limpa($('sFiltroNao').value).split(/\s+/).filter(Boolean);
+  if (!palavras.length && !fora.length) return true;
   const t = limpa(l.titulo + ' ' + (l.variacao_nome || ''));      // procura no título e no nome da variação (em qualquer um dos dois)
+  if (fora.some(p => t.includes(p))) return false;                // "não pode conter": basta UMA dessas palavras para o anúncio sair
+  if (!palavras.length) return true;
   return $('sFiltroModo').value === 'qualquer' ? palavras.some(p => t.includes(p)) : palavras.every(p => t.includes(p));
 }
 function filtrar(){ LINHAS.forEach(l => { if (!aparece(l)) l.marcado = false; }); MOSTRAR = 300; desenhar(); }   // o que some da tela nunca fica marcado
@@ -169,8 +171,8 @@ $('sBuscar').addEventListener('click', buscar);
 $('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
-$('sFiltroLimpa').addEventListener('click', () => { $('sFiltro').value = ''; filtrar(); $('sFiltro').focus(); });
-$('sFiltro').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
+$('sFiltroLimpa').addEventListener('click', () => { $('sFiltro').value = ''; $('sFiltroNao').value = ''; filtrar(); $('sFiltro').focus(); });
+$('sFiltro').addEventListener('input', filtrar); $('sFiltroNao').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
 $('sCabTodos').addEventListener('change', e => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = e.target.checked; }); desenhar(); });
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });
 $('sConfirma').addEventListener('input', resumo);
@@ -192,8 +194,8 @@ async function baixarExcel(){
   $('sExcel').disabled = true;
   try {
     const busca = REGRA ? ({igual: 'SKU igual a ', contem: 'SKU contém ', comeca: 'SKU começa com ', sem_contem: 'Sem SKU, título contém ', sem_comeca: 'Sem SKU, título começa com ', sem_todos: 'Todos sem SKU'}[REGRA.modo] || '') + (REGRA.modo === 'sem_todos' ? '' : REGRA.termo) : '';
-    const filtro = $('sFiltro').value.trim();
-    const r = await fetch('/api/skus/exportar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, busca: busca + (filtro ? ' | filtro do título: ' + filtro : '')})});
+    const filtro = $('sFiltro').value.trim(), semPal = $('sFiltroNao').value.trim();
+    const r = await fetch('/api/skus/exportar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, busca: busca + (filtro ? ' | filtro do título/variação: ' + filtro : '') + (semPal ? ' | sem as palavras: ' + semPal : '')})});
     if (r.status === 401) { location.href = '/login'; return; }
     if (!r.ok) { let d = null; try { d = await r.json(); } catch (e) {} throw new Error((d && d.error) || ('Erro ' + r.status)); }
     const blob = await r.blob(), a = el('a', {href: URL.createObjectURL(blob), download: 'anuncios_sem_sku.xlsx'});

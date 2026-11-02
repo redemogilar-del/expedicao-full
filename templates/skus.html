@@ -38,13 +38,6 @@
     <button id="sNenhum">Desmarcar todos</button>
     <button id="sExcel">Baixar esta lista em Excel</button>
   </div>
-  <div class="tabela-caixa">
-    <table id="sTabela">
-      <thead><tr><th></th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação</th><th>SKU atual</th><th>SKU novo</th><th>Situação</th></tr></thead>
-      <tbody id="sCorpo"></tbody>
-    </table>
-    <p id="sVazio" class="suave centro" hidden>Nenhum anúncio encontrado com esse SKU.</p>
-  </div>
   <section class="cartao" id="sMassaCaixa" hidden>
     <p><b>Preencher o SKU dos anúncios sem SKU.</b> Duas formas, que podem ser combinadas:</p>
     <ul class="suave pequeno">
@@ -53,9 +46,17 @@
     </ul>
     <div class="barra"><input type="text" id="sMassa" maxlength="100" autocomplete="off" placeholder="SKU para todos os marcados"><button id="sPreencher">Preencher os marcados</button></div>
   </section>
+  <p class="suave pequeno" id="sLimite" hidden></p>
+  <div class="tabela-caixa">
+    <table id="sTabela">
+      <thead><tr><th><input type="checkbox" id="sCabTodos" title="Marcar ou desmarcar todos os que aparecem"></th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação</th><th>SKU atual</th><th id="sColNovo">SKU novo</th><th>Situação</th></tr></thead>
+      <tbody id="sCorpo"></tbody>
+    </table>
+    <p id="sVazio" class="suave centro" hidden>Nenhum anúncio encontrado com esse SKU.</p>
+  </div>
   <section class="cartao" id="sAplicar" hidden>
-    <p><b id="sMarcados">0</b> marcado(s). Para gravar, digite <b>TROCAR</b> abaixo.</p>
-    <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Trocar SKU dos marcados</button></div>
+    <p><b id="sMarcados">0</b> marcado(s) com SKU pronto. Para gravar no Mercado Livre, digite <b>TROCAR</b> e clique no botão.</p>
+    <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Atualizar todos os SKU marcados no Mercado Livre</button></div>
   </section>
   <section id="sFeitos" hidden>
     <h2>Resultado das trocas</h2>

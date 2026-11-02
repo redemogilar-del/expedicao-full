@@ -9,7 +9,7 @@ const el = (tag, props, ...filhos) => {
 const CONFIRMACAO = 'TROCAR_SKU';
 const STATUS = {active: 'Ativo', paused: 'Pausado', closed: 'Encerrado', under_review: 'Em revisão', inactive: 'Inativo'};
 let LINHAS = [];            // {id, conta, mlb, titulo, status, variacao, sku_atual, sku_novo, aviso, permitido, link, marcado, resultado}
-let REGRA = null, PARAR = false, OCUPADO = false;
+let REGRA = null, PARAR = false, OCUPADO = false, MOSTRAR = 300;   // MOSTRAR: quantas linhas desenhar (a lista pode ter milhares; filtro e marcar-todos valem para todas)
 
 function mensagem(texto, tipo){ const m = $('sMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, pct){
@@ -49,7 +49,7 @@ async function buscar(){
     if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Digite pelo menos 2 caracteres para buscar por "contém" ou "começa com".', 'erro'); return; }
   }
   const contas = $('sConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('sConta').value];
-  OCUPADO = true; PARAR = false; REGRA = regra; LINHAS = []; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
+  OCUPADO = true; PARAR = false; REGRA = regra; LINHAS = []; MOSTRAR = 300; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
   $('sBuscar').disabled = true; $('sParar').hidden = false; $('sResultado').hidden = false; desenhar();
   let falhou = null, parou = false;
   try {
@@ -82,11 +82,12 @@ function aparece(l){
   const t = limpa(l.titulo);
   return $('sFiltroModo').value === 'qualquer' ? palavras.some(p => t.includes(p)) : palavras.every(p => t.includes(p));
 }
-function filtrar(){ LINHAS.forEach(l => { if (!aparece(l)) l.marcado = false; }); desenhar(); }   // o que some da tela nunca fica marcado
+function filtrar(){ LINHAS.forEach(l => { if (!aparece(l)) l.marcado = false; }); MOSTRAR = 300; desenhar(); }   // o que some da tela nunca fica marcado
 
 function desenhar(){
   const corpo = $('sCorpo'); corpo.replaceChildren();
-  for (const l of LINHAS.filter(aparece)) {
+  const todas = LINHAS.filter(aparece);
+  for (const l of todas.slice(0, MOSTRAR)) {
     const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: !l.permitido || OCUPADO || !!(l.resultado && l.resultado.status === 'OK')});
     cx.addEventListener('change', () => { l.marcado = cx.checked; resumo(); });
     const mlb = l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb;
@@ -104,7 +105,12 @@ function desenhar(){
     corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)),
       el('td', null, l.sku_atual || '(sem SKU)'), celNovo, celSit));
   }
-  const visiveis = LINHAS.filter(aparece).length;
+  const visiveis = todas.length;
+  $('sLimite').hidden = visiveis <= MOSTRAR;
+  if (visiveis > MOSTRAR) { $('sLimite').replaceChildren('Mostrando ' + MOSTRAR + ' de ' + visiveis.toLocaleString('pt-BR') + ' na tela (para a tela não ficar pesada). "Marcar todos" e "Preencher os marcados" valem para todos os ' + visiveis.toLocaleString('pt-BR') + '. ', el('button', {onclick: () => { MOSTRAR += 500; desenhar(); }}, 'Mostrar mais 500')); }
+  const marcaveis = todas.filter(l => l.permitido && !(l.resultado && l.resultado.status === 'OK'));
+  $('sCabTodos').checked = marcaveis.length > 0 && marcaveis.every(l => l.marcado);
+  $('sColNovo').textContent = REGRA && REGRA.modo === 'sem_todos' ? 'SKU novo (digite aqui)' : 'SKU novo';
   $('sVazio').hidden = visiveis > 0 || OCUPADO;
   $('sVazio').textContent = LINHAS.length ? 'Nenhum anúncio da lista tem essas palavras no título.' : 'Nenhum anúncio encontrado com esse SKU.';
   $('sTabela').hidden = !visiveis;
@@ -163,6 +169,7 @@ $('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
 $('sFiltro').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
+$('sCabTodos').addEventListener('change', e => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = e.target.checked; }); desenhar(); });
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });
 $('sConfirma').addEventListener('input', resumo);
 $('sPreencher').addEventListener('click', () => {

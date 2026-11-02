@@ -122,6 +122,7 @@ function resumo(){
   $('sMassaCaixa').hidden = !(indiv && LINHAS.length);
   const marcados = LINHAS.filter(l => l.marcado && (!indiv || (l.novo || '').trim())).length, liberados = LINHAS.filter(l => l.permitido).length;
   const vis = LINHAS.filter(aparece), filtrando = vis.length !== LINHAS.length;
+  $('sFiltroRes').textContent = filtrando ? 'Aparecem ' + vis.length.toLocaleString('pt-BR') + ' de ' + LINHAS.length.toLocaleString('pt-BR') + ' anúncios encontrados.' : (LINHAS.length ? LINHAS.length.toLocaleString('pt-BR') + ' anúncios encontrados (sem filtro).' : '');
   $('sResumo').textContent = LINHAS.length + ' encontrado(s)' + (filtrando ? ' · ' + vis.length + ' aparecendo no filtro' : '') + ' · ' + liberados + ' liberado(s) para trocar';
   const semSku = indiv ? LINHAS.filter(l => l.marcado && !(l.novo || '').trim()).length : 0;
   $('sMarcados').textContent = String(marcados) + (semSku ? ' (' + semSku + ' marcado(s) sem SKU digitado ficam de fora)' : '');
@@ -168,6 +169,7 @@ $('sBuscar').addEventListener('click', buscar);
 $('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
+$('sFiltroLimpa').addEventListener('click', () => { $('sFiltro').value = ''; filtrar(); $('sFiltro').focus(); });
 $('sFiltro').addEventListener('input', filtrar); $('sFiltroModo').addEventListener('change', filtrar);
 $('sCabTodos').addEventListener('change', e => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = e.target.checked; }); desenhar(); });
 $('sNenhum').addEventListener('click', () => { LINHAS.forEach(l => { l.marcado = false; }); desenhar(); });

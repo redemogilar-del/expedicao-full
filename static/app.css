@@ -108,3 +108,8 @@ td input[type=number]{width:84px}
 .ok-linha{color:var(--verde);font-size:12px}
 button[hidden]{display:none!important}
 .regras label[hidden]{display:none!important}
+.filtro-grande .barra input[type=search]{max-width:none;margin-left:0;flex:1 1 320px;min-width:260px}
+.filtro-grande label{display:block}.filtro-grande .inline-campo{display:inline-block}#sFiltroRes{font-weight:600;margin:4px 0}
+td input[type=text]{min-width:190px;padding:4px 8px}
+#sMassa,#sConfirma,#sCaixa input[type=text],td input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto)}
+#sMassa{flex:1 1 280px;min-width:240px}

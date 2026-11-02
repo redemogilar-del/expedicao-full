@@ -102,7 +102,7 @@ function desenhar(){
       campo.addEventListener('input', () => { l.novo = campo.value; if (campo.value.trim() && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou: marca a linha sozinha
       celNovo = el('td', null, campo);
     } else celNovo = el('td', null, (l.resultado && l.resultado.status === 'OK' && l.novo) ? l.novo : (l.sku_novo || '—'));
-    corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)),
+    corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)), el('td', null, l.variacao_nome || (l.variacao === null ? '(anúncio sem variação)' : '—')),
       el('td', null, l.sku_atual || '(sem SKU)'), celNovo, celSit));
   }
   const visiveis = todas.length;
@@ -187,7 +187,7 @@ atualizarForm();
 
 // baixar em Excel o que está na tela (já com o filtro de título); só leitura
 async function baixarExcel(){
-  const itens = LINHAS.filter(aparece).map(l => ({conta: l.conta, mlb: l.mlb, titulo: l.titulo, variacao: l.variacao, status: STATUS[l.status] || l.status || '', sku_atual: l.sku_atual, sku_novo: (l.novo || l.sku_novo || ''), link: l.link || ''}));
+  const itens = LINHAS.filter(aparece).map(l => ({conta: l.conta, mlb: l.mlb, titulo: l.titulo, variacao: l.variacao, variacao_nome: l.variacao_nome || '', status: STATUS[l.status] || l.status || '', sku_atual: l.sku_atual, sku_novo: (l.novo || l.sku_novo || ''), link: l.link || ''}));
   if (!itens.length) { mensagem('Não há anúncios na lista para baixar.', 'erro'); return; }
   $('sExcel').disabled = true;
   try {

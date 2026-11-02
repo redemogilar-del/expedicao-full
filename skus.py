@@ -102,6 +102,21 @@ def locais(item):
     return saida
 
 
+def nome_variacao(item, var_id):
+    """Nome da variação para a tela, ex.: 'Cor: Branco / Tamanho: G' ('' se o anúncio não tem variação ou o ML não informou)."""
+    if var_id is None:
+        return ''
+    for v in item.get('variations') or []:
+        if isinstance(v, dict) and v.get('id') == var_id:
+            partes = []
+            for c in v.get('attribute_combinations') or []:
+                if isinstance(c, dict) and str(c.get('value_name') or '').strip():
+                    nome = str(c.get('name') or '').strip()
+                    partes.append((nome + ': ' if nome else '') + str(c['value_name']).strip())
+            return ' / '.join(partes)[:120]
+    return ''
+
+
 def locais_sem_sku(item):
     """[{variacao, scf, attr}] dos lugares SEM SKU: o anúncio (se não tem variações) ou cada variação sem SKU."""
     variacoes = [v for v in item.get('variations') or [] if isinstance(v, dict) and v.get('id') is not None]
@@ -136,7 +151,7 @@ def _achados_sem_sku(item, regra):
     aviso = ''
     if modo != 'sem_todos' and len(novo) > MAX_SKU:
         pode, aviso = False, 'O SKU novo ficaria vazio ou com mais de %d caracteres.' % MAX_SKU
-    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'variacao': loc['variacao'],
+    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'variacao': loc['variacao'], 'variacao_nome': nome_variacao(item, loc['variacao']),
              'sku_atual': '', 'sku_novo': novo if modo != 'sem_todos' else '', 'aviso': aviso, 'permitido': pode,
              'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''}
             for loc in locais_sem_sku(item)]
@@ -165,7 +180,7 @@ def achados(item, regra):
         except Bloqueio as exc:
             aviso, novo = str(exc), ''
         saida.append({'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''),
-                      'variacao': loc['variacao'], 'sku_atual': atual, 'sku_novo': novo, 'aviso': aviso,
+                      'variacao': loc['variacao'], 'variacao_nome': nome_variacao(item, loc['variacao']), 'sku_atual': atual, 'sku_novo': novo, 'aviso': aviso,
                       'permitido': item.get('status') in ATIVOS and not aviso.startswith('O SKU novo'),
                       'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''})
     return saida

@@ -113,3 +113,4 @@ button[hidden]{display:none!important}
 td input[type=text]{min-width:190px;padding:4px 8px}
 #sMassa,#sConfirma,#sCaixa input[type=text],td input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto)}
 #sMassa{flex:1 1 280px;min-width:240px}
+.dica{margin:8px 0 0;font-size:.9rem;opacity:.85}

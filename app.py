@@ -960,11 +960,11 @@ def api_skus_exportar():
                 raise envios.ArquivoInvalido('Dados inválidos na lista.')
             t = lambda k, n=300: _seguro(str(r.get(k) or '')[:n])
             var = r.get('variacao')
-            linhas.append([t('conta'), t('mlb'), t('titulo', 200), '' if var is None else _seguro(str(var)[:30]), t('status', 30), t('sku_atual', 100) or '(sem SKU)',
+            linhas.append([t('conta'), t('mlb'), t('titulo', 200), '' if var is None else _seguro(str(var)[:30]), t('variacao_nome', 120), t('status', 30), t('sku_atual', 100) or '(sem SKU)',
                            t('sku_novo', 100), t('link', 200)])
         busca = _seguro(str(c.get('busca') or '')[:120])
-        buf = _gerar_xlsx_vendas('Anúncios', ['Conta', 'MLB', 'Título do anúncio', 'Variação', 'Status', 'SKU atual', 'SKU novo (digitado)', 'Link'], linhas,
-                                 [8, 16, 70, 12, 12, 22, 22, 45], (), [['Busca', busca], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')],
+        buf = _gerar_xlsx_vendas('Anúncios', ['Conta', 'MLB', 'Título do anúncio', 'Variação (ID)', 'Nome da variação', 'Status', 'SKU atual', 'SKU novo (digitado)', 'Link'], linhas,
+                                 [8, 16, 70, 14, 30, 12, 22, 22, 45], (), [['Busca', busca], ['Gerado em', datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')],
                                  ['Anúncios na lista', len(linhas)], ['Observação', 'Lista só para consulta. Para preencher o SKU use a aba Trocar SKU.']])
         return send_file(buf, mimetype=XLSX, as_attachment=True, download_name='anuncios_sem_sku_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M'))
     except Exception as exc:

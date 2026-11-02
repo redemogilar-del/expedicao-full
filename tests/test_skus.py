@@ -22,7 +22,7 @@ class FakeML:
             'MLB100000002': {'id': 'MLB100000002', 'seller_id': 99, 'title': 'Granito 25kg pausado', 'status': 'paused', 'seller_custom_field': 'gr_25KG', 'attributes': []},
             'MLB100000003': {'id': 'MLB100000003', 'seller_id': 99, 'title': 'Outro', 'status': 'active', 'seller_custom_field': 'XX_1kg', 'attributes': []},
             'MLB100000004': {'id': 'MLB100000004', 'seller_id': 99, 'title': 'Com variações', 'status': 'active', 'seller_custom_field': None, 'attributes': [],
-                             'variations': [{'id': 11, 'seller_custom_field': 'GR_P', 'attributes': []}, {'id': 12, 'seller_custom_field': None, 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'GR_G'}]}, {'id': 13, 'seller_custom_field': 'ZZ', 'attributes': []}]},
+                             'variations': [{'id': 11, 'seller_custom_field': 'GR_P', 'attributes': [], 'attribute_combinations': [{'name': 'Tamanho', 'value_name': 'P'}, {'name': 'Cor', 'value_name': 'Branco'}]}, {'id': 12, 'seller_custom_field': None, 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'GR_G'}]}, {'id': 13, 'seller_custom_field': 'ZZ', 'attributes': []}]},
             'MLB100000005': {'id': 'MLB100000005', 'seller_id': 99, 'title': 'Encerrado', 'status': 'closed', 'seller_custom_field': 'GR_25kg', 'attributes': []},
             'MLB100000006': {'id': 'MLB100000006', 'seller_id': 7, 'title': 'De outra conta', 'status': 'active', 'seller_custom_field': 'GR_25kg', 'attributes': []},
         }
@@ -101,6 +101,9 @@ class TestVarredura(unittest.TestCase):
             d = skus.varrer('ML19', regra)
         var = [(a['variacao'], a['sku_atual'], a['sku_novo']) for a in d['achados'] if a['mlb'] == 'MLB100000004']
         self.assertEqual(sorted(var), [(11, 'GR_P', 'NV_P'), (12, 'GR_G', 'NV_G')])
+        nomes = {a['variacao']: a['variacao_nome'] for a in d['achados'] if a['mlb'] == 'MLB100000004'}
+        self.assertEqual(nomes, {11: 'Tamanho: P / Cor: Branco', 12: ''})                        # ML sem nome para a 12: fica vazio, nunca inventa
+        self.assertEqual(skus.nome_variacao(fake.itens['MLB100000001'], None), '')
 
     def test_novo_vazio_ou_enorme_e_bloqueado_na_previa(self):
         fake = FakeML()
@@ -121,7 +124,7 @@ class TestSemSku(unittest.TestCase):
             'MLB200000002': {'id': 'MLB200000002', 'seller_id': 99, 'title': 'Manta Asfaltica 10m', 'status': 'active', 'seller_custom_field': '', 'attributes': []},
             'MLB200000003': {'id': 'MLB200000003', 'seller_id': 99, 'title': '5kg Granito Rustico', 'status': 'paused', 'seller_custom_field': None, 'attributes': []},
             'MLB200000004': {'id': 'MLB200000004', 'seller_id': 99, 'title': 'Granito com variacoes', 'status': 'active', 'seller_custom_field': None, 'attributes': [],
-                             'variations': [{'id': 21, 'seller_custom_field': 'JA_TEM', 'attributes': []}, {'id': 22, 'seller_custom_field': None, 'attributes': []}]},
+                             'variations': [{'id': 21, 'seller_custom_field': 'JA_TEM', 'attributes': []}, {'id': 22, 'seller_custom_field': None, 'attributes': [], 'attribute_combinations': [{'name': 'Cor', 'value_name': 'Azul'}]}]},
             'MLB200000005': {'id': 'MLB200000005', 'seller_id': 99, 'title': 'Granito fechado', 'status': 'closed', 'seller_custom_field': None, 'attributes': []},
         }
         self.fake.itens = dict(novos, **{k: v for k, v in self.fake.itens.items() if k in ('MLB100000001',)})      # um com SKU para provar que não entra
@@ -181,14 +184,15 @@ class TestSemSku(unittest.TestCase):
         from io import BytesIO
         from openpyxl import load_workbook
         itens = [{'conta': 'ML19', 'mlb': 'MLB200000001', 'titulo': '=SOMA(1)', 'variacao': None, 'status': 'Ativo', 'sku_atual': '', 'sku_novo': 'GR_5KG', 'link': 'https://x'},
-                 {'conta': 'ML44', 'mlb': 'MLB200000004', 'titulo': 'Granito', 'variacao': 22, 'status': 'Ativo', 'sku_atual': '', 'sku_novo': '', 'link': ''}]
+                 {'conta': 'ML44', 'mlb': 'MLB200000004', 'titulo': 'Granito', 'variacao': 22, 'variacao_nome': 'Cor: Azul', 'status': 'Ativo', 'sku_atual': '', 'sku_novo': '', 'link': ''}]
         r = self.c.post('/api/skus/exportar', json={'itens': itens, 'busca': 'Todos sem SKU'})
         self.assertEqual(r.status_code, 200)
         self.assertIn('spreadsheetml', r.mimetype)
         ws = load_workbook(BytesIO(r.data))['Anúncios']
         linhas = [[c.value for c in l] for l in ws.iter_rows()]
         self.assertEqual(linhas[0][:3], ['Conta', 'MLB', 'Título do anúncio'])
-        self.assertEqual((linhas[1][1], linhas[1][5], linhas[1][6], linhas[2][3]), ('MLB200000001', '(sem SKU)', 'GR_5KG', '22'))
+        self.assertEqual((linhas[1][1], linhas[1][6], linhas[1][7], linhas[2][3]), ('MLB200000001', '(sem SKU)', 'GR_5KG', '22'))
+        self.assertEqual((linhas[0][4], linhas[2][4]), ('Nome da variação', 'Cor: Azul'))
         self.assertTrue(linhas[1][2].startswith("'"))                                   # nada vira fórmula no Excel
         self.assertEqual(self.fake.puts, [])
 

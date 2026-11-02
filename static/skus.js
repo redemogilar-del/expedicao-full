@@ -10,7 +10,7 @@ const CONFIRMACAO = 'TROCAR_SKU';
 const POR_ABA = 500;
 const STATUS = {active: 'Ativo', paused: 'Pausado', closed: 'Encerrado', under_review: 'Em revisão', inactive: 'Inativo'};
 let LINHAS = [];            // {id, conta, mlb, titulo, status, variacao, sku_atual, sku_novo, aviso, permitido, link, marcado, resultado}
-let REGRA = null, PARAR = false, OCUPADO = false, ABA = 1;   // a lista é mostrada em abas de 500 anúncios (pode ter milhares); filtro, marcar-todos e preencher valem para todas as abas
+let REGRA = null, PARAR = false, BUSCANDO = false, TROCANDO = false, TXT_TROCA = '', ABA = 1;   // a lista é mostrada em abas de 500 anúncios (pode ter milhares); filtro, marcar-todos e preencher valem para todas as abas
 
 function mensagem(texto, tipo){ const m = $('sMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, pct){
@@ -42,7 +42,7 @@ function atualizarForm(){
 }
 
 async function buscar(){
-  if (OCUPADO) return;
+  if (BUSCANDO || TROCANDO) return;
   const regra = lerRegra();
   if (regra.modo !== 'sem_todos') {
     if (!regra.termo) { mensagem(SEM_SKU(regra.modo) ? 'Digite a palavra que está no título do produto.' : 'Digite o SKU que será procurado.', 'erro'); return; }
@@ -50,7 +50,7 @@ async function buscar(){
     if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Digite pelo menos 2 caracteres para buscar por "contém" ou "começa com".', 'erro'); return; }
   }
   const contas = $('sConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('sConta').value];
-  OCUPADO = true; PARAR = false; REGRA = regra; LINHAS = []; ABA = 1; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
+  BUSCANDO = true; PARAR = false; REGRA = regra; LINHAS = []; ABA = 1; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
   $('sBuscar').disabled = true; $('sParar').hidden = false; $('sResultado').hidden = false; desenhar();
   let falhou = null, parou = false;
   try {
@@ -64,12 +64,12 @@ async function buscar(){
         for (const a of d.achados) LINHAS.push(Object.assign({}, a, {id: LINHAS.length, conta, marcado: false, resultado: null}));
         const pct = d.total ? (lidos / d.total) * 100 : 5;
         progresso(conta + ': leu ' + lidos.toLocaleString('pt-BR') + (d.total ? ' de ' + d.total.toLocaleString('pt-BR') : '') + ' anúncios · ' + LINHAS.length + ' encontrado(s)', (ci * 100 + pct) / contas.length);
-        desenhar();
+        if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sCorpo')) resumo(); else desenhar();   // não tira o cursor de quem está digitando um SKU
         if (d.concluido) break;
       }
     }
   } catch (e) { falhou = e; }
-  OCUPADO = false; $('sBuscar').disabled = false; $('sParar').hidden = true; progresso(null); desenhar();
+  BUSCANDO = false; $('sBuscar').disabled = TROCANDO; $('sParar').hidden = true; progresso(null); desenhar();
   if (falhou) mensagem('A busca parou: ' + falhou.message + ' O que já apareceu continua na tela.', 'erro');
   else if (parou) mensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
   else mensagem(LINHAS.length ? 'Busca concluída. Marque os anúncios que quer trocar.' : 'Busca concluída: nenhum anúncio com esse SKU.', LINHAS.length ? 'ok' : '');
@@ -107,7 +107,7 @@ function desenhar(){
   const abas = Math.max(1, Math.ceil(todas.length / POR_ABA)); if (ABA > abas) ABA = abas; if (ABA < 1) ABA = 1;
   const daAba = todas.slice((ABA - 1) * POR_ABA, ABA * POR_ABA);
   for (const l of daAba) {
-    const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: !l.permitido || OCUPADO || !!(l.resultado && l.resultado.status === 'OK')});
+    const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: !l.permitido || TROCANDO || !!(l.resultado && l.resultado.status === 'OK')});
     cx.addEventListener('change', () => { l.marcado = cx.checked; resumo(); });
     const mlb = l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb;
     let sit = STATUS[l.status] || l.status || '—';
@@ -117,7 +117,7 @@ function desenhar(){
     if (l.resultado) celSit.append(el('div', {class: l.resultado.status === 'OK' ? 'ok-linha' : 'aviso-linha'}, l.resultado.status === 'OK' ? 'Trocado e conferido ✔' : l.resultado.mensagem));
     let celNovo;
     if (REGRA && REGRA.modo === 'sem_todos' && l.permitido && !(l.resultado && l.resultado.status === 'OK')) {
-      const campo = el('input', {type: 'text', value: l.novo || '', maxLength: 100, placeholder: 'SKU deste anúncio', disabled: OCUPADO});
+      const campo = el('input', {type: 'text', value: l.novo || '', maxLength: 100, placeholder: 'SKU deste anúncio', disabled: TROCANDO});
       campo.addEventListener('input', () => { l.novo = campo.value; if (campo.value.trim() && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou: marca a linha sozinha
       celNovo = el('td', null, campo);
     } else celNovo = el('td', null, (l.resultado && l.resultado.status === 'OK' && l.novo) ? l.novo : (l.sku_novo || '—'));
@@ -129,7 +129,7 @@ function desenhar(){
   const marcaveis = daAba.filter(l => l.permitido && !(l.resultado && l.resultado.status === 'OK'));
   $('sCabTodos').checked = marcaveis.length > 0 && marcaveis.every(l => l.marcado);
   $('sColNovo').textContent = REGRA && REGRA.modo === 'sem_todos' ? 'SKU novo (digite aqui)' : 'SKU novo';
-  $('sVazio').hidden = visiveis > 0 || OCUPADO;
+  $('sVazio').hidden = visiveis > 0 || BUSCANDO;
   $('sVazio').textContent = LINHAS.length ? 'Nenhum anúncio da lista tem essas palavras no título.' : 'Nenhum anúncio encontrado com esse SKU.';
   $('sTabela').hidden = !visiveis;
   resumo();
@@ -146,19 +146,19 @@ function resumo(){
   $('sMarcados').textContent = String(marcados) + (semSku ? ' (' + semSku + ' marcado(s) sem SKU digitado ficam de fora)' : '');
   $('sAplicar').hidden = !LINHAS.length;
   const digitou = $('sConfirma').value.trim() === 'TROCAR';
-  $('sTrocar').disabled = OCUPADO || marcados === 0 || !digitou;
+  $('sTrocar').disabled = TROCANDO || marcados === 0 || !digitou;
   // diz por que o botão ainda não liga
-  $('sDica').textContent = OCUPADO ? 'O botão liga quando a busca ou a troca terminar. Espere a barra de progresso acabar (ou clique em Parar).'
+  $('sDica').textContent = TROCANDO ? (TXT_TROCA || 'Gravando no Mercado Livre… aguarde.')
     : marcados === 0 ? 'Marque pelo menos um anúncio' + (indiv ? ' e preencha o SKU dele' : '') + ' para ligar o botão.'
     : !digitou ? 'Digite TROCAR (só a palavra, em maiúsculas) no campo ao lado para ligar o botão.' : 'Tudo certo: clique no botão para gravar no Mercado Livre.';
 }
 
 async function trocar(){
-  if (OCUPADO) return;
+  if (TROCANDO) return;
   const indiv = REGRA && REGRA.modo === 'sem_todos';
   const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK') && (!indiv || (l.novo || '').trim()));
   if (!sel.length || $('sConfirma').value.trim() !== 'TROCAR') return;
-  OCUPADO = true; $('sTrocar').disabled = true; $('sBuscar').disabled = true; mensagem('');
+  TROCANDO = true; TXT_TROCA = ''; $('sTrocar').disabled = true; $('sBuscar').disabled = true; mensagem('');
   $('sFeitos').hidden = false;
   const porAnuncio = new Map();
   for (const l of sel) { const k = l.conta + '|' + l.mlb; if (!porAnuncio.has(k)) porAnuncio.set(k, []); porAnuncio.get(k).push(l); }
@@ -170,7 +170,7 @@ async function trocar(){
       for (let i = 0; i < lotes[conta].length; i += 5) {
         const grupo = lotes[conta].slice(i, i + 5), itens = [];
         for (const ls of grupo) for (const l of ls) itens.push({mlb: l.mlb, variacao: l.variacao, sku_visto: l.sku_atual, sku_novo: indiv ? l.novo.trim() : undefined});
-        progresso('Trocando ' + (feitos + 1) + ' de ' + total + '…', (feitos / total) * 100);
+        TXT_TROCA = 'Trocando ' + (feitos + 1) + ' de ' + total + ' anúncios no Mercado Livre…' + (BUSCANDO ? ' (a busca continua rodando)' : ''); $('sDica').textContent = TXT_TROCA;
         // sem repetir automaticamente: se der erro, a pessoa busca de novo e confere o que ficou feito
         const d = await json('/api/skus/aplicar', Object.assign({conta, confirmacao: CONFIRMACAO, itens}, REGRA));
         for (const r of d.resultados) {
@@ -181,7 +181,7 @@ async function trocar(){
       }
     }
   } catch (e) { falhou = e; }
-  OCUPADO = false; $('sBuscar').disabled = false; progresso(null); $('sConfirma').value = ''; desenhar();
+  TROCANDO = false; $('sBuscar').disabled = BUSCANDO; $('sConfirma').value = ''; desenhar();
   const ok = LINHAS.filter(l => l.resultado && l.resultado.status === 'OK').length;
   if (falhou) mensagem('Parou no meio: ' + falhou.message + ' Faça a busca de novo para ver o que já foi trocado antes de repetir.', 'erro');
   else mensagem(ok + ' local(is) com SKU trocado e conferido. Veja a tabela de resultados abaixo.', ok ? 'ok' : '');
@@ -189,7 +189,7 @@ async function trocar(){
 
 $('sModo').addEventListener('change', atualizarForm);
 $('sBuscar').addEventListener('click', buscar);
-$('sSemSku').addEventListener('click', () => { if (OCUPADO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
+$('sSemSku').addEventListener('click', () => { if (BUSCANDO || TROCANDO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
 $('sFiltroLimpa').addEventListener('click', () => { $('sFiltro').value = ''; $('sFiltroNao').value = ''; filtrar(); $('sFiltro').focus(); });

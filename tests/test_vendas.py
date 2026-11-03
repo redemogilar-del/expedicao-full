@@ -184,6 +184,9 @@ class TestFontesVendas(unittest.TestCase):
         envios[2] = ('ready_to_ship', 'printed', '2026-11-03')                                         # etiqueta já impressa, ainda não bipada
         self.assertEqual([i['pedido'] for i in rodar(etapa='prontos')], ['2', '3'])                  # "prontos" = liberada + impressa (sem aguardando)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['3'])
+        envios[2] = ('ready_to_ship', 'printed', '2026-11-09')                                          # impressa, prazo só semana que vem: sai na coleta de hoje
+        self.assertIn('2', [i['pedido'] for i in rodar(etapa='prontos', vence_ate='2026-11-03')])
+        self.assertNotIn('2', [i['pedido'] for i in rodar(etapa='prontos', vence_apos='2026-11-03')])
         envios[2] = ('ready_to_ship', 'ready_to_print', '2026-11-03')
         envios[3] = ('ready_to_ship', 'ready_to_print', '2026-11-09'); envios[4] = ('ready_to_ship', 'ready_to_print', None)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém

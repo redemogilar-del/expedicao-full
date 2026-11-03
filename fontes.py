@@ -537,10 +537,21 @@ def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos
     for c in contas:
         try:
             tk = token(c)
-            ped = _ml(tk, '/orders/%s' % pedido)
             vendedor = _vendedor(c, tk)
         except (RuntimeError, FonteIndisponivel):
             continue
+        try:
+            ped = _ml(tk, '/orders/%s' % pedido)
+        except RuntimeError:
+            ped = None
+        if not (isinstance(ped, dict) and str(ped.get('id')) == str(pedido)):      # o número do UpSeller pode ser o do carrinho (pack): usa o 1º pedido dele
+            try:
+                outros = ((_ml(tk, '/packs/%s' % pedido) or {}).get('orders') or [])
+                ped = _ml(tk, '/orders/%s' % (outros[0] or {}).get('id')) if outros else None
+            except (RuntimeError, ValueError, AttributeError, IndexError):
+                ped = None
+            if isinstance(ped, dict):
+                ped = dict(ped, id=pedido)                                           # só para passar na conferência abaixo
         if isinstance(ped, dict) and str(ped.get('id')) == str(pedido) and str((ped.get('seller') or {}).get('id') or '') in ('', str(vendedor)):
             achou = (c, tk, vendedor, ped)
             break
@@ -570,27 +581,8 @@ def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos
     return saida
 
 
-def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
-    """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
-
-    Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
-    quantidade, venda, tarifa (None se o ML não informou), frete (parte do vendedor; None se desconhecido),
-    grupo (a_enviar | enviado | full), logistica, status_envio, obs.
-    """
-    tk = token(conta)
-    vendedor = _vendedor(conta, tk)
-    params = {'seller': vendedor, 'order.date_created.from': inicio + 'T00:00:00.000-03:00', 'order.date_created.to': fim + 'T23:59:59.999-03:00',
-              'order.status': 'paid', 'sort': 'date_asc', 'limit': int(limite), 'offset': int(offset)}
-    try:
-        dados = _ml(tk, '/orders/search', params)
-    except RuntimeError as exc:
-        raise FonteIndisponivel('Não consegui ler os pedidos do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
-    if not isinstance(dados, dict) or not isinstance(dados.get('results'), list):
-        raise FonteIndisponivel('O Mercado Livre respondeu os pedidos de um jeito inesperado.')
-    pedidos = [p for p in dados['results'] if isinstance(p, dict)]
-    ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos), ativos))
+def _itens_dos_pedidos(conta, tk, ativos, envios):
+    """Linhas (uma por item) com venda, tarifa, frete e envio, a partir dos pedidos e dos envios já lidos."""
     precos_ml = {}
     mlbs = sorted({str((r.get('item') or {}).get('id') or '') for p in ativos for r in (p.get('order_items') or []) if isinstance(r, dict)})
     mlbs = [m for m in mlbs if _MLB.match(m)]
@@ -626,7 +618,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
             if env['divisor'] > 1:
                 obs = (obs + '; ' if obs else '') + 'Carrinho com %d pedidos: frete dividido igualmente' % env['divisor']
             itens.append({
-                'conta': conta, 'pedido': str(ped.get('id') or ''), 'data': str(ped.get('date_created') or '')[:16].replace('T', ' '),
+                'conta': conta, 'pedido': str(ped.get('id') or ''), 'pack_id': str(ped.get('pack_id') or ''), 'data': str(ped.get('date_created') or '')[:16].replace('T', ' '),
                 'mlb': mlb, 'sku': str(it.get('seller_sku') or it.get('seller_custom_field') or r.get('seller_sku') or '').strip()[:80],
                 'titulo': str(it.get('title') or '')[:200], 'quantidade': q, 'venda': venda,
                 'tarifa': None if fee is None else round(abs(fee) * q, 2),
@@ -635,6 +627,31 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
                 'status_rotulo': (rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado') + (' · enviar até %s/%s' % (env['limite'][8:10], env['limite'][5:7]) if env['limite'] and env['status_envio'].lower() not in FINAIS_ENVIO else ''),
                 'limite_envio': env['limite'], 'preco_ml': precos_ml.get(mlb), 'obs': obs,
             })
+    return itens
+
+
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
+    """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
+
+    Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
+    quantidade, venda, tarifa (None se o ML não informou), frete (parte do vendedor; None se desconhecido),
+    grupo (a_enviar | enviado | full), logistica, status_envio, obs.
+    """
+    tk = token(conta)
+    vendedor = _vendedor(conta, tk)
+    params = {'seller': vendedor, 'order.date_created.from': inicio + 'T00:00:00.000-03:00', 'order.date_created.to': fim + 'T23:59:59.999-03:00',
+              'order.status': 'paid', 'sort': 'date_asc', 'limit': int(limite), 'offset': int(offset)}
+    try:
+        dados = _ml(tk, '/orders/search', params)
+    except RuntimeError as exc:
+        raise FonteIndisponivel('Não consegui ler os pedidos do Mercado Livre agora (%s). Tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or not isinstance(dados.get('results'), list):
+        raise FonteIndisponivel('O Mercado Livre respondeu os pedidos de um jeito inesperado.')
+    pedidos = [p for p in dados['results'] if isinstance(p, dict)]
+    ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos), ativos))
+    itens = _itens_dos_pedidos(conta, tk, ativos, envios)
     pag = dados.get('paging') or {}
     total = int(pag.get('total') or 0)
     proximo = int(offset) + len(pedidos)
@@ -718,3 +735,56 @@ def impostos_conta(conta):
             raise FonteIndisponivel('Imposto "%s" inválido ou vazio na aba TaxasML (%s).' % (nome, conta))
         saida[nome] = v
     return saida
+
+
+def pedidos_por_numero(conta_dica, numeros):
+    """Linhas (como as da busca, sem filtro de etapa/prazo) dos pedidos que o UpSeller mostra e a busca não trouxe.
+
+    O número do UpSeller pode ser do pedido ou do carrinho (pack): tenta o pedido, depois o carrinho.
+    Devolve {'itens': [...], 'ignorados': [{'pedido', 'motivo'}]}. Só leitura.
+    """
+    achados, ignorados = {}, []
+    for n in numeros:
+        ordem = [conta_dica] + [x for x in CONTAS if x != conta_dica] if conta_dica in CONTAS else list(CONTAS)
+        achou = False
+        for c in ordem:
+            try:
+                tk = token(c)
+                vendedor = _vendedor(c, tk)
+            except (RuntimeError, FonteIndisponivel):
+                continue
+            peds = []
+            try:
+                p = _ml(tk, '/orders/%s' % n)
+                if isinstance(p, dict) and str(p.get('id')) == str(n):
+                    peds = [p]
+            except RuntimeError:
+                pass
+            if not peds:
+                try:
+                    for o in ((_ml(tk, '/packs/%s' % n) or {}).get('orders') or [])[:10]:
+                        peds.append(_ml(tk, '/orders/%s' % (o or {}).get('id')))
+                except (RuntimeError, ValueError, AttributeError):
+                    peds = []
+            peds = [p for p in peds if isinstance(p, dict) and str((p.get('seller') or {}).get('id') or '') in ('', str(vendedor))]
+            if not peds:
+                continue
+            achou = True
+            for p in peds:
+                if str(p.get('status') or '') != 'paid':
+                    ignorados.append({'pedido': n, 'motivo': 'Pedido %s está como "%s" no Mercado Livre (não entra nas vendas)' % (p.get('id'), p.get('status') or 'sem situação')})
+                else:
+                    achados.setdefault(c, []).append((n, tk, vendedor, p))
+            break
+        if not achou:
+            ignorados.append({'pedido': n, 'motivo': 'Não encontrei este pedido no Mercado Livre. Confira o número ou a conta'})
+    itens = []
+    for c, lista in achados.items():
+        tk, vendedor = lista[0][1], lista[0][2]
+        peds = [x[3] for x in lista]
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, False), peds))
+        for it in _itens_dos_pedidos(c, tk, peds, envios):
+            it['pedido_upseller'] = next((x[0] for x in lista if str(x[3].get('id')) == it['pedido']), '')
+            itens.append(it)
+    return {'itens': itens, 'ignorados': ignorados}

@@ -574,7 +574,7 @@ if __name__ == '__main__':
 
 
 # ------------------------------------------------------------------ Vendas do dia (lucro por venda)
-_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem')
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'pedido_upseller', 'limite_envio')
 
 
 def _params_vendas(c):
@@ -689,6 +689,29 @@ def api_vendas_diagnostico():
         return _erro_fonte(exc)
 
 
+@app.post('/api/vendas/pedidos-por-numero')
+def api_vendas_pedidos_por_numero():
+    """Traz para a lista os pedidos do UpSeller que a busca não trouxe (até 8 por vez). Só leitura."""
+    try:
+        c = request.get_json(silent=True) or {}
+        lista = c.get('pedidos')
+        if not isinstance(lista, list) or not 1 <= len(lista) <= 8:
+            raise envios.ArquivoInvalido('Envie de 1 a 8 pedidos por vez.')
+        por_conta = {}
+        for p in lista:
+            num = str((p or {}).get('pedido') or '') if isinstance(p, dict) else ''
+            if not num.isdigit() or not 12 <= len(num) <= 20:
+                raise envios.ArquivoInvalido('Número de pedido inválido.')
+            por_conta.setdefault(str(p.get('conta') or ''), []).append(num)
+        itens, ignorados = [], []
+        for conta, nums in por_conta.items():
+            r = fontes.pedidos_por_numero(conta, nums)
+            itens += r['itens']; ignorados += r['ignorados']
+        return jsonify(ok=True, itens=itens, ignorados=ignorados)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/vendas/impostos')
 def api_vendas_impostos():
     """Imposto/embalagem (%) da aba TaxasML por conta. Falha de uma conta não derruba as outras."""
@@ -728,7 +751,7 @@ def api_vendas_calcular():
         bruto, cad = c.get('linhas'), c.get('cadastro')
         if not isinstance(bruto, list) or len(bruto) > 20000 or not isinstance(cad, dict):
             raise envios.ArquivoInvalido('Dados inválidos.')
-        linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete')} for r in bruto if isinstance(r, dict)]
+        linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete', 'preco_ml')} for r in bruto if isinstance(r, dict)]
         cadastro = {str(k): {'custo': _num(v.get('custo')), 'margem': _num(v.get('margem')), 'margem_full': _num(v.get('margem_full'))} for k, v in cad.items() if isinstance(v, dict)}
         analisadas, resumo = vendas.calcular(linhas, cadastro, params)
         return jsonify(ok=True, linhas=analisadas, resumo=resumo)

@@ -283,12 +283,20 @@ def diagnosticar(conta, mlb):
     vs = []
     for v in completo.get('variations') or []:
         if isinstance(v, dict):
+            up_id, up_sku = v.get('user_product_id'), None
+            if up_id:                                   # SKU guardado no produto do usuário (modelo novo); só leitura, pode não existir
+                try:
+                    up = fontes._ml(tk, '/user-products/' + str(up_id))
+                    up_sku = _attr_sku(up.get('attributes')) if isinstance(up, dict) else None
+                except (RuntimeError, ValueError):
+                    up_sku = None
             vs.append({'id': v.get('id'), 'nome': nome_variacao(completo, v.get('id')), 'seller_custom_field': str(v.get('seller_custom_field') or ''),
-                       'SELLER_SKU': _attr_sku(v.get('attributes')), 'fotos': len(v.get('picture_ids') or [])})
+                       'SELLER_SKU': _attr_sku(v.get('attributes')), 'fotos': len(v.get('picture_ids') or []),
+                       'user_product_id': up_id, 'SKU_no_produto_do_usuario': up_sku, 'campos': sorted(v.keys())})
     return {'mlb': mlb, 'status': completo.get('status'), 'categoria': completo.get('category_id'),
             'fotos_do_anuncio': len(completo.get('pictures') or []),
             'limite_fotos_anuncio': cat.get('max_pictures_per_item'), 'limite_fotos_por_variacao': cat.get('max_pictures_per_item_var'),
-            'sku_do_anuncio': {'seller_custom_field': str(completo.get('seller_custom_field') or ''), 'SELLER_SKU': _attr_sku(completo.get('attributes'))},
+            'campos_do_anuncio': sorted(completo.keys()), 'sku_do_anuncio': {'seller_custom_field': str(completo.get('seller_custom_field') or ''), 'SELLER_SKU': _attr_sku(completo.get('attributes'))},
             'variacoes': vs, 'sem_sku_lendo_o_anuncio_completo': sem(completo), 'sem_sku_como_a_varredura_enxerga': sem(varredura)}
 
 

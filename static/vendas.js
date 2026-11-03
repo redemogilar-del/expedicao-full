@@ -169,13 +169,13 @@ function conferirUpseller(manter){
   const noUpsSite = nums.size - semAqui.length, pl = PLANILHA && PLANILHA.ml === nums.size ? PLANILHA : null;
   const linhasTxt = pl ? 'A planilha tem ' + pl.linhas + ' linhas: ' + pl.ml + ' pedidos do Mercado Livre' + (pl.outras ? ' + ' + pl.outras + ' de outras lojas (ex.: Shopee, não entram na conta)' : '') + (pl.repetidos ? ' + ' + pl.repetidos + ' repetidos' : '') + '. ' : '';
   r.replaceChildren(document.createTextNode(linhasTxt + 'Dos ' + nums.size + ' pedidos do UpSeller: ' + noUpsSite + ' estão no site e ' + semAqui.length + ' não vieram na busca' + (cancUps.length ? ' (' + cancUps.length + ' deles o próprio UpSeller marca como Cancelado, então não precisam vir)' : '') + (semAquiVivos.length ? ': ' + semAquiVivos.slice(0, 30).join(', ') + (semAquiVivos.length > 30 ? '…' : '') : '') + '. O site trouxe ' + (foraSet.size + ambosSet.size) + ' pedidos, e ' + foraSet.size + ' deles não estão no UpSeller. '));
-  const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + noUpsSite + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + semAquiVivos.length + ')']];
+  const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + noUpsSite + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + (semAquiVivos.length + cancUps.filter(n => UPS_MAE[n]).length) + ')']];
   const grupo = el('div', {class:'filtros'}); for (const [k, nome] of opc) grupo.append(el('button', {type:'button', class: UPS_FILTRO === k ? 'on' : '', onclick: () => { UPS_FILTRO = k; conferirUpseller(true); }}, nome));
   r.append(grupo);
   desenhar();
 }
 // anexar a planilha do UpSeller: lê os números e, para os que NÃO vieram aqui, pergunta ao Mercado Livre o motivo
-let UPS_CANC = new Set(), PLANILHA = null, UPS_CONTA = {}, FILTRO = {de: '', ate: '', enviar: false, etapa: 'todos', prazo: ''};
+let UPS_MAE = {}, UPS_CANC = new Set(), PLANILHA = null, UPS_CONTA = {}, FILTRO = {de: '', ate: '', enviar: false, etapa: 'todos', prazo: ''};
 async function anexarUpseller(arquivo){
   const r = $('vUpsRes'); r.textContent = 'Lendo a planilha…'; $('vUpsMotivosCx').hidden = true;
   try {
@@ -186,6 +186,7 @@ async function anexarUpseller(arquivo){
     if (!resp.ok || !d || d.ok === false) throw new Error((d && d.error) || ('Erro ' + resp.status));
     UPS_CONTA = {}; for (const p of d.pedidos) UPS_CONTA[p.pedido] = p.conta;
     UPS_CANC = new Set(d.pedidos.filter(p => p.cancelado).map(p => p.pedido));
+    UPS_MAE = {}; for (const p of d.pedidos) if (p.mae) UPS_MAE[p.pedido] = Object.assign({conta: p.conta}, p.mae);
     PLANILHA = {linhas: d.linhas, ml: d.pedidos.length, outras: d.outras_lojas, repetidos: d.repetidos};
     $('vUpsTexto').value = d.pedidos.map(p => p.pedido).join('\n');
     conferirUpseller();
@@ -207,15 +208,23 @@ async function explicarFaltantes(){
     corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo || 'Deveria ter aparecido: busque de novo (pode ter sido só uma falha de leitura do Mercado Livre).'))));
   }
   const grupos = new Map(); for (const x of linhas) { const k = x.motivo ? x.motivo.replace(/"[^"]*"/g, '“…”').replace(/\d{2}\/\d{2}/g, 'dd/mm') : 'Deveria ter aparecido'; grupos.set(k, (grupos.get(k) || 0) + 1); }
-  for (const n of canc) linhas.push({pedido: n, conta: UPS_CONTA[n] || '', situacao: 'Cancelado no UpSeller', motivo: 'O próprio UpSeller marca este pedido como Cancelado (o Mercado Livre cancelou ou separou a venda em pacotes novos). Não precisa vir na lista'});
+  for (const n of canc) linhas.push({pedido: n, conta: UPS_CONTA[n] || '', situacao: 'Cancelado no UpSeller', motivo: UPS_MAE[n] ? 'Venda separada em pacotes: entrou na lista como venda mãe, com o valor total da venda (valores do UpSeller)' : 'O próprio UpSeller marca este pedido como Cancelado (o Mercado Livre cancelou ou separou a venda em pacotes novos). Não precisa vir na lista'});
   corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo))));
-  await trazerFaltantes(limite);
+  await trazerFaltantes(limite, canc.filter(n => UPS_MAE[n]));
   res.textContent = 'Motivos dos ' + linhas.length + ' que faltam' + (canc.length ? ' (' + canc.length + ' cancelados no UpSeller)' : '') + ': ' + [...grupos].sort((a, b) => b[1] - a[1]).map(([k, v]) => v + ' × ' + k).join(' | ') + (vivos.length > limite.length ? ' (mostrei só os primeiros ' + limite.length + ')' : '');
 }
 $('vUpsArquivo').onchange = e => { const f = e.target.files[0]; if (f) anexarUpseller(f); e.target.value = ''; };
 // coloca na lista (com lucro e margem) os pedidos que estão no UpSeller e a busca não trouxe
-async function trazerFaltantes(numeros){
+function linhasDaMae(n){
+  const m = UPS_MAE[n], soma = m.itens.reduce((t, i) => t + i.preco * i.quantidade, 0), arred = v => v === null || v === undefined ? null : Math.round(v * 100) / 100;
+  return m.itens.map(i => { const venda = arred(i.preco * i.quantidade), parte = soma > 0 ? venda / soma : 1 / m.itens.length;
+    return {conta: m.conta, pedido: n, pack_id: n, pedido_upseller: n, data: m.data, mlb: i.mlb, sku: i.sku, titulo: i.titulo, quantidade: i.quantidade, venda,
+      tarifa: arred(m.tarifa === null ? null : m.tarifa * parte), frete: arred(m.frete === null ? null : m.frete * parte), grupo: 'a_enviar', logistica: '', status_envio: '', substatus: '',
+      status_rotulo: 'Venda separada (valor da venda mãe)', obs: 'Venda separada em pacotes pelo Mercado Livre: valor total, tarifa e frete da venda mãe, como no UpSeller', preco_ml: null}; });
+}
+async function trazerFaltantes(numeros, maes = []){
   RAW = RAW.filter(r => !r.pedido_upseller);
+  for (const n of maes) RAW.push(...linhasDaMae(n));
   const lotes = []; for (let i = 0; i < numeros.length; i += 8) lotes.push(numeros.slice(i, i + 8));
   let prox = 0, ignorados = 0;
   const msg = $('vUpsMotivoTxt');
@@ -348,7 +357,7 @@ function linha(r){
     el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {class:'chk'}, cbPreco), el('td', {}, ENV[r.grupo] || r.grupo));
   return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''}, ...cels);
 }
-$('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); conferirUpseller(); await explicarFaltantes(); };
+$('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); UPS_MAE = {}; conferirUpseller(); await explicarFaltantes(); };
 $('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
 $('vMarcarRuins').onclick = () => {

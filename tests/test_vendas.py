@@ -181,6 +181,15 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(etapa='nf')], ['1'])
         envios[3] = ('ready_to_ship', 'ready_for_pickup', '2026-11-09'); envios[4] = ('ready_to_ship', 'buffered', None)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3'])                  # pronto para coleta entra; aguardando (buffered) não
+        envios[4] = ('pending', 'buffered', '2026-11-04')                                                # o ML adia a data: status pending + buffered
+        self.assertNotIn('4', [i['pedido'] for i in rodar(etapa='prontos')])
+        self.assertIn('4', [i['pedido'] for i in rodar(etapa='prontos_aguardando')])
+        self.assertEqual([i['pedido'] for i in rodar(etapa='aguardando')], ['4'])
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        f = _tz(_td(hours=-3))
+        self.assertIn('4', [i['pedido'] for i in rodar(etapa='prontos_aguardando', expira_ate=_dt(2026, 11, 5, 3, 0, tzinfo=f))])      # prazo 04/11 23:59 cabe no limite
+        self.assertNotIn('4', [i['pedido'] for i in rodar(etapa='aguardando', expira_ate=_dt(2026, 11, 4, 12, 0, tzinfo=f))])        # não cabe: fica de fora
+        envios[4] = ('ready_to_ship', 'buffered', None)
         envios[2] = ('ready_to_ship', 'printed', '2026-11-03')                                         # etiqueta já impressa, ainda não bipada
         self.assertEqual([i['pedido'] for i in rodar(etapa='prontos')], ['2', '3'])                  # "prontos" = liberada + impressa (sem aguardando)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['3'])

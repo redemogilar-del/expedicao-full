@@ -58,9 +58,29 @@
     <button class="secundario" id="vMarcarRuins">Marcar: abaixo da margem e prejuízo (que estão na tela)</button>
     <button class="secundario" id="vLimpar">Desmarcar tudo</button>
     <button class="primario" id="vPreco" disabled>Atualizar preço no Mercado Livre</button>
+    <button class="secundario" id="vSku" disabled>Trocar SKU dos marcados</button>
+    <button class="secundario" id="vPausar" disabled>Pausar anúncios marcados</button>
     <div id="vPrecoDica" class="mlbs"></div>
   </div>
   <p class="suave pequeno" id="vDica">Custo e margem mínima podem ser digitados na própria linha (vale para todas as vendas do mesmo SKU; só nesta tela, a planilha não muda). O preço necessário é calculado com a tarifa e o frete reais do Mercado Livre naquele preço.</p>
+
+  <div id="vPainelSku" class="cartao painel-preco" hidden>
+    <h2>Trocar SKU no Mercado Livre</h2>
+    <p class="suave pequeno">Digite o SKU novo de cada anúncio. Anúncio com o campo vazio não é alterado. Depois da troca o custo e a margem são recalculados com o SKU novo.</p>
+    <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>Produto</th><th>SKU atual</th><th>SKU novo</th></tr></thead><tbody id="vSkuLista"></tbody></table></div>
+    <label class="inline-campo"><input type="checkbox" id="vSkuEntendi"> Entendo que isso muda o SKU de verdade no Mercado Livre</label>
+    <p id="vSkuRes" class="aviso" hidden></p>
+    <div class="acoes"><button class="primario" id="vSkuOk" disabled>Confirmar e trocar SKU</button><button class="secundario" id="vSkuCancela">Cancelar</button></div>
+  </div>
+
+  <div id="vPainelPausar" class="cartao painel-preco" hidden>
+    <h2>Pausar anúncios no Mercado Livre</h2>
+    <p class="suave pequeno">Só anúncios ativos são pausados. Para voltar a vender é preciso reativar no Mercado Livre.</p>
+    <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>Produto</th><th>SKU</th></tr></thead><tbody id="vPausarLista"></tbody></table></div>
+    <label class="inline-campo"><input type="checkbox" id="vPausarEntendi"> Entendo que isso pausa os anúncios de verdade no Mercado Livre</label>
+    <p id="vPausarRes" class="aviso" hidden></p>
+    <div class="acoes"><button class="primario" id="vPausarOk" disabled>Confirmar e pausar</button><button class="secundario" id="vPausarCancela">Cancelar</button></div>
+  </div>
 
   <div id="vPainelPreco" class="cartao painel-preco" hidden>
     <h2>Confirmar atualização de preço no Mercado Livre</h2>

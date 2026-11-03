@@ -20,6 +20,7 @@ import envios
 import fontes
 import precos
 import skus
+import anuncios
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -1217,6 +1218,63 @@ def api_skus_aplicar():
             return r
         with ThreadPoolExecutor(max_workers=len(grupos)) as ex:      # os anúncios do pedido são trocados ao mesmo tempo (cada um relê, grava e confere)
             resultados = list(ex.map(um, grupos.items()))
+        return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+def _itens_acao(c, extra=None):
+    """Valida conta + lista de anúncios [{mlb, ...}] (sem repetir) de uma ação manual."""
+    if c.get('conta') not in fontes.CONTAS:
+        raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+    itens = c.get('itens')
+    if not isinstance(itens, list) or not 1 <= len(itens) <= 10:
+        raise envios.ArquivoInvalido('Envie de 1 a 10 anúncios por vez.')
+    vistos, saida = set(), []
+    for x in itens:
+        mlb = str(x.get('mlb') or '').strip().upper() if isinstance(x, dict) else ''
+        if not fontes._MLB.match(mlb) or mlb in vistos:
+            raise envios.ArquivoInvalido('Anúncio inválido ou repetido.')
+        vistos.add(mlb)
+        saida.append((mlb, x))
+    return saida
+
+
+@app.post('/api/vendas/pausar')
+def api_vendas_pausar():
+    """Pausa os anúncios marcados (só ativos). Relê cada um na hora e confere depois."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('confirmacao') != anuncios.CONFIRMACAO_PAUSAR:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para pausar anúncios.')
+        lista = _itens_acao(c)
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+        with ThreadPoolExecutor(max_workers=len(lista)) as ex:
+            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0]), lista))
+        for r in resultados:
+            log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])
+        return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, pausados=sum(r['status'] == 'OK' for r in resultados))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/sku-trocar')
+def api_vendas_sku_trocar():
+    """Troca o SKU de anúncios marcados na lista de vendas (um SKU novo por anúncio)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('confirmacao') != skus.CONFIRMACAO:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para trocar SKU.')
+        lista = _itens_acao(c)
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+        with ThreadPoolExecutor(max_workers=len(lista)) as ex:
+            resultados = list(ex.map(lambda p: anuncios.trocar_sku_item(conta, tk, vendedor, p[0], p[1].get('sku_atual'), p[1].get('sku_novo')), lista))
+        for r in resultados:
+            log.info('SKU (vendas) %s %s: %s %s', conta, r['mlb'], r['status'], r.get('trocas'))
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)

@@ -186,25 +186,43 @@ def achados(item, regra):
     return saida
 
 
-def varrer(conta, regra, scroll_id=None):
-    """Um passo da varredura (até 100 anúncios). Só leitura.
+PAGINAS_POR_PASSO = 8           # páginas de 100 anúncios lidas por passo (o passo para antes se passar do tempo)
+ORCAMENTO_PASSO_S = 15          # o servidor tem limite de 60 s por pedido
+LEITORES = 10                   # leituras de anúncios ao mesmo tempo
+ESTADOS = (('A', 'active'), ('P', 'paused'))   # só ativos e pausados podem ser alterados: encerrados nem são lidos
 
+
+def _token_busca(texto):
+    """'A|<scroll>|<total>' -> (estado, scroll, total). Sem texto (ou do formato antigo): começa do zero."""
+    partes = str(texto or '').split('|')
+    if len(partes) == 3 and partes[0] in ('A', 'P', 'T') and partes[2].isdigit():
+        return partes[0], partes[1] or None, int(partes[2])
+    return None, None, 0
+
+
+def varrer(conta, regra, scroll_id=None):
+    """Um passo da varredura (várias páginas de 100 anúncios, com as leituras em paralelo). Só leitura.
+
+    Lê só anúncios ativos e pausados (busca por status no Mercado Livre); se o ML recusar o filtro, volta a ler tudo.
     Devolve {'achados', 'lidos', 'total', 'scroll_id', 'concluido'}. O `scroll_id` volta para o próximo passo."""
     tk = fontes.token(conta)
     vendedor = fontes._vendedor(conta, tk)
-    params = {'search_type': 'scan', 'limit': LOTE_VARREDURA}
-    if scroll_id:
-        params['scroll_id'] = str(scroll_id)[:300]
-    try:
-        pag = fontes._ml(tk, '/users/%s/items/search' % vendedor, params)
-    except RuntimeError as exc:
-        raise fontes.FonteIndisponivel('Não consegui listar os anúncios agora (%s). Tente de novo.' % str(exc)[:80])
-    ids = [i for i in (pag or {}).get('results') or [] if fontes._MLB.match(str(i))]
-    total = int(((pag or {}).get('paging') or {}).get('total') or 0)
-    novo_scroll = (pag or {}).get('scroll_id') or scroll_id
-    if not ids:
-        return {'achados': [], 'lidos': 0, 'total': total, 'scroll_id': novo_scroll, 'concluido': True}
-    grupos = [ids[i:i + 20] for i in range(0, len(ids), 20)]
+    inicio = time.monotonic()
+    estado, scroll, total = _token_busca(scroll_id)
+
+    def busca(params):
+        try:
+            return fontes._ml(tk, '/users/%s/items/search' % vendedor, params)
+        except RuntimeError as exc:
+            raise fontes.FonteIndisponivel('Não consegui listar os anúncios agora (%s). Tente de novo.' % str(exc)[:80])
+
+    if estado is None:                               # primeiro passo: descobre o total de ativos + pausados
+        try:
+            total = sum(int(((busca({'status': st, 'limit': 1}) or {}).get('paging') or {}).get('total') or 0) for _, st in ESTADOS)
+            estado = 'A'
+        except fontes.FonteIndisponivel:
+            estado, total = 'T', 0                   # o ML não aceitou o filtro: lê tudo, como antes
+        scroll = None
 
     def ler(grupo):
         try:
@@ -212,8 +230,29 @@ def varrer(conta, regra, scroll_id=None):
         except RuntimeError as exc:
             raise fontes.FonteIndisponivel('Não consegui ler os anúncios agora (%s). Tente de novo.' % str(exc)[:80])
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        respostas = list(ex.map(ler, grupos))
+    futuros, concluido, paginas = [], False, 0
+    with ThreadPoolExecutor(max_workers=LEITORES) as ex:
+        while paginas < PAGINAS_POR_PASSO and (paginas == 0 or time.monotonic() - inicio < ORCAMENTO_PASSO_S):
+            params = {'search_type': 'scan', 'limit': LOTE_VARREDURA}
+            if estado in ('A', 'P'):
+                params['status'] = dict(ESTADOS)[estado]
+            if scroll:
+                params['scroll_id'] = str(scroll)[:300]
+            pag = busca(params)
+            ids = [i for i in (pag or {}).get('results') or [] if fontes._MLB.match(str(i))]
+            if estado == 'T':
+                total = int(((pag or {}).get('paging') or {}).get('total') or total or 0)
+            if not ids:
+                if estado == 'A':                    # acabaram os ativos: segue para os pausados
+                    estado, scroll = 'P', None
+                    continue
+                concluido = True
+                break
+            scroll = (pag or {}).get('scroll_id') or scroll
+            paginas += 1
+            for i in range(0, len(ids), 20):
+                futuros.append(ex.submit(ler, ids[i:i + 20]))
+        respostas = [f.result() for f in futuros]
     achou, lidos = [], 0
     for resp in respostas:
         for x in resp if isinstance(resp, list) else []:
@@ -224,7 +263,7 @@ def varrer(conta, regra, scroll_id=None):
                 continue
             lidos += 1
             achou.extend(achados(corpo, regra))
-    return {'achados': achou, 'lidos': lidos, 'total': total, 'scroll_id': novo_scroll, 'concluido': False}
+    return {'achados': achou, 'lidos': lidos, 'total': total, 'scroll_id': '%s|%s|%d' % (estado, scroll or '', total), 'concluido': concluido}
 
 
 def reservar(conta, mlb):

@@ -32,7 +32,10 @@ class FakeML:
         if caminho.endswith('/items/search'):
             if params.get('scroll_id') == 'FIM':
                 return {'results': [], 'scroll_id': 'FIM', 'paging': {'total': len(self.itens)}}
-            return {'results': list(self.itens), 'scroll_id': 'FIM', 'paging': {'total': len(self.itens)}}
+            ids = [i for i, x in self.itens.items() if not params.get('status') or x['status'] == params['status']]
+            if params.get('limit') == 1:
+                ids = ids[:1]
+            return {'results': ids, 'scroll_id': 'FIM', 'paging': {'total': len([1 for x in self.itens.values() if not params.get('status') or x['status'] == params['status']])}}
         if caminho == '/items':
             return [{'code': 200, 'body': self.itens[i]} for i in params['ids'].split(',')]
         if caminho.startswith('/items/'):
@@ -81,6 +84,56 @@ class TestRegras(unittest.TestCase):
                 skus.validar_regra(*args)
 
 
+class TestVarreduraRapida(unittest.TestCase):
+    def rodar(self, ml):
+        regra = skus.validar_regra('contem', '_25kg', 'NOVO', 'inteiro')
+        achados, tok, passos = [], None, 0
+        with mock.patch.object(fontes, '_ml', ml), mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'):
+            while True:
+                d = skus.varrer('ML19', regra, tok); passos += 1
+                achados += d['achados']; tok = d['scroll_id']
+                if d['concluido'] or passos > 20:
+                    return achados, d, passos
+
+    def test_le_so_ativos_e_pausados_e_termina(self):
+        fake = FakeML(); chamadas = []
+        orig = fake.ml
+        def ml(tk, caminho, params=None):
+            chamadas.append((caminho, dict(params or {}))); return orig(tk, caminho, params)
+        achados, d, passos = self.rodar(ml)
+        self.assertEqual(sorted(a['mlb'] for a in achados), ['MLB100000001', 'MLB100000002'])
+        lidos_ids = [i for c, p in chamadas if c == '/items' for i in p['ids'].split(',')]
+        self.assertNotIn('MLB100000005', lidos_ids)                           # o encerrado não é lido
+        self.assertEqual({p.get('status') for c, p in chamadas if c.endswith('/items/search')}, {'active', 'paused'})
+        self.assertEqual(d['total'], 5)
+
+    def test_se_o_ml_recusar_o_filtro_le_tudo_como_antes(self):
+        fake = FakeML(); orig = fake.ml
+        def ml(tk, caminho, params=None):
+            if caminho.endswith('/items/search') and (params or {}).get('status'):
+                raise RuntimeError('HTTP 400')
+            return orig(tk, caminho, params)
+        achados, d, _ = self.rodar(ml)
+        self.assertEqual(sorted(a['mlb'] for a in achados), ['MLB100000001', 'MLB100000002'])
+        self.assertTrue(d['concluido'])
+
+    def test_varias_paginas_num_passo_sem_perder_nem_repetir(self):
+        itens = {'MLB%d' % (200000000 + i): {'id': 'MLB%d' % (200000000 + i), 'seller_id': 99, 'title': 't', 'status': 'active', 'seller_custom_field': 'GR_25kg', 'attributes': []} for i in range(350)}
+        ids = list(itens)
+        def ml(tk, caminho, params=None):
+            if caminho.endswith('/items/search'):
+                if params.get('limit') == 1:
+                    return {'results': ids[:1], 'paging': {'total': 350 if params['status'] == 'active' else 0}}
+                if params['status'] == 'paused':
+                    return {'results': [], 'scroll_id': 'S', 'paging': {'total': 0}}
+                pos = int(params.get('scroll_id') or 0)
+                return {'results': ids[pos:pos + 100], 'scroll_id': str(pos + 100), 'paging': {'total': 350}}
+            return [{'code': 200, 'body': itens[i]} for i in params['ids'].split(',')]
+        achados, d, passos = self.rodar(ml)
+        self.assertEqual(len(achados), 350); self.assertEqual(len({a['mlb'] for a in achados}), 350)
+        self.assertEqual(passos, 1)                                           # tudo num passo só
+
+
 class TestVarredura(unittest.TestCase):
     def test_varre_e_mostra_sem_alterar(self):
         fake = FakeML()
@@ -90,7 +143,7 @@ class TestVarredura(unittest.TestCase):
             fim = skus.varrer('ML19', regra, d['scroll_id'])
         mlbs = sorted(a['mlb'] for a in d['achados'])
         self.assertEqual(mlbs, ['MLB100000001', 'MLB100000002'])               # a de outra conta, as sem o trecho e a encerrada ficam de fora (só entra o que dá para alterar)
-        self.assertEqual(d['lidos'], 5)
+        self.assertEqual(d['lidos'], 4)                                         # encerrado nem é lido (a busca filtra por status)
         self.assertTrue(fim['concluido'])
         self.assertEqual(fake.puts, [])
 

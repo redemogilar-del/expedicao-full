@@ -633,6 +633,7 @@ def api_vendas_upseller_ler():
                 break
         i_loja = next((i for i, v in enumerate(norm) if v.startswith('nome da loja')), None)
         i_est = next((i for i, v in enumerate(norm) if v.startswith('estado do pedido')), None)
+        i_canc = next((i for i, v in enumerate(norm) if 'cancelado' in v and ('pós' in v or 'pos' in v)), None)     # "Pós-venda/Cancelado/Devolvido"
         if i_ped is None:
             raise envios.ArquivoInvalido('Não achei a coluna "Nº de Pedido da Plataforma". Use a planilha exportada do UpSeller (Pedidos > Exportar).')
 
@@ -656,7 +657,8 @@ def api_vendas_upseller_ler():
                 repetidos += 1
                 continue
             vistos.add(num)
-            saida.append({'pedido': num, 'conta': _conta_da_loja(lin[i_loja]) if i_loja is not None and i_loja < len(lin) else '',
+            canc = i_canc is not None and i_canc < len(lin) and 'cancel' in str(lin[i_canc] or '').lower()
+            saida.append({'pedido': num, 'cancelado': canc, 'conta': _conta_da_loja(lin[i_loja]) if i_loja is not None and i_loja < len(lin) else '',
                           'estado': str(lin[i_est] or '')[:40] if i_est is not None and i_est < len(lin) else ''})
         if not saida:
             raise envios.ArquivoInvalido('A planilha não tem nenhum número de pedido.')

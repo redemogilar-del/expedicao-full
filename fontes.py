@@ -372,7 +372,8 @@ def itens_info(conta, ids):
 # etapas do envio que o Mercado Livre mostra. Conferido contra os números do UpSeller em 03/11: "Pronto para coleta" (ML) ≈ Para Enviar/Para Imprimir (UpSeller);
 # "Gerar NF" ≈ Para Emitir; "Aguardando (buffered)" fica de fora das etapas (o UpSeller não o põe em Enviar/Imprimir)
 ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'},
-                'impressa': {'printed'}}
+                'impressa': {'printed'},
+                'prontos': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'printed'}}   # etiqueta liberada OU já impressa: tudo que ainda não foi bipado na coleta
 FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
 
 
@@ -454,12 +455,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
     if somente_a_enviar:
-        permitidos = ETAPAS_ENVIO.get(etapa)
-        fora = saida['logistica'] == 'fulfillment' or saida['status_envio'].lower() in FINAIS_ENVIO
-        fora = fora or (permitidos is not None and not (saida['status_envio'].lower() == 'ready_to_ship' and saida['substatus'].lower() in permitidos))
-        fora = fora or bool(vence_ate and saida['limite'] and saida['limite'] > vence_ate)   # prazo desconhecido: mantém (não some do nada)
-        fora = fora or bool(vence_apos and saida['limite'] and saida['limite'] <= vence_apos)
-        if fora:
+        if _motivo_fora(saida, etapa, vence_ate, vence_apos):
             saida['pular'] = True                   # já enviado, Full ou fora da etapa escolhida: não entra na lista, então nem consulta o frete
             return saida
     try:
@@ -479,6 +475,65 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
                 saida['frete'], saida['erro'] = None, 'Carrinho não conferido'
         except RuntimeError:
             saida['frete'], saida['erro'] = None, 'Carrinho não conferido'
+    return saida
+
+
+def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None):
+    """Por que um envio NÃO entra na lista "a enviar" (texto simples), ou '' se entra. Mesma regra da busca."""
+    st, sub, log = saida['status_envio'].lower(), saida['substatus'].lower(), saida['logistica']
+    if log == 'fulfillment':
+        return 'É do Full (o Mercado Livre envia); esta lista é só do que você despacha'
+    if st in FINAIS_ENVIO:
+        return 'O envio já está como "%s" (não espera mais despacho)' % rotulo_envio(saida['status_envio'], saida['substatus'])
+    permitidos = ETAPAS_ENVIO.get(etapa)
+    if permitidos is not None and not (st == 'ready_to_ship' and sub in permitidos):
+        return 'Está em "%s", que fica fora da etapa escolhida na tela. Escolha "Todos os que esperam envio" na etapa para ver' % rotulo_envio(saida['status_envio'], saida['substatus'])
+    if vence_ate and saida['limite'] and saida['limite'] > vence_ate:
+        return 'O prazo de envio é %s/%s (lista "Próximos dias", não "Envios de hoje")' % (saida['limite'][8:10], saida['limite'][5:7])
+    if vence_apos and saida['limite'] and saida['limite'] <= vence_apos:
+        return 'O prazo de envio é %s/%s (lista "Envios de hoje", não "Próximos dias")' % (saida['limite'][8:10], saida['limite'][5:7])
+    return ''
+
+
+def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos=None, de=None, ate=None):
+    """Explica por que um pedido (número da plataforma, como no UpSeller) não apareceu na lista. Só leitura.
+
+    Devolve {'pedido', 'conta', 'motivo', 'situacao'}; 'motivo' vazio = deveria ter aparecido.
+    """
+    saida = {'pedido': pedido, 'conta': conta, 'motivo': '', 'situacao': ''}
+    contas = [conta] + [x for x in CONTAS if x != conta] if conta in CONTAS else list(CONTAS)     # a conta indicada primeiro; a outra só se não achar
+    achou = None
+    for c in contas:
+        try:
+            tk = token(c)
+            ped = _ml(tk, '/orders/%s' % pedido)
+            vendedor = _vendedor(c, tk)
+        except (RuntimeError, FonteIndisponivel):
+            continue
+        if isinstance(ped, dict) and str(ped.get('id')) == str(pedido) and str((ped.get('seller') or {}).get('id') or '') in ('', str(vendedor)):
+            achou = (c, tk, vendedor, ped)
+            break
+    if not achou:
+        saida['motivo'] = 'Não encontrei este pedido no Mercado Livre%s. Confira o número ou a conta' % ''
+        return saida
+    c, tk, vendedor, ped = achou
+    saida['conta'] = c
+    status = str(ped.get('status') or '')
+    data = str(ped.get('date_created') or '')[:10]
+    if status != 'paid':
+        saida['motivo'] = 'O pedido está como "%s" no Mercado Livre (a lista só traz pedidos pagos)' % ({'cancelled': 'cancelado', 'invalid': 'inválido', 'payment_required': 'aguardando pagamento'}.get(status, status or 'sem situação'))
+        return saida
+    if de and ate and data and not (de <= data <= ate):
+        saida['motivo'] = 'O pedido é de %s/%s, fora do período lido (%s a %s)' % (data[8:10], data[5:7], de[8:10] + '/' + de[5:7], ate[8:10] + '/' + ate[5:7])
+        return saida
+    env = _envio_do_pedido(tk, vendedor, ped, False)
+    if env.get('erro') == 'Pedido sem envio':
+        saida['motivo'] = 'O pedido não tem envio no Mercado Livre'
+        return saida
+    saida['situacao'] = rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado'
+    saida['motivo'] = _motivo_fora(env, etapa, vence_ate, vence_apos)
+    if not saida['motivo'] and not env['status_envio']:
+        saida['motivo'] = 'Não consegui ler o envio agora (%s). Busque de novo' % (env['erro'] or 'sem resposta')
     return saida
 
 

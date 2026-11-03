@@ -186,6 +186,21 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
 
+    def test_pedido_sem_envio_na_busca_acha_no_pedido_completo_e_traz_preco_do_anuncio(self):
+        ped = self.ped(1, [self.oi('MLB1000001', 1, 50.0, 8.0)], envio=None)
+        ped['shipping'] = {}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/search': return {'results': [ped], 'paging': {'total': 1}}
+            if caminho == '/orders/1': return {'shipping': {'id': 5}}
+            if caminho == '/shipments/5': return {'status': 'ready_to_ship', 'substatus': 'ready_for_pickup', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/5/costs': return {'senders': [{'user_id': 99, 'cost': 12.0}]}
+            if caminho == '/items': return [{'code': 200, 'body': {'id': 'MLB1000001', 'price': 59.9}}]
+            raise RuntimeError('rota inesperada ' + caminho)
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            r = fontes.pedidos_financeiros('ML19', '2026-10-29', '2026-10-29')
+        self.assertEqual(r['itens'][0]['frete'], 12.0); self.assertEqual(r['itens'][0]['preco_ml'], 59.9)
+        self.assertEqual(r['itens'][0]['obs'], '')
+
     def test_pedido_normal_e_full(self):
         peds = [self.ped(1, [self.oi('MLB1000001', 2, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 80.0, 12.0)], envio=2)]
         rotas = {'/shipments/1/costs': {'senders': [{'user_id': 99, 'cost': 11.0}]}, '/shipments/2/costs': {'senders': [{'user_id': 99, 'cost': 20.0}]},

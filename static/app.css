@@ -114,3 +114,5 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 #sMassa,#sConfirma,#sCaixa input[type=text],td input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto)}
 #sMassa{flex:1 1 280px;min-width:240px}
 .dica{margin:8px 0 0;font-size:.9rem;opacity:.85}
+.copiar{margin-left:6px;padding:0 6px;font-size:.85rem;line-height:1.4;border:1px solid var(--linha);border-radius:6px;background:transparent;color:inherit;cursor:pointer}.copiar:hover{background:var(--cartao)}
+#vUpsTexto{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto)}

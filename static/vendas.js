@@ -50,6 +50,7 @@ async function buscar(modo){
   if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
   $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
+    UPS = null; SO_FORA = false; $('vUpsRes').textContent = '';
     RAW = []; MARCA = new Set(); PRECO = new Set(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
     const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
     const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
@@ -131,12 +132,33 @@ function ordem(a, b){
 }
 function visiveis(){
   const q = busca.trim().toLowerCase();
-  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || r.classe === classe) && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
+  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || r.classe === classe) && (!SO_FORA || !UPS || !UPS.has(String(r.pedido))) && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
 const infoDe = r => INFO[chaveInfo(r)];
 const selecionavel = r => { const i = infoDe(r); return !!(i && i.acao === 'subir'); };
 
 // ---------- tela ----------
+function copiarTexto(t){
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t);
+  return new Promise((ok, falha) => { const a = el('textarea', {value: t}); document.body.append(a); a.select(); try { document.execCommand('copy') ? ok() : falha(new Error('copiar')); } catch (e) { falha(e); } a.remove(); });
+}
+function botaoCopiar(texto){
+  const b = el('button', {class:'copiar', type:'button', title:'Copiar o número do pedido', 'aria-label':'Copiar o número do pedido'}, '⧉');
+  b.onclick = async e => { e.stopPropagation(); try { await copiarTexto(String(texto)); b.textContent = '✓'; } catch (err) { b.textContent = '!'; } setTimeout(() => { b.textContent = '⧉'; }, 1200); };
+  return b;
+}
+// conferência com o UpSeller: a pessoa cola os números dos pedidos de lá; a tela marca os daqui que não estão lá
+let UPS = null, SO_FORA = false;
+const numerosDe = t => new Set((String(t || '').match(/\d{12,}/g) || []));
+function conferirUpseller(){
+  const nums = numerosDe($('vUpsTexto').value), r = $('vUpsRes');
+  if (!nums.size) { UPS = null; SO_FORA = false; r.textContent = 'Cole os números dos pedidos do UpSeller (com 12 dígitos ou mais).'; desenhar(); return; }
+  UPS = nums; SO_FORA = false;
+  const nossos = new Set(LINHAS.map(x => String(x.pedido))), fora = [...nossos].filter(n => !nums.has(n)), semAqui = [...nums].filter(n => !nossos.has(n));
+  r.replaceChildren(document.createTextNode(fora.length + ' pedido(s) daqui não estão na lista do UpSeller; ' + semAqui.length + ' do UpSeller não vieram aqui' + (semAqui.length ? ' (' + semAqui.slice(0, 30).join(', ') + (semAqui.length > 30 ? '…' : '') + ')' : '') + '. '));
+  if (fora.length) { const b = el('button', {class:'secundario', type:'button'}, 'Mostrar só os que não estão no UpSeller'); b.onclick = () => { SO_FORA = !SO_FORA; b.textContent = SO_FORA ? 'Mostrar todos de novo' : 'Mostrar só os que não estão no UpSeller'; desenhar(); }; r.append(b); }
+  desenhar();
+}
 function resumoEnvio(){
   const p = $('vResumoEnvio'); p.hidden = !MODO_ENVIAR || !LINHAS.length; if (p.hidden) return;
   const por = new Map(), pedidos = new Set();
@@ -216,7 +238,7 @@ function linha(r){
   }
   const sinal = v => v === null || v === undefined ? '' : (v < 0 ? 'n neg' : 'n pos');
   const info = infoDe(r);
-  let precoAtual = '—', precoNovo = '—', cbPreco = null;
+  let precoAtual = r.preco_ml === null || r.preco_ml === undefined ? '—' : brl(r.preco_ml), precoNovo = '—', cbPreco = null;
   if (precisaPreco(r)) {
     if (info) {
       precoAtual = info.preco_atual !== undefined && info.preco_atual !== null ? brl(info.preco_atual) : '—';
@@ -231,7 +253,7 @@ function linha(r){
   cels.push(
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
-    el('td', {}, r.conta), el('td', {}, r.pedido, el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'),
+    el('td', {}, r.conta), el('td', {}, el('span', {class:'pedido-n'}, r.pedido, botaoCopiar(r.pedido)), el('div', {class:'mlbs'}, r.data), UPS && !UPS.has(String(r.pedido)) ? el('div', {}, el('span', {class:'tag v-abaixo', title:'Este pedido não está na lista que você colou do UpSeller'}, 'não está no UpSeller')) : ''), el('td', {}, r.sku || '—'),
     el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
     el('td', {}, r.mlb),
     el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),
@@ -240,6 +262,8 @@ function linha(r){
     el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {class:'chk'}, cbPreco), el('td', {}, ENV[r.grupo] || r.grupo));
   return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''}, ...cels);
 }
+$('vUpsConferir').onclick = conferirUpseller;
+$('vUpsLimpar').onclick = () => { $('vUpsTexto').value = ''; UPS = null; SO_FORA = false; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
 $('vMarcarRuins').onclick = () => {
   const a = visiveis().filter(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo')); a.forEach(r => MARCA.add(r._i)); desenhar();

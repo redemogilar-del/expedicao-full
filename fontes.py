@@ -434,6 +434,11 @@ def _grupo_envio(logistica, status):
 def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
+    if not env and ped.get('id'):                  # a busca às vezes vem sem o envio: confere no pedido completo antes de desistir
+        try:
+            env = ((_ml(tk, '/orders/%s' % ped['id']) or {}).get('shipping') or {}).get('id')
+        except (RuntimeError, ValueError, AttributeError):
+            env = None
     saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': ''}
     if not env:
         saida['erro'] = 'Pedido sem envio'
@@ -498,6 +503,17 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
     ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
     with ThreadPoolExecutor(max_workers=6) as ex:
         envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos), ativos))
+    precos_ml = {}
+    mlbs = sorted({str((r.get('item') or {}).get('id') or '') for p in ativos for r in (p.get('order_items') or []) if isinstance(r, dict)})
+    mlbs = [m for m in mlbs if _MLB.match(m)]
+    for i in range(0, len(mlbs), 20):              # preço atual dos anúncios (só para mostrar na tela; falha não vira zero)
+        try:
+            for x in _ml(tk, '/items', {'ids': ','.join(mlbs[i:i + 20]), 'attributes': 'id,price'}) or []:
+                corpo = x.get('body') if isinstance(x, dict) else None
+                if isinstance(corpo, dict) and _numero(corpo.get('price')) is not None:
+                    precos_ml[str(corpo.get('id'))] = round(_numero(corpo['price']), 2)
+        except (RuntimeError, ValueError):
+            pass
     itens = []
     for ped, env in zip(ativos, envios):
         if env.get('pular'):
@@ -529,7 +545,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
                 'frete': None if frete_pedido is None else round(frete_pedido * (venda / soma if soma > 0 else 1.0 / max(1, len(regs))), 2),
                 'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'substatus': env['substatus'],
                 'status_rotulo': (rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado') + (' · enviar até %s/%s' % (env['limite'][8:10], env['limite'][5:7]) if env['limite'] and env['status_envio'].lower() not in FINAIS_ENVIO else ''),
-                'limite_envio': env['limite'], 'obs': obs,
+                'limite_envio': env['limite'], 'preco_ml': precos_ml.get(mlb), 'obs': obs,
             })
     pag = dados.get('paging') or {}
     total = int(pag.get('total') or 0)

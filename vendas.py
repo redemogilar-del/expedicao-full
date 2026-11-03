@@ -92,8 +92,9 @@ def analisar(linha, cad, params):
     imp_pct = imposto_da_linha(linha, params)
     if imp_pct is None:
         faltam.append('imposto (aba TaxasML ou digite na tela)')
+    imposto_parcial = _dois(D(venda) * imp_pct / 100) if (venda is not None and venda > 0 and imp_pct is not None) else None     # só depende do valor da venda: aparece mesmo sem custo
     reg.update({'custo_unit': custo if custo and custo > 0 else None, 'meta': meta, 'meta_origem': origem,
-                'repasse': None, 'imposto': None, 'imposto_pct': float(imp_pct) if imp_pct is not None else None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados', 'perda': None, 'perda_tipo': '',
+                'repasse': None, 'imposto': imposto_parcial, 'imposto_pct': float(imp_pct) if imp_pct is not None else None, 'custo_total': None, 'lucro': None, 'margem': None, 'classe': 'sem_dados', 'perda': None, 'perda_tipo': '',
                 'pendencias': ', '.join(faltam)})
     if faltam:
         return reg

@@ -357,6 +357,20 @@ class TestEndpointsVendas(unittest.TestCase):
         d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (ruim, 'Export.xlsx')}, content_type='multipart/form-data').get_json()
         self.assertEqual([(p['pedido'], p['conta']) for p in d['pedidos']], [('2000015760779799', 'ML44'), ('2000019232343594', 'ML19')])
 
+    def test_diagnostico_pedido_separado_em_pacotes(self):
+        orig = {'id': 2000015694393359, 'status': 'cancelled', 'date_created': '2026-10-25T00:04:00.000-03:00', 'seller': {'id': 99}, 'pack_id': 777, 'shipping': {}, 'order_items': []}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/2000015694393359': return orig
+            if caminho == '/packs/777': return {'orders': [{'id': 2000015694393359}, {'id': 2000015763008995}, {'id': 2000015763008993}]}
+            if caminho in ('/orders/2000015763008995', '/orders/2000015763008993'): return {'status': 'paid', 'shipping': {'id': 8}}
+            if caminho == '/shipments/8': return {'status': 'delivered'}
+            raise RuntimeError('404')
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            m = fontes.diagnosticar_pedido('ML19', '2000015694393359')['motivo']
+            self.assertIn('cancelado', m); self.assertIn('2000015763008995 (Entregue)', m); self.assertIn('2000015763008993', m)
+            orig['pack_id'] = None
+            self.assertIn('separou a venda em pacotes', fontes.diagnosticar_pedido('ML19', '2000015694393359')['motivo'])
+
     def test_diagnostico_pedidos(self):
         pedido = {'id': 2000015760779799, 'status': 'paid', 'date_created': '2026-10-29T09:06:00.000-03:00', 'seller': {'id': 99}, 'shipping': {'id': 5}, 'order_items': []}
         def ml(tk, caminho, params=None):

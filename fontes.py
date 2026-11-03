@@ -495,6 +495,34 @@ def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None):
     return ''
 
 
+def _pedidos_irmaos(tk, ped):
+    """Quando o ML separa um pedido em pacotes, o original fica cancelado e nascem números novos (no mesmo carrinho).
+    Devolve ' Foi separado em outros pedidos: N (situação do envio), ...' ou um aviso, sem nunca falhar."""
+    pack = ped.get('pack_id')
+    novos = []
+    if pack:
+        try:
+            for o in ((_ml(tk, '/packs/%s' % pack) or {}).get('orders') or [])[:6]:
+                oid = str((o or {}).get('id') or '')
+                if not oid or oid == str(ped.get('id')):
+                    continue
+                try:
+                    p2 = _ml(tk, '/orders/%s' % oid) or {}
+                    sit = str(p2.get('status') or '')
+                    env = (p2.get('shipping') or {}).get('id')
+                    if sit == 'paid' and env:
+                        sh = _ml(tk, '/shipments/%s' % env) or {}
+                        sit = rotulo_envio(str(sh.get('status') or ''), str(sh.get('substatus') or '')) if sh.get('status') else sit
+                    novos.append('%s (%s)' % (oid, sit or 'sem situação'))
+                except (RuntimeError, ValueError, AttributeError):
+                    novos.append(oid)
+        except (RuntimeError, ValueError, AttributeError):
+            pass
+    if novos:
+        return '. Foi separado em outros pedidos, que são os que valem: ' + ', '.join(novos)
+    return '. Se o Mercado Livre separou a venda em pacotes, os números de venda são novos (procure pela venda no Mercado Livre); o UpSeller continua mostrando o número antigo como "Cancelado"'
+
+
 def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos=None, de=None, ate=None):
     """Explica por que um pedido (número da plataforma, como no UpSeller) não apareceu na lista. Só leitura.
 
@@ -522,6 +550,8 @@ def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos
     data = str(ped.get('date_created') or '')[:10]
     if status != 'paid':
         saida['motivo'] = 'O pedido está como "%s" no Mercado Livre (a lista só traz pedidos pagos)' % ({'cancelled': 'cancelado', 'invalid': 'inválido', 'payment_required': 'aguardando pagamento'}.get(status, status or 'sem situação'))
+        if status == 'cancelled':
+            saida['motivo'] += _pedidos_irmaos(tk, ped)
         return saida
     if de and ate and data and not (de <= data <= ate):
         saida['motivo'] = 'O pedido é de %s/%s, fora do período lido (%s a %s)' % (data[8:10], data[5:7], de[8:10] + '/' + de[5:7], ate[8:10] + '/' + ate[5:7])

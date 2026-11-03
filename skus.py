@@ -372,14 +372,47 @@ def diagnosticar(conta, mlb):
 
 
 def _motivo_recusa(texto):
-    """Resumo simples da recusa do ML (o JSON cru é longo e cortado)."""
+    """Resumo simples da recusa do ML (o JSON cru é longo): mostra a mensagem inteira, sem cortar no meio."""
     t = str(texto or '')
-    dica = ''
+    msgs = []
+    try:
+        d = json.loads(t)
+        for c in (d.get('cause') or []):
+            if isinstance(c, dict) and c.get('message'):
+                msgs.append('%s: %s' % (c.get('code') or 'erro', str(c['message'])[:300]))
+        if not msgs and d.get('message'):
+            msgs.append(str(d['message'])[:300])
+    except (ValueError, AttributeError, TypeError):
+        pass
+    base = ' | '.join(msgs) if msgs else t[:300]
     if 'attributes.duplicated' in t:
-        dica = ' (SKU repetido nos campos do anúncio)'
+        base += ' (o Mercado Livre acha que o anúncio tem um atributo repetido)'
     elif 'variation' in t.lower() and ('duplicate' in t.lower() or 'igual' in t.lower()):
-        dica = ' (o anúncio tem variações iguais; é preciso corrigir isso no Mercado Livre)'
-    return t[:160] + dica
+        base += ' (o anúncio tem variações iguais; é preciso corrigir isso no Mercado Livre)'
+    return base
+
+
+def _o_que_esta_repetido(tk, mlb):
+    """Somente leitura, só para explicar uma recusa 'attributes.duplicated': atributos que aparecem 2x no anúncio (ou nas variações) e o produto do usuário. Nunca falha."""
+    try:
+        item = fontes._ml(tk, '/items/' + mlb)
+        if not isinstance(item, dict):
+            return ''
+        partes = []
+        def repetidos(lista, onde):
+            ids = [str(a.get('id')) for a in lista or [] if isinstance(a, dict) and a.get('id')]
+            dup = sorted({i for i in ids if ids.count(i) > 1})
+            if dup:
+                partes.append('%s guarda repetido: %s' % (onde, ', '.join('%s (%dx)' % (d, ids.count(d)) for d in dup)))
+        repetidos(item.get('attributes'), 'o anúncio')
+        for v in item.get('variations') or []:
+            if isinstance(v, dict):
+                repetidos(v.get('attributes'), 'a variação %s' % v.get('id'))
+        if item.get('user_product_id'):
+            partes.append('é anúncio do modelo "produto do usuário" (%s): o SKU pode ficar no produto, não só no anúncio' % item['user_product_id'])
+        return ' Conferi no anúncio: ' + '; '.join(partes) + '.' if partes else ' Conferi o anúncio e não vi atributo repetido nele; o bloqueio parece ser do próprio Mercado Livre.'
+    except Exception:
+        return ''
 
 
 def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
@@ -430,7 +463,7 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
             so_campo = [(v, {'scf': m['scf']} if 'scf' in m else m) for v, m in mudancas]
             resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(so_campo), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
         if not resp.ok:
-            r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, _motivo_recusa(resp.text)))
+            r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, _motivo_recusa(resp.text)) + (_o_que_esta_repetido(tk, mlb) if 'attributes.duplicated' in resp.text else ''))
             return r
         conf = {l['variacao']: l for l in locais(fontes._ml(tk, '/items/' + mlb))}      # (locais sem SKU não aparecem aqui; um SKU novo aparece)
         tudo_ok = True

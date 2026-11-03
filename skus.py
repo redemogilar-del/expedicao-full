@@ -371,6 +371,17 @@ def diagnosticar(conta, mlb):
             'variacoes': vs, 'sem_sku_lendo_o_anuncio_completo': sem(completo), 'sem_sku_como_a_varredura_enxerga': sem(varredura)}
 
 
+def _motivo_recusa(texto):
+    """Resumo simples da recusa do ML (o JSON cru é longo e cortado)."""
+    t = str(texto or '')
+    dica = ''
+    if 'attributes.duplicated' in t:
+        dica = ' (SKU repetido nos campos do anúncio)'
+    elif 'variation' in t.lower() and ('duplicate' in t.lower() or 'igual' in t.lower()):
+        dica = ' (o anúncio tem variações iguais; é preciso corrigir isso no Mercado Livre)'
+    return t[:160] + dica
+
+
 def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
     """Troca o SKU dos locais `alvos` [(variacao, sku_visto, sku_novo_individual)] de um anúncio. Devolve um dicionário de resultado."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': '', 'trocas': []}
@@ -413,8 +424,13 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
             mudancas = [(v, {'scf': m['scf']}) for v, m in mudancas]
             previstos = [(v, l, {'scf': m['scf']}) for v, l, m in previstos]
             resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(mudancas), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        if not resp.ok and not sem and any('attr' in m and 'scf' in m for _v, m in mudancas):
+            # SKU que está nos DOIS campos: mandar os dois juntos o ML às vezes recusa ("attributes.duplicated", ele já copia o campo de SKU para o atributo SELLER_SKU).
+            # Tenta de novo só com o campo de SKU do vendedor; a conferência abaixo continua exigindo os dois campos com o SKU novo.
+            so_campo = [(v, {'scf': m['scf']} if 'scf' in m else m) for v, m in mudancas]
+            resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(so_campo), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
         if not resp.ok:
-            r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
+            r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, _motivo_recusa(resp.text)))
             return r
         conf = {l['variacao']: l for l in locais(fontes._ml(tk, '/items/' + mlb))}      # (locais sem SKU não aparecem aqui; um SKU novo aparece)
         tudo_ok = True

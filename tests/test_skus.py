@@ -347,6 +347,34 @@ class TestEndpoints(unittest.TestCase):
     def corpo(self, itens, **kw):
         return dict({'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'igual', 'termo': 'GR_25kg', 'novo': 'GR_25KG', 'escopo': 'inteiro', 'itens': itens}, **kw)
 
+    def test_se_o_ml_recusar_os_dois_campos_juntos_tenta_so_o_campo_de_sku(self):
+        """SKU nos dois campos: o ML às vezes responde 400 'attributes.duplicated' quando os dois vão juntos."""
+        fake = FakeML()
+        original = fake.put
+        def put(url, json=None, **kw):
+            if json and 'attributes' in json and 'seller_custom_field' in json:
+                fake.puts.append((url, json))
+                return mock.Mock(ok=False, status_code=400, text='{"cause":[{"code":"attributes.duplicated"}]}')
+            r = original(url, json=json, **kw)
+            if json and 'seller_custom_field' in json:             # o ML copia o campo de SKU para o atributo SELLER_SKU
+                fake.itens[url.split('/')[-1]]['attributes'] = [{'id': 'SELLER_SKU', 'value_name': json['seller_custom_field']}]
+            return r
+        fake.put = put
+        with self.com(fake):
+            d = self.c.post('/api/skus/aplicar', json=self.corpo([{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': 'GR_25kg'}])).get_json()
+        self.assertEqual(d['resultados'][0]['status'], 'OK', d)
+        self.assertEqual(fake.puts[-1][1], {'seller_custom_field': 'GR_25KG'})
+
+    def test_recusa_que_continua_mostra_motivo_em_portugues(self):
+        fake = FakeML()
+        fake.recusa = True
+        fake.put_texto = None
+        with self.com(fake):
+            d = self.c.post('/api/skus/aplicar', json=self.corpo([{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': 'GR_25kg'}])).get_json()
+        self.assertEqual(d['resultados'][0]['status'], 'ERRO')
+        self.assertEqual(len(fake.puts), 2)                          # tentou duas formas
+        self.assertEqual(skus._motivo_recusa('{"code":"attributes.duplicated"}')[-33:], '(SKU repetido nos campos do anúncio)'[-33:])
+
     def test_exige_login_e_pagina_no_menu(self):
         c = app_mod.app.test_client()
         for rota in ('/api/skus/buscar', '/api/skus/aplicar'):

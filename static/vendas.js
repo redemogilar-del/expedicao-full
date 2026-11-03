@@ -136,9 +136,8 @@ const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está n
 // filtro "expira em X horas" (como o Modo Rápido do UpSeller): prazo de despacho até agora + X h; vencidos entram; sem prazo conhecido continua na lista
 const expiraEm = r => { const h = $('vExpira').value; if (h === '' || !r.limite_dt) return true; const t = Date.parse(r.limite_dt); return Number.isNaN(t) || t <= Date.now() + Number(h) * 3600000; };
 function visiveis(){
-  const q = busca.trim().toLowerCase(), f = UPS ? UPS_FILTRO : 'todos';
-  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || (classe === 'ruins' ? (r.classe === 'abaixo' || r.classe === 'prejuizo') : r.classe === classe)) && expiraEm(r)
-    && (f === 'todos' || (f === 'ambos' ? naUps(r) && !soUps(r) : f === 'so_site' ? !naUps(r) : true))
+  const q = busca.trim().toLowerCase();      // os botões do UpSeller NÃO mexem nesta lista: eles só filtram a tabela da caixa "Conferir com o UpSeller"
+  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || (classe === 'ruins' ? (r.classe === 'abaixo' || r.classe === 'prejuizo') : r.classe === classe)) && expiraEm(r)
     && (!q || [r.pedido, r.pack_id, r.envio_id, r.pedido_upseller, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
 
@@ -173,6 +172,7 @@ function conferirUpseller(manter){
   const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + noUpsSite + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + (semAquiVivos.length + cancUps.filter(n => UPS_MAE[n]).length) + ')']];
   const grupo = el('div', {class:'filtros'}); for (const [k, nome] of opc) grupo.append(el('button', {type:'button', class: UPS_FILTRO === k ? 'on' : '', onclick: () => { UPS_FILTRO = k; conferirUpseller(true); }}, nome));
   r.append(grupo);
+  desenharCaixaUps();
   desenhar();
 }
 // anexar a planilha do UpSeller: lê os números e, para os que NÃO vieram aqui, pergunta ao Mercado Livre o motivo
@@ -194,9 +194,20 @@ async function anexarUpseller(arquivo){
     await explicarFaltantes();
   } catch (e) { r.textContent = 'Não consegui ler a planilha: ' + e.message; }
 }
+let UPS_FALTAM = [];        // linhas "no UpSeller e não vieram no site" (com o motivo), preenchidas por explicarFaltantes
+// tabela da caixa do UpSeller: os botões de cima só filtram ESTA tabela (a lista de vendas fica como está)
+function desenharCaixaUps(){
+  const cx = $('vUpsMotivosCx'), corpo = $('vUpsMotivos');
+  if (!UPS) { cx.hidden = true; corpo.replaceChildren(); return; }
+  const porPedido = (filtro, texto) => { const v = new Map(); for (const x of LINHAS) if (!soUps(x) && filtro(x) && !v.has(String(x.pedido))) v.set(String(x.pedido), {pedido: String(x.pedido), conta: x.conta, situacao: x.status_rotulo || '', motivo: texto}); return [...v.values()]; };
+  const ambos = porPedido(naUps, 'Está no UpSeller e no site'), soSite = porPedido(x => !naUps(x), 'Está no site e não está na planilha do UpSeller');
+  const linhas = UPS_FILTRO === 'ambos' ? ambos : UPS_FILTRO === 'so_site' ? soSite : UPS_FILTRO === 'so_ups' ? UPS_FALTAM : [...UPS_FALTAM, ...ambos, ...soSite];
+  cx.hidden = !linhas.length;
+  corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo))));
+}
 async function explicarFaltantes(){
   const site = chavesSite(), faltam = [...(UPS || [])].filter(n => !site.has(n)), cx = $('vUpsMotivosCx'), corpo = $('vUpsMotivos');
-  corpo.replaceChildren(); cx.hidden = !faltam.length; if (!faltam.length) return;
+  UPS_FALTAM = []; if (!faltam.length) { desenharCaixaUps(); return; }
   const canc = faltam.filter(n => UPS_CANC.has(n)), vivos = faltam.filter(n => !UPS_CANC.has(n));
   const limite = vivos.slice(0, 200), res = $('vUpsMotivoTxt'), base = '';
   const linhas = [];
@@ -206,11 +217,11 @@ async function explicarFaltantes(){
       const d = await comTentativas(() => json('/api/vendas/diagnostico-pedidos', Object.assign({}, FILTRO, {somente_a_enviar: FILTRO.enviar, pedidos: limite.slice(i, i + 8).map(n => ({pedido: n, conta: UPS_CONTA[n] || ''}))})));
       for (const x of d.resultados) linhas.push(x);
     } catch (e) { for (const n of limite.slice(i, i + 8)) linhas.push({pedido: n, conta: UPS_CONTA[n] || '', situacao: '', motivo: 'Não consegui consultar agora (' + e.message + ')'}); }
-    corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo || 'Deveria ter aparecido: busque de novo (pode ter sido só uma falha de leitura do Mercado Livre).'))));
+    UPS_FALTAM = linhas.map(x => Object.assign({}, x, {motivo: x.motivo || 'Deveria ter aparecido: busque de novo (pode ter sido só uma falha de leitura do Mercado Livre).'})); desenharCaixaUps();
   }
   const grupos = new Map(); for (const x of linhas) { const k = x.motivo ? x.motivo.replace(/"[^"]*"/g, '“…”').replace(/\d{2}\/\d{2}/g, 'dd/mm') : 'Deveria ter aparecido'; grupos.set(k, (grupos.get(k) || 0) + 1); }
   for (const n of canc) linhas.push({pedido: n, conta: UPS_CONTA[n] || '', situacao: 'Cancelado no UpSeller', motivo: UPS_MAE[n] ? 'Venda separada em pacotes: entrou na lista como venda mãe, com o valor total da venda (valores do UpSeller)' : 'O próprio UpSeller marca este pedido como Cancelado (o Mercado Livre cancelou ou separou a venda em pacotes novos). Não precisa vir na lista'});
-  corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo))));
+  UPS_FALTAM = linhas.map(x => Object.assign({}, x, {motivo: x.motivo || 'Deveria ter aparecido: busque de novo (pode ter sido só uma falha de leitura do Mercado Livre).'})); desenharCaixaUps();
   await trazerFaltantes(limite, canc.filter(n => UPS_MAE[n]));
   res.textContent = 'Motivos dos ' + linhas.length + ' que faltam' + (canc.length ? ' (' + canc.length + ' cancelados no UpSeller)' : '') + ': ' + [...grupos].sort((a, b) => b[1] - a[1]).map(([k, v]) => v + ' × ' + k).join(' | ') + (vivos.length > limite.length ? ' (mostrei só os primeiros ' + limite.length + ')' : '');
 }
@@ -356,7 +367,7 @@ function linha(r){
   return el('tr', {class: SEL.has(r._i) ? 'marcada' : ''}, ...cels);
 }
 $('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); UPS_MAE = {}; conferirUpseller(); await explicarFaltantes(); };
-$('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = ''; desenhar(); };
+$('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; UPS_FALTAM = []; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
 $('vExpira').onchange = () => desenhar();
 $('vMarcarRuins').onclick = () => {

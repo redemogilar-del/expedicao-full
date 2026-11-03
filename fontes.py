@@ -369,9 +369,10 @@ def itens_info(conta, ids):
 
 
 # ---------------------------------------------------------------- vendas com tarifa e frete (aba Vendas do dia)
-# etapas do envio que o Mercado Livre mostra (o UpSeller usa etapas próprias: Para Emitir ≈ NF pendente; Para Enviar/Imprimir ≈ etiqueta pronta; Para Retirada ≈ etiqueta impressa)
-ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print'},
-                'impressa': {'printed', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'picked_up', 'dropped_off'}}
+# etapas do envio que o Mercado Livre mostra. Conferido contra os números do UpSeller em 03/11: "Pronto para coleta" (ML) ≈ Para Enviar/Para Imprimir (UpSeller);
+# "Gerar NF" ≈ Para Emitir; "Aguardando (buffered)" fica de fora das etapas (o UpSeller não o põe em Enviar/Imprimir)
+ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'},
+                'impressa': {'printed'}}
 FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
 
 

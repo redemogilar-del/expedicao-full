@@ -141,7 +141,10 @@ function resumoEnvio(){
   const p = $('vResumoEnvio'); p.hidden = !MODO_ENVIAR || !LINHAS.length; if (p.hidden) return;
   const por = new Map(), pedidos = new Set();
   for (const r of LINHAS) { const k = (r.status_rotulo || '—').replace(/ · enviar até.*$/, ''), id = r.conta + '|' + r.pedido; pedidos.add(id); if (!por.has(k)) por.set(k, new Set()); por.get(k).add(id); }
-  p.textContent = pedidos.size + ' pedido(s) esperando envio, por situação no Mercado Livre: ' + [...por].sort((a, b) => b[1].size - a[1].size).map(([k, v]) => k + ' ' + v.size).join(' · ') + '. (Um pedido com vários produtos aparece em várias linhas abaixo.)';
+  const faltas = new Map();
+  for (const r of LINHAS) if (r.classe === 'sem_dados') for (const f of String(r.pendencias || 'motivo não informado').split(',')) { const k = f.trim() || 'motivo não informado'; faltas.set(k, (faltas.get(k) || 0) + 1); }
+  const semDados = faltas.size ? ' Sem dados para calcular (linhas): ' + [...faltas].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(' · ') + '.' : '';
+  p.textContent = pedidos.size + ' pedido(s) esperando envio, por situação no Mercado Livre: ' + [...por].sort((a, b) => b[1].size - a[1].size).map(([k, v]) => k + ' ' + v.size).join(' · ') + '. (Um pedido com vários produtos aparece em várias linhas abaixo.)' + semDados;
 }
 function desenhar(){
   resumoEnvio();

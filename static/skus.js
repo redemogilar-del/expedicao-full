@@ -207,6 +207,25 @@ $('sPreencher').addEventListener('click', () => {
   mensagem('SKU "' + v + '" preenchido em ' + alvo.length + ' anúncio(s). Confira, corrija o que precisar, digite TROCAR e grave.', 'ok'); desenhar();
 });
 $('sTrocar').addEventListener('click', trocar);
+$('sDiagBtn').addEventListener('click', async () => {
+  const mlb = $('sDiagMlb').value.trim().toUpperCase(), r = $('sDiagRes');
+  if (!/^MLB\d+$/.test(mlb)) { r.textContent = 'Digite o código do anúncio, por exemplo MLB123456789.'; return; }
+  $('sDiagBtn').disabled = true; r.textContent = 'Consultando o Mercado Livre…';
+  try {
+    const d = await json('/api/skus/diagnostico', {conta: $('sDiagConta').value, mlb});
+    const lim = d.limite_fotos_anuncio == null ? 'não informado' : d.limite_fotos_anuncio, limv = d.limite_fotos_por_variacao == null ? 'não informado' : d.limite_fotos_por_variacao;
+    const ids = a => a === null ? 'não consegui ler' : (a.length ? a.join(', ') : 'nenhuma');
+    r.textContent = [
+      mlb + ' (' + (d.status || '?') + ')',
+      'Fotos do anúncio: ' + d.fotos_do_anuncio + ' · limite da categoria: ' + lim + ' · limite por variação: ' + limv,
+      'SKU no anúncio: ' + (d.sku_do_anuncio.seller_custom_field || d.sku_do_anuncio.SELLER_SKU || '(nenhum)'),
+      ...d.variacoes.map(v => 'Variação ' + v.id + ' [' + (v.nome || '—') + '] · fotos: ' + v.fotos + ' · campo SKU: ' + (v.seller_custom_field || '(vazio)') + ' · atributo SELLER_SKU: ' + (v.SELLER_SKU || '(vazio)') + ' · produto do usuário ' + (v.user_product_id || '(nenhum)') + ': ' + (v.SKU_no_produto_do_usuario === null ? 'não li' : (v.SKU_no_produto_do_usuario || '(sem SKU)'))),
+      'Campos que o Mercado Livre devolveu na 1ª variação: ' + (d.variacoes[0] ? d.variacoes[0].campos.join(', ') : '—'),
+      'Variações sem SKU lendo o anúncio completo: ' + ids(d.sem_sku_lendo_o_anuncio_completo),
+      'Variações sem SKU como esta tela enxerga na busca: ' + ids(d.sem_sku_como_a_varredura_enxerga)].join('\n');
+  } catch (e) { r.textContent = 'Não consegui consultar: ' + e.message; }
+  $('sDiagBtn').disabled = false;
+});
 atualizarForm();
 
 // baixar em Excel o que está na tela (já com o filtro de título); só leitura

@@ -357,3 +357,22 @@ class TestEndpoints(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DiagnosticoTest(unittest.TestCase):
+    def test_mostra_sku_fotos_e_diferenca_da_varredura(self):
+        completo = {'id': 'MLB1000000001', 'seller_id': 7, 'status': 'active', 'category_id': 'MLB9', 'pictures': [{}] * 13,
+                    'variations': [{'id': 1, 'picture_ids': ['a', 'b'], 'attribute_combinations': [{'name': 'Cor', 'value_name': 'Areia'}],
+                                    'attributes': [{'id': 'SELLER_SKU', 'value_name': 'X1'}]}]}
+        varredura_item = dict(completo, variations=[{'id': 1, 'attribute_combinations': []}])   # a busca não trouxe o SKU
+
+        def ml(tk, caminho, params=None):
+            if caminho == '/items/MLB1000000001': return completo
+            if caminho == '/items': return [{'code': 200, 'body': varredura_item}]
+            if caminho == '/categories/MLB9': return {'max_pictures_per_item': 12, 'max_pictures_per_item_var': 10}
+        with mock.patch.object(fontes, 'token', return_value='t'), mock.patch.object(fontes, '_vendedor', return_value=7), mock.patch.object(fontes, '_ml', ml):
+            d = skus.diagnosticar('ML19', 'MLB1000000001')
+        self.assertEqual(d['fotos_do_anuncio'], 13); self.assertEqual(d['limite_fotos_anuncio'], 12)
+        self.assertEqual(d['variacoes'][0]['SELLER_SKU'], 'X1')
+        self.assertEqual(d['sem_sku_lendo_o_anuncio_completo'], [])
+        self.assertEqual(d['sem_sku_como_a_varredura_enxerga'], [1])

@@ -357,3 +357,24 @@ class TestEndpoints(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MotivoRecusaTest(unittest.TestCase):
+    class R:
+        status_code = 400
+        def __init__(self, d, texto=''): self.d, self.text = d, texto
+        def json(self):
+            if self.d is None: raise ValueError()
+            return self.d
+
+    def test_fotos_demais_vira_orientacao(self):
+        r = self.R({'cause': [{'code': 'item.pictures.max', 'message': 'Items in category X'}]})
+        m = skus._motivo_recusa(r)
+        self.assertIn('mais fotos', m); self.assertIn('Nada foi alterado', m)
+
+    def test_outro_erro_mostra_mensagem(self):
+        m = skus._motivo_recusa(self.R({'cause': [{'code': 'x', 'message': 'campo invalido'}]}))
+        self.assertIn('HTTP 400', m); self.assertIn('campo invalido', m)
+
+    def test_sem_json(self):
+        self.assertIn('boom', skus._motivo_recusa(self.R(None, 'boom')))

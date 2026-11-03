@@ -179,6 +179,9 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar()], ['1', '2', '3', '4'])
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3', '4'])
         self.assertEqual([i['pedido'] for i in rodar(etapa='nf')], ['1'])
+        envios[3] = ('ready_to_ship', 'ready_for_pickup', '2026-11-09'); envios[4] = ('ready_to_ship', 'buffered', None)
+        self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3'])                  # pronto para coleta entra; aguardando (buffered) não
+        envios[3] = ('ready_to_ship', 'ready_to_print', '2026-11-09'); envios[4] = ('ready_to_ship', 'ready_to_print', None)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])

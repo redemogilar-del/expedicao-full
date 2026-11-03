@@ -22,7 +22,7 @@
   <div class="regras">
     <label>Conta<select id="vEConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
     <label>Lista (como no Mercado Livre)<select id="vPrazo"><option value="hoje" selected>Envios de hoje (vencem hoje ou já atrasados)</option><option value="proximos">Próximos dias</option><option value="">Todos que faltam enviar</option></select></label>
-    <label>Etapa do envio<select id="vEtapa"><option value="todos">Todos que faltam enviar</option><option value="etiqueta">Com nota fiscal, prontos para etiqueta (≈ “Para Enviar” do UpSeller)</option><option value="nf">Falta emitir a nota fiscal (≈ “Para Emitir”)</option><option value="impressa">Etiqueta já impressa, aguardando coleta (≈ “Para Retirada”)</option></select></label>
+    <label>Etapa do envio<select id="vEtapa"><option value="etiqueta" selected>Prontos para enviar: etiqueta liberada (≈ “Para Enviar / Para Imprimir” do UpSeller)</option><option value="nf">Falta emitir a nota fiscal (≈ “Para Emitir”)</option><option value="impressa">Etiqueta já impressa</option><option value="todos">Todos que faltam enviar (inclui os aguardando, “buffered”)</option></select></label>
   </div>
   <button class="primario" id="vEnviar">Buscar o que falta enviar e calcular</button>
 </section>

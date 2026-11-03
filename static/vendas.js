@@ -38,22 +38,29 @@ const parametros = () => ({imposto_pct: $('vImposto').value, margem_padrao: $('v
 const chaveSku = r => r.sku || r.mlb;
 
 // ---------- busca ----------
-async function buscar(){
-  const contas = $('vConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('vConta').value], de = $('vDe').value, ate = $('vAte').value;
+const dataIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+// modo 'periodo': vendas feitas entre "De" e "Até". modo 'enviar': pedidos pagos que AINDA NÃO FORAM ENVIADOS (como a lista "Para enviar" do UpSeller), mesmo de dias anteriores
+async function buscar(modo){
+  const enviar = modo === 'enviar';
+  const escolhida = $(enviar ? 'vEConta' : 'vConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
+  let de = $('vDe').value, ate = $('vAte').value;
+  if (enviar) { const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - Number($('vDias').value || 15)); de = dataIso(ini); ate = dataIso(hoje); }
   if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
-  $('vBuscar').disabled = true; mensagem(''); $('vResultado').hidden = true;
+  $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
     RAW = []; MARCA = new Set(); PRECO = new Set(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
-    for (const conta of contas) {
-      let off = 0, total = 0;
+    const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
+    const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
+      5 + 55 * contas.reduce((t, c) => t + (andamento[c].total ? Math.min(1, andamento[c].off / andamento[c].total) : 0), 0) / contas.length);
+    await Promise.all(contas.map(async conta => {          // as duas contas são lidas ao mesmo tempo
+      let off = 0, total = 0; mostra();
       for (;;) {
-        progresso(conta + ': lendo pedidos' + (total ? ' (' + Math.min(off, total) + ' de ' + total + ')' : '…'), total ? 5 + 55 * off / total / contas.length : 5);
-        const d = await comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off}));
-        RAW.push(...d.itens); total = d.total; off = d.proximo;
+        const d = await comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar}));
+        RAW.push(...d.itens); total = d.total; off = d.proximo; andamento[conta] = {off, total}; mostra();
         if (d.concluido) break;
       }
-    }
-    if (!RAW.length) { progresso(null); mensagem('Nenhuma venda paga neste período.', ''); $('vBuscar').disabled = false; return; }
+    }));
+    if (!RAW.length) { progresso(null); mensagem(enviar ? 'Nenhum pedido pago esperando envio nos últimos ' + $('vDias').value + ' dias.' : 'Nenhuma venda paga neste período.', ''); $('vBuscar').disabled = false; $('vEnviar').disabled = false; return; }
     const skus = [...new Set(RAW.map(r => r.sku).filter(Boolean))]; CAD = {};
     for (let i = 0; i < skus.length; i += 100) {
       progresso('Lendo custos e margens na planilha (' + Math.min(i + 100, skus.length) + ' de ' + skus.length + ' SKUs)…', 60 + 30 * i / skus.length);
@@ -65,6 +72,7 @@ async function buscar(){
     IMPOSTOS = imp.impostos;
     const falhas = Object.entries(imp.erros || {}).map(([c, e]) => c + ': ' + e);
     PERIODO = de === ate ? de.split('-').reverse().join('/') : de.split('-').reverse().join('/') + ' a ' + ate.split('-').reverse().join('/'); DIA = ate;
+    if (enviar) PERIODO = 'A enviar hoje (pedidos de ' + PERIODO + ')';
     progresso('Calculando o lucro…', 95);
     await recalcular();
     aba = 'mogilar'; sub = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = '';
@@ -73,7 +81,7 @@ async function buscar(){
     if (falhas.length && !$('vImposto').value) mensagem('Não consegui ler o imposto da planilha (' + falhas.join(' · ') + '). As vendas dessa conta ficam "Sem dados" até você digitar o imposto no campo.', 'erro');
     $('vResultado').scrollIntoView({behavior: 'smooth'});
   } catch (err) { progresso(null); mensagem(err.message, 'erro'); }
-  $('vBuscar').disabled = false;
+  $('vBuscar').disabled = false; $('vEnviar').disabled = false;
 }
 // cadastro da planilha + o que foi digitado na tela (custo e margem mínima valem para o SKU inteiro)
 function cadastroEfetivo(){
@@ -324,7 +332,8 @@ $('vSalvar').onclick = async () => {
   } catch (err) { mensagem(err.message, 'erro'); }
   b.disabled = false;
 };
-$('vBuscar').onclick = buscar;
+$('vBuscar').onclick = () => buscar('periodo');
+$('vEnviar').onclick = () => buscar('enviar');
 
 // ---------- resumo do que ficou para fazer na mão ----------
 function pendenciasManuais(){

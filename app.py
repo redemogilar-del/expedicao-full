@@ -1260,6 +1260,30 @@ def api_vendas_pausar():
         return _erro_fonte(exc)
 
 
+@app.post('/api/vendas/anuncios-skus')
+def api_vendas_anuncios_skus():
+    """Somente leitura: SKU de cada variação dos anúncios marcados (para a pessoa digitar o SKU novo de cada uma)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        lista = _itens_acao(c)
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+
+        def um(p):
+            try:
+                return anuncios.skus_do_anuncio(tk, vendedor, p[0])
+            except anuncios.Bloqueio as exc:
+                return {'mlb': p[0], 'erro': str(exc), 'locais': []}
+            except (RuntimeError, ValueError) as exc:
+                return {'mlb': p[0], 'erro': 'Falha ao falar com o Mercado Livre: ' + str(exc)[:120], 'locais': []}
+        with ThreadPoolExecutor(max_workers=len(lista)) as ex:
+            anuncios_ = list(ex.map(um, lista))
+        return jsonify(ok=True, somente_leitura=True, conta=conta, anuncios=anuncios_)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/vendas/sku-trocar')
 def api_vendas_sku_trocar():
     """Troca o SKU de anúncios marcados na lista de vendas (um SKU novo por anúncio)."""
@@ -1272,7 +1296,7 @@ def api_vendas_sku_trocar():
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         with ThreadPoolExecutor(max_workers=len(lista)) as ex:
-            resultados = list(ex.map(lambda p: anuncios.trocar_sku_item(conta, tk, vendedor, p[0], p[1].get('sku_atual'), p[1].get('sku_novo')), lista))
+            resultados = list(ex.map(lambda p: anuncios.trocar_sku_item(conta, tk, vendedor, p[0], p[1].get('trocas') if 'trocas' in p[1] else [{'sku_atual': p[1].get('sku_atual'), 'sku_novo': p[1].get('sku_novo')}]), lista))
         for r in resultados:
             log.info('SKU (vendas) %s %s: %s %s', conta, r['mlb'], r['status'], r.get('trocas'))
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))

@@ -448,30 +448,51 @@ const anunciosMarcados = () => {
 };
 let ALVOS_SKU = [], ALVOS_PAUSAR = [];
 const emLotes = (lista, fn) => { const por = {}; for (const a of lista) (por[a.conta] = por[a.conta] || []).push(a); return Promise.all(Object.entries(por).map(async ([conta, l]) => { for (let i = 0; i < l.length; i += 10) await fn(conta, l.slice(i, i + 10)); })); };
-$('vSku').onclick = () => {
-  ALVOS_SKU = anunciosMarcados(); if (!ALVOS_SKU.length) return;
-  $('vSkuLista').replaceChildren(...ALVOS_SKU.map(a => { a.campo = el('input', {type: 'text', maxLength: 100, placeholder: a.sku ? 'deixe vazio para não trocar' : 'digite o SKU'}); return el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 50)), el('td', {}, a.sku || '(sem SKU)'), el('td', {}, a.campo)); }));
-  $('vSkuEntendi').checked = false; $('vSkuOk').disabled = true; $('vSkuRes').hidden = true; $('vSkuCancela').textContent = 'Cancelar'; $('vPainelPausar').hidden = true;
-  $('vPainelSku').hidden = false; $('vPainelSku').scrollIntoView({behavior: 'smooth', block: 'center'});
+$('vSku').onclick = async () => {
+  const marcados = anunciosMarcados(); if (!marcados.length) return;
+  $('vPainelPausar').hidden = true; $('vSkuEntendi').checked = false; $('vSkuOk').disabled = true; $('vSkuCancela').textContent = 'Cancelar';
+  const res = $('vSkuRes'); res.hidden = false; res.className = 'aviso'; res.textContent = 'Lendo no Mercado Livre o SKU de cada variação…';
+  $('vSkuLista').replaceChildren(); $('vPainelSku').hidden = false; $('vPainelSku').scrollIntoView({behavior: 'smooth', block: 'center'});
+  ALVOS_SKU = [];
+  try {
+    await emLotes(marcados, async (conta, lote) => {
+      const d = await json('/api/vendas/anuncios-skus', {conta, itens: lote.map(a => ({mlb: a.mlb}))});
+      for (const a of d.anuncios) {
+        const m = lote.find(x => x.mlb === a.mlb);
+        if (a.erro) { ALVOS_SKU.push({conta, mlb: a.mlb, titulo: m.titulo, erro: a.erro}); continue; }
+        for (const l of a.locais) ALVOS_SKU.push({conta, mlb: a.mlb, titulo: a.titulo || m.titulo, variacao: l.variacao, nome: l.nome, sku: l.sku, campo: el('input', {type: 'text', maxLength: 100, placeholder: l.sku ? 'deixe vazio para não trocar' : 'digite o SKU'})});
+      }
+    });
+    ALVOS_SKU.sort((x, y) => (x.conta + x.mlb).localeCompare(y.conta + y.mlb));
+    $('vSkuLista').replaceChildren(...ALVOS_SKU.map(a => a.erro
+      ? el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 40)), el('td', {class: 'erro', colSpan: 3}, a.erro))
+      : el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 40) + (a.nome ? ' — ' + a.nome : '')), el('td', {}, a.sku || '(sem SKU)'), el('td', {}, a.campo))));
+    res.hidden = true;
+  } catch (e) { res.className = 'aviso erro'; res.textContent = 'Não consegui ler os anúncios: ' + e.message; }
 };
 $('vSkuEntendi').onchange = () => { $('vSkuOk').disabled = !$('vSkuEntendi').checked; };
 $('vSkuCancela').onclick = () => { $('vPainelSku').hidden = true; };
 $('vSkuOk').onclick = async () => {
-  const lista = ALVOS_SKU.filter(a => a.campo.value.trim() && a.campo.value.trim() !== a.sku);
+  const lista = ALVOS_SKU.filter(a => !a.erro && a.campo.value.trim() && a.campo.value.trim() !== a.sku);
   const res = $('vSkuRes'); res.hidden = false;
-  if (!lista.length) { res.className = 'aviso erro'; res.textContent = 'Digite o SKU novo em pelo menos um anúncio.'; return; }
+  if (!lista.length) { res.className = 'aviso erro'; res.textContent = 'Digite o SKU novo em pelo menos uma linha.'; return; }
   $('vSkuOk').disabled = true; $('vSkuCancela').disabled = true; res.className = 'aviso'; res.textContent = 'Trocando…';
+  const porAnuncio = new Map();
+  for (const a of lista) { const k = a.conta + '|' + a.mlb; if (!porAnuncio.has(k)) porAnuncio.set(k, {conta: a.conta, mlb: a.mlb, trocas: []}); porAnuncio.get(k).trocas.push({variacao: a.variacao, sku_atual: a.sku, sku_novo: a.campo.value.trim()}); }
   const linhasRes = []; let ok = 0; const novos = {};
   try {
-    await emLotes(lista, async (conta, lote) => {
-      const d = await json('/api/vendas/sku-trocar', {conta, confirmacao: 'TROCAR_SKU', itens: lote.map(a => ({mlb: a.mlb, sku_atual: a.sku, sku_novo: a.campo.value.trim()}))});
-      for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem); if (r.status === 'OK') { ok++; novos[conta + '|' + r.mlb] = lote.find(a => a.mlb === r.mlb).campo.value.trim(); } }
+    await emLotes([...porAnuncio.values()], async (conta, lote) => {
+      const d = await json('/api/vendas/sku-trocar', {conta, confirmacao: 'TROCAR_SKU', itens: lote.map(a => ({mlb: a.mlb, trocas: a.trocas}))});
+      for (const r of d.resultados) {
+        linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem);
+        if (r.status === 'OK') { ok++; for (const t of lote.find(a => a.mlb === r.mlb).trocas) novos[conta + '|' + r.mlb + '|' + t.sku_atual] = t.sku_novo; }
+      }
     });
-    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb]; if (n) x.sku = n; }
+    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb + '|' + (x.sku || '')]; if (n) x.sku = n; }      // as vendas que usavam o SKU antigo passam a usar o novo
     const faltam = [...new Set(Object.values(novos))].filter(k => !CAD[k]);
     for (let i = 0; i < faltam.length; i += 100) Object.assign(CAD, (await json('/api/vendas/cadastro', {skus: faltam.slice(i, i + 100)})).cadastro);
     if (ok) { await recalcular(); INFO = {}; }
-    res.className = 'aviso ' + (ok === lista.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + lista.length + ' SKUs trocados.' + (ok ? ' Custo e margem recalculados.' : '')), ...linhasRes.map(t => el('div', {}, t)));
+    res.className = 'aviso ' + (ok === porAnuncio.size ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + porAnuncio.size + ' anúncios com SKU trocado (' + lista.length + ' SKUs).' + (ok ? ' Custo e margem recalculados.' : '')), ...linhasRes.map(t => el('div', {}, t)));
   } catch (e) { res.className = 'aviso erro'; res.replaceChildren(el('b', {}, 'Parei: ' + e.message), ...linhasRes.map(t => el('div', {}, t))); }
   $('vSkuCancela').disabled = false; $('vSkuCancela').textContent = 'Fechar'; desenhar();
 };

@@ -68,14 +68,29 @@ def pausar_item(conta, tk, vendedor, mlb):
     return r
 
 
-def trocar_sku_item(conta, tk, vendedor, mlb, sku_atual, sku_novo):
-    """Troca o SKU de UM anúncio (todas as variações que têm `sku_atual`; se `sku_atual` vazio, as que estão sem SKU).
+_QUALQUER = object()
+_GRAVIDADE = {'OK': 0, 'PULADO': 1, 'NAO_CONFIRMADO': 2, 'ERRO': 3}
+
+
+def skus_do_anuncio(tk, vendedor, mlb):
+    """Somente leitura: onde há SKU no anúncio — ele mesmo ou CADA variação (com ou sem SKU)."""
+    item = _ler(tk, vendedor, mlb)
+    variacoes = [v for v in item.get('variations') or [] if isinstance(v, dict) and v.get('id') is not None]
+    if variacoes:
+        locais = [{'variacao': v['id'], 'nome': skus.nome_variacao(item, v['id']), 'sku': str(v.get('seller_custom_field') or '').strip() or skus._attr_sku(v.get('attributes'))} for v in variacoes]
+    else:
+        locais = [{'variacao': None, 'nome': '', 'sku': str(item.get('seller_custom_field') or '').strip() or skus._attr_sku(item.get('attributes'))}]
+    return {'mlb': mlb, 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'locais': locais}
+
+
+def _trocar_um(conta, tk, vendedor, mlb, sku_atual, sku_novo, variacao=_QUALQUER):
+    """Troca UM SKU de um anúncio (da variação `variacao`, ou de todos os locais que têm `sku_atual`; sem `sku_atual`, os locais sem SKU).
     Usa a mesma troca conferida da aba Trocar SKU (`skus.trocar_item`)."""
     sku_atual, sku_novo = str(sku_atual or '').strip(), str(sku_novo or '').strip()
     try:
         if not sku_novo or len(sku_novo) > skus.MAX_SKU or skus._CTRL.search(sku_novo):
             raise Bloqueio('Digite o SKU novo (até %d caracteres).' % skus.MAX_SKU)
-        if sku_novo.casefold() == sku_atual.casefold() and sku_novo == sku_atual:
+        if sku_novo == sku_atual:
             raise Bloqueio('O SKU novo é igual ao atual.')
         item = _ler(tk, vendedor, mlb)
         if item.get('status') not in skus.ATIVOS:
@@ -83,12 +98,12 @@ def trocar_sku_item(conta, tk, vendedor, mlb, sku_atual, sku_novo):
         if sku_atual:
             regra = ('igual', sku_atual, sku_novo, 'inteiro')
             alvos = [(l['variacao'], l['scf'] if l['scf'].casefold() == sku_atual.casefold() else l['attr'], '') for l in skus.locais(item)
-                     if sku_atual.casefold() in (l['scf'].casefold(), l['attr'].casefold())]
+                     if sku_atual.casefold() in (l['scf'].casefold(), l['attr'].casefold()) and (variacao is _QUALQUER or l['variacao'] == variacao)]
         else:
             regra = ('sem_todos', '', '', 'inteiro')
-            alvos = [(l['variacao'], '', sku_novo) for l in skus.locais_sem_sku(item)]
+            alvos = [(l['variacao'], '', sku_novo) for l in skus.locais_sem_sku(item) if variacao is _QUALQUER or l['variacao'] == variacao]
         if not alvos:
-            raise Bloqueio('Não achei o SKU "%s" neste anúncio (ele mudou?). Busque de novo.' % sku_atual if sku_atual else 'Este anúncio já tem SKU. Busque de novo.')
+            raise Bloqueio('Não achei o SKU "%s" neste anúncio (ele mudou?). Abra o painel de novo.' % sku_atual if sku_atual else 'Este local já tem SKU. Abra o painel de novo.')
     except Bloqueio as exc:
         return {'mlb': mlb, 'status': 'PULADO', 'mensagem': str(exc), 'trocas': []}
     except (RuntimeError, ValueError) as exc:
@@ -97,3 +112,31 @@ def trocar_sku_item(conta, tk, vendedor, mlb, sku_atual, sku_novo):
         return skus.trocar_item(conta, tk, vendedor, mlb, alvos, regra)
     except Exception as exc:                   # trocar_item já trata os erros comuns; isto é só a rede de segurança
         return {'mlb': mlb, 'status': 'ERRO', 'mensagem': str(exc)[:160], 'trocas': []}
+
+
+def trocar_sku_item(conta, tk, vendedor, mlb, trocas):
+    """`trocas`: [{'variacao': id|None (opcional), 'sku_atual', 'sku_novo'}] de UM anúncio (cada variação pode ter um SKU novo diferente).
+    Faz uma troca conferida por vez e junta o resultado (vale o pior)."""
+    if not isinstance(trocas, list) or not trocas or len(trocas) > 60:
+        return {'mlb': mlb, 'status': 'PULADO', 'mensagem': 'Nada para trocar.', 'trocas': []}
+    vistos, partes, todas = set(), [], []
+    for t in trocas:
+        t = t if isinstance(t, dict) else {}
+        var = t.get('variacao') if 'variacao' in t else _QUALQUER
+        if var is not _QUALQUER and not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
+            return {'mlb': mlb, 'status': 'PULADO', 'mensagem': 'Variação inválida.', 'trocas': []}
+        if var in vistos and var is not _QUALQUER:
+            return {'mlb': mlb, 'status': 'PULADO', 'mensagem': 'Variação repetida.', 'trocas': []}
+        vistos.add(var)
+        r = _trocar_um(conta, tk, vendedor, mlb, t.get('sku_atual'), t.get('sku_novo'), var)
+        with skus._LOCK:                       # o clique duplo continua barrado entre pedidos; dentro deste, a próxima variação pode seguir
+            skus._RECENTES.pop((conta, mlb), None)
+        partes.append(r)
+        todas.extend(r.get('trocas') or [])
+    pior = max(partes, key=lambda r: _GRAVIDADE.get(r['status'], 3))
+    if len(partes) == 1:
+        return partes[0]
+    ok = sum(r['status'] == 'OK' for r in partes)
+    msgs = '; '.join(r['mensagem'] for r in partes if r['status'] != 'OK')
+    return {'mlb': mlb, 'status': pior['status'] if ok != len(partes) else 'OK', 'trocas': todas,
+            'mensagem': ('%d de %d trocas conferidas.' % (ok, len(partes))) + (' ' + msgs if msgs else '')}

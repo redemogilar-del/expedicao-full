@@ -53,22 +53,27 @@ async function buscar(){
   BUSCANDO = true; PARAR = false; REGRA = regra; LINHAS = []; ABA = 1; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
   $('sBuscar').disabled = true; $('sParar').hidden = false; $('sResultado').hidden = false; desenhar();
   let falhou = null, parou = false;
-  try {
-    for (let ci = 0; ci < contas.length && !parou; ci++) {
-      const conta = contas[ci];
-      let scroll = null, lidos = 0;
+  const andamento = {};                                   // por conta: {lidos, total}; as contas são lidas ao mesmo tempo
+  const textoProgresso = () => {
+    const cs = Object.keys(andamento), lidosT = cs.reduce((t, c) => t + andamento[c].lidos, 0), totalT = cs.reduce((t, c) => t + andamento[c].total, 0);
+    progresso(cs.map(c => c + ': ' + andamento[c].lidos.toLocaleString('pt-BR') + (andamento[c].total ? ' de ' + andamento[c].total.toLocaleString('pt-BR') : '')).join(' · ') + ' anúncios lidos · ' + LINHAS.length + ' encontrado(s)', totalT ? (lidosT / totalT) * 100 : 5);
+  };
+  const lerConta = async conta => {
+    let scroll = null;
+    andamento[conta] = {lidos: 0, total: 0};
+    try {
       for (;;) {
         if (PARAR) { parou = true; break; }
         const d = await comTentativas(() => json('/api/skus/buscar', Object.assign({conta, scroll_id: scroll}, regra)));
-        lidos += d.lidos; scroll = d.scroll_id;
+        scroll = d.scroll_id; andamento[conta].lidos += d.lidos; andamento[conta].total = d.total || andamento[conta].total;
         for (const a of d.achados) LINHAS.push(Object.assign({}, a, {id: LINHAS.length, conta, marcado: false, resultado: null}));
-        const pct = d.total ? (lidos / d.total) * 100 : 5;
-        progresso(conta + ': leu ' + lidos.toLocaleString('pt-BR') + (d.total ? ' de ' + d.total.toLocaleString('pt-BR') : '') + ' anúncios · ' + LINHAS.length + ' encontrado(s)', (ci * 100 + pct) / contas.length);
+        textoProgresso();
         if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sCorpo')) resumo(); else desenhar();   // não tira o cursor de quem está digitando um SKU
         if (d.concluido) break;
       }
-    }
-  } catch (e) { falhou = e; }
+    } catch (e) { falhou = falhou || e; PARAR = true; }    // se uma conta falha, a outra para também (evita lista pela metade sem aviso)
+  };
+  await Promise.all(contas.map(lerConta));
   BUSCANDO = false; $('sBuscar').disabled = TROCANDO; $('sParar').hidden = true; progresso(null); desenhar();
   if (falhou) mensagem('A busca parou: ' + falhou.message + ' O que já apareceu continua na tela.', 'erro');
   else if (parou) mensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');

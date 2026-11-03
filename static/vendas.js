@@ -287,6 +287,7 @@ function desenhar(){
   $('vBaixarNao').disabled = !marcados.length; $('vBaixarNao').textContent = 'Baixar lista “Não enviar” (' + marcados.length + ')';
   $('vMarcarRuins').disabled = !lista.some(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); $('vLimpar').disabled = !SEL.size;
   const sel = LINHAS.filter(r => SEL.has(r._i) && selecionavel(r));
+  { const n = new Set(LINHAS.filter(r => SEL.has(r._i)).map(r => r.conta + '|' + r.mlb)).size; $('vSku').disabled = !n; $('vPausar').disabled = !n; $('vSku').textContent = 'Trocar SKU dos marcados (' + n + ')'; $('vPausar').textContent = 'Pausar anúncios marcados (' + n + ')'; }
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
   { // explica por que marcadas não entram no preço (nada some em silêncio)
     const m = LINHAS.filter(r => SEL.has(r._i)); let ja = 0, calc = 0, bloq = 0, sem = 0;
@@ -437,6 +438,63 @@ $('vPrecoOk').onclick = async () => {
     res.className = 'aviso ' + (ok === ALVOS.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + ALVOS.length + ' preços atualizados.'), ...linhasRes.map(t => el('div', {}, t)));
   } catch (e) { res.className = 'aviso erro'; res.replaceChildren(el('b', {}, 'Parei: ' + e.message), ...linhasRes.map(t => el('div', {}, t))); }
   INFO = {}; $('vPrecoCancela').disabled = false; $('vPrecoCancela').textContent = 'Fechar'; desenhar();
+};
+
+// ---------- trocar SKU e pausar anúncios (escritas manuais; sempre com confirmação) ----------
+const anunciosMarcados = () => {
+  const por = new Map();
+  for (const r of LINHAS) if (SEL.has(r._i) && !por.has(r.conta + '|' + r.mlb)) por.set(r.conta + '|' + r.mlb, {conta: r.conta, mlb: r.mlb, sku: r.sku || '', titulo: r.titulo || ''});
+  return [...por.values()];
+};
+let ALVOS_SKU = [], ALVOS_PAUSAR = [];
+const emLotes = (lista, fn) => { const por = {}; for (const a of lista) (por[a.conta] = por[a.conta] || []).push(a); return Promise.all(Object.entries(por).map(async ([conta, l]) => { for (let i = 0; i < l.length; i += 10) await fn(conta, l.slice(i, i + 10)); })); };
+$('vSku').onclick = () => {
+  ALVOS_SKU = anunciosMarcados(); if (!ALVOS_SKU.length) return;
+  $('vSkuLista').replaceChildren(...ALVOS_SKU.map(a => { a.campo = el('input', {type: 'text', maxLength: 100, placeholder: a.sku ? 'deixe vazio para não trocar' : 'digite o SKU'}); return el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 50)), el('td', {}, a.sku || '(sem SKU)'), el('td', {}, a.campo)); }));
+  $('vSkuEntendi').checked = false; $('vSkuOk').disabled = true; $('vSkuRes').hidden = true; $('vSkuCancela').textContent = 'Cancelar'; $('vPainelPausar').hidden = true;
+  $('vPainelSku').hidden = false; $('vPainelSku').scrollIntoView({behavior: 'smooth', block: 'center'});
+};
+$('vSkuEntendi').onchange = () => { $('vSkuOk').disabled = !$('vSkuEntendi').checked; };
+$('vSkuCancela').onclick = () => { $('vPainelSku').hidden = true; };
+$('vSkuOk').onclick = async () => {
+  const lista = ALVOS_SKU.filter(a => a.campo.value.trim() && a.campo.value.trim() !== a.sku);
+  const res = $('vSkuRes'); res.hidden = false;
+  if (!lista.length) { res.className = 'aviso erro'; res.textContent = 'Digite o SKU novo em pelo menos um anúncio.'; return; }
+  $('vSkuOk').disabled = true; $('vSkuCancela').disabled = true; res.className = 'aviso'; res.textContent = 'Trocando…';
+  const linhasRes = []; let ok = 0; const novos = {};
+  try {
+    await emLotes(lista, async (conta, lote) => {
+      const d = await json('/api/vendas/sku-trocar', {conta, confirmacao: 'TROCAR_SKU', itens: lote.map(a => ({mlb: a.mlb, sku_atual: a.sku, sku_novo: a.campo.value.trim()}))});
+      for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem); if (r.status === 'OK') { ok++; novos[conta + '|' + r.mlb] = lote.find(a => a.mlb === r.mlb).campo.value.trim(); } }
+    });
+    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb]; if (n) x.sku = n; }
+    const faltam = [...new Set(Object.values(novos))].filter(k => !CAD[k]);
+    for (let i = 0; i < faltam.length; i += 100) Object.assign(CAD, (await json('/api/vendas/cadastro', {skus: faltam.slice(i, i + 100)})).cadastro);
+    if (ok) { await recalcular(); INFO = {}; }
+    res.className = 'aviso ' + (ok === lista.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + lista.length + ' SKUs trocados.' + (ok ? ' Custo e margem recalculados.' : '')), ...linhasRes.map(t => el('div', {}, t)));
+  } catch (e) { res.className = 'aviso erro'; res.replaceChildren(el('b', {}, 'Parei: ' + e.message), ...linhasRes.map(t => el('div', {}, t))); }
+  $('vSkuCancela').disabled = false; $('vSkuCancela').textContent = 'Fechar'; desenhar();
+};
+$('vPausar').onclick = () => {
+  ALVOS_PAUSAR = anunciosMarcados(); if (!ALVOS_PAUSAR.length) return;
+  $('vPausarLista').replaceChildren(...ALVOS_PAUSAR.map(a => el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 60)), el('td', {}, a.sku || '—'))));
+  $('vPausarEntendi').checked = false; $('vPausarOk').disabled = true; $('vPausarRes').hidden = true; $('vPausarCancela').textContent = 'Cancelar'; $('vPainelSku').hidden = true;
+  $('vPainelPausar').hidden = false; $('vPainelPausar').scrollIntoView({behavior: 'smooth', block: 'center'});
+};
+$('vPausarEntendi').onchange = () => { $('vPausarOk').disabled = !$('vPausarEntendi').checked; };
+$('vPausarCancela').onclick = () => { $('vPainelPausar').hidden = true; };
+$('vPausarOk').onclick = async () => {
+  $('vPausarOk').disabled = true; $('vPausarCancela').disabled = true;
+  const res = $('vPausarRes'); res.hidden = false; res.className = 'aviso'; res.textContent = 'Pausando…';
+  const linhasRes = []; let ok = 0;
+  try {
+    await emLotes(ALVOS_PAUSAR, async (conta, lote) => {
+      const d = await json('/api/vendas/pausar', {conta, confirmacao: 'PAUSAR_ANUNCIOS', itens: lote.map(a => ({mlb: a.mlb}))});
+      for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem); if (r.status === 'OK') ok++; }
+    });
+    res.className = 'aviso ' + (ok === ALVOS_PAUSAR.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + ALVOS_PAUSAR.length + ' anúncios pausados.'), ...linhasRes.map(t => el('div', {}, t)));
+  } catch (e) { res.className = 'aviso erro'; res.replaceChildren(el('b', {}, 'Parei: ' + e.message), ...linhasRes.map(t => el('div', {}, t))); }
+  $('vPausarCancela').disabled = false; $('vPausarCancela').textContent = 'Fechar';
 };
 
 // ---------- relatórios ----------

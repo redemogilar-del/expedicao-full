@@ -9,6 +9,7 @@ Variáveis de ambiente:
 import os
 import threading
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -433,7 +434,7 @@ def _grupo_envio(logistica, status):
     return 'enviado' if str(status or '').lower() in FINAIS_ENVIO else 'a_enviar'
 
 
-def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
+def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None, expira_ate=None):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
     if not env and ped.get('id'):                  # a busca às vezes vem sem o envio: confere no pedido completo antes de desistir
@@ -457,7 +458,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
     if somente_a_enviar:
-        if _motivo_fora(saida, etapa, vence_ate, vence_apos):
+        if _motivo_fora(saida, etapa, vence_ate, vence_apos, expira_ate):
             saida['pular'] = True                   # já enviado, Full ou fora da etapa escolhida: não entra na lista, então nem consulta o frete
             return saida
     try:
@@ -480,7 +481,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
     return saida
 
 
-def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None):
+def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None, expira_ate=None):
     """Por que um envio NÃO entra na lista "a enviar" (texto simples), ou '' se entra. Mesma regra da busca."""
     st, sub, log = saida['status_envio'].lower(), saida['substatus'].lower(), saida['logistica']
     if log == 'fulfillment':
@@ -490,6 +491,12 @@ def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None):
     permitidos = ETAPAS_ENVIO.get(etapa)
     if permitidos is not None and not (st == 'ready_to_ship' and sub in permitidos):
         return 'Está em "%s", que fica fora da etapa escolhida na tela. Escolha "Todos os que esperam envio" na etapa para ver' % rotulo_envio(saida['status_envio'], saida['substatus'])
+    if expira_ate is not None and saida.get('limite_dt'):          # "expira em até X horas" (como o Modo Rápido do UpSeller): vencidos entram; sem prazo conhecido entra
+        try:
+            if datetime.fromisoformat(saida['limite_dt']) > expira_ate:
+                return 'O prazo de envio é %s/%s %s, depois do limite do filtro "expira em até X horas"' % (saida['limite_dt'][8:10], saida['limite_dt'][5:7], saida['limite_dt'][11:16])
+        except ValueError:
+            pass
     if sub in SUBS_NA_COLETA:                  # etiqueta já impressa / pacote pronto: sai na próxima coleta (hoje), não importa o prazo de despacho
         return 'O pacote já está pronto e sai na coleta de hoje (não é da lista "Próximos dias")' if vence_apos else ''
     if vence_ate and saida['limite'] and saida['limite'] > vence_ate:
@@ -530,7 +537,7 @@ def _pedidos_irmaos(tk, ped):
     return '. Se o Mercado Livre separou a venda em pacotes, os números de venda são novos (procure pela venda no Mercado Livre); o UpSeller continua mostrando o número antigo como "Cancelado"'
 
 
-def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos=None, de=None, ate=None):
+def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos=None, de=None, ate=None, expira_ate=None):
     """Explica por que um pedido (número da plataforma, como no UpSeller) não apareceu na lista. Só leitura.
 
     Devolve {'pedido', 'conta', 'motivo', 'situacao'}; 'motivo' vazio = deveria ter aparecido.
@@ -579,7 +586,7 @@ def diagnosticar_pedido(conta, pedido, etapa='todos', vence_ate=None, vence_apos
         saida['motivo'] = 'O pedido não tem envio no Mercado Livre'
         return saida
     saida['situacao'] = rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado'
-    saida['motivo'] = _motivo_fora(env, etapa, vence_ate, vence_apos)
+    saida['motivo'] = _motivo_fora(env, etapa, vence_ate, vence_apos, expira_ate)
     if not saida['motivo'] and not env['status_envio']:
         saida['motivo'] = 'Não consegui ler o envio agora (%s). Busque de novo' % (env['erro'] or 'sem resposta')
     return saida
@@ -634,7 +641,7 @@ def _itens_dos_pedidos(conta, tk, ativos, envios):
     return itens
 
 
-def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None, expira_ate=None):
     """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
 
     Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
@@ -654,7 +661,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
     pedidos = [p for p in dados['results'] if isinstance(p, dict)]
     ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
     with ThreadPoolExecutor(max_workers=6) as ex:
-        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos), ativos))
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos, expira_ate), ativos))
     itens = _itens_dos_pedidos(conta, tk, ativos, envios)
     pag = dados.get('paging') or {}
     total = int(pag.get('total') or 0)

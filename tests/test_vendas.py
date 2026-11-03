@@ -186,6 +186,21 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
 
+    def test_pedido_sem_envio_na_busca_acha_no_pedido_completo_e_traz_preco_do_anuncio(self):
+        ped = self.ped(1, [self.oi('MLB1000001', 1, 50.0, 8.0)], envio=None)
+        ped['shipping'] = {}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/search': return {'results': [ped], 'paging': {'total': 1}}
+            if caminho == '/orders/1': return {'shipping': {'id': 5}}
+            if caminho == '/shipments/5': return {'status': 'ready_to_ship', 'substatus': 'ready_for_pickup', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/5/costs': return {'senders': [{'user_id': 99, 'cost': 12.0}]}
+            if caminho == '/items': return [{'code': 200, 'body': {'id': 'MLB1000001', 'price': 59.9}}]
+            raise RuntimeError('rota inesperada ' + caminho)
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            r = fontes.pedidos_financeiros('ML19', '2026-10-29', '2026-10-29')
+        self.assertEqual(r['itens'][0]['frete'], 12.0); self.assertEqual(r['itens'][0]['preco_ml'], 59.9)
+        self.assertEqual(r['itens'][0]['obs'], '')
+
     def test_pedido_normal_e_full(self):
         peds = [self.ped(1, [self.oi('MLB1000001', 2, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 80.0, 12.0)], envio=2)]
         rotas = {'/shipments/1/costs': {'senders': [{'user_id': 99, 'cost': 11.0}]}, '/shipments/2/costs': {'senders': [{'user_id': 99, 'cost': 20.0}]},
@@ -300,6 +315,15 @@ class TestEndpointsVendas(unittest.TestCase):
         self.assertEqual([d[1] for d in dados], ['Abaixo da margem', 'Dentro da margem', 'Sem dados']); self.assertEqual(dados[0][17], 7.0); self.assertEqual(dados[0][2], 5.0)
         self.assertEqual(dados[2][6], "'=CMD()"); self.assertEqual((dados[0][0], dados[1][0]), ('SIM', None)); self.assertEqual(dados[1][2], None)
         self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'xx', 'linhas': lin, 'parametros': {'imposto_pct': 8}}).status_code, 400)
+
+    def test_exportar_selecionadas(self):
+        import openpyxl
+        lin = self.linhas()[:2]
+        r = self.c.post('/api/vendas/exportar', json={'tipo': 'selecionadas', 'linhas': lin, 'parametros': {'imposto_pct': 8}})
+        self.assertEqual(r.status_code, 200)
+        ws = openpyxl.load_workbook(io.BytesIO(r.data))['Vendas selecionadas']
+        self.assertEqual(ws.max_row - 1, 2)
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'selecionadas', 'linhas': [], 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
     def test_salvar(self):
         enviado = {}

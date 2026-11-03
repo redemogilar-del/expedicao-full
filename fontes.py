@@ -374,7 +374,9 @@ def itens_info(conta, ids):
 # "Gerar NF" ≈ Para Emitir; "Aguardando (buffered)" fica de fora das etapas (o UpSeller não o põe em Enviar/Imprimir)
 ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'},
                 'impressa': {'printed'},
-                'prontos': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'printed'}}   # etiqueta liberada OU já impressa: tudo que ainda não foi bipado na coleta
+                'prontos': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'printed'},   # etiqueta liberada OU já impressa: tudo que ainda não foi bipado na coleta
+                'aguardando': {'buffered'},                                                                                    # o ML adiou a data de envio ("Para Reservar" / Pendente Revisão do UpSeller): a etiqueta ainda vai liberar
+                'prontos_aguardando': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'printed', 'buffered'}}   # como o Modo Rápido do UpSeller: prontos + os que ainda vão liberar
 SUBS_NA_COLETA = {'printed', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'}     # pacote pronto, esperando a coleta
 FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
 
@@ -489,7 +491,7 @@ def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None, expira_a
     if st in FINAIS_ENVIO:
         return 'O envio já está como "%s" (não espera mais despacho)' % rotulo_envio(saida['status_envio'], saida['substatus'])
     permitidos = ETAPAS_ENVIO.get(etapa)
-    if permitidos is not None and not (st == 'ready_to_ship' and sub in permitidos):
+    if permitidos is not None and not ((st == 'ready_to_ship' and sub in permitidos) or (sub == 'buffered' and 'buffered' in permitidos)):     # aguardando (buffered) vem como status pending
         return 'Está em "%s", que fica fora da etapa escolhida na tela. Escolha "Todos os que esperam envio" na etapa para ver' % rotulo_envio(saida['status_envio'], saida['substatus'])
     if expira_ate is not None and saida.get('limite_dt'):          # "expira em até X horas" (como o Modo Rápido do UpSeller): vencidos entram; sem prazo conhecido entra
         try:

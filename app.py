@@ -641,20 +641,26 @@ def api_vendas_upseller_ler():
                 v = int(v)                    # número gravado como número: sem ".0" e sem notação científica
             return re.sub(r'\D', '', str(v if v is not None else ''))
         vistos, saida = set(), []
+        total = outras = repetidos = 0
         for lin in linhas:
             if len(saida) >= 5000:
                 break
-            if i_ped >= len(lin):
+            if i_ped >= len(lin) or lin[i_ped] is None or str(lin[i_ped]).strip() == '':
                 continue
+            total += 1
             num = so_digitos(lin[i_ped])
-            if len(num) < 12 or num in vistos:
+            if len(num) < 12 or not str(lin[i_ped]).strip().isdigit() and not isinstance(lin[i_ped], (int, float)):
+                outras += 1                       # não é número do Mercado Livre (ex.: pedido da Shopee, com letras)
+                continue
+            if num in vistos:
+                repetidos += 1
                 continue
             vistos.add(num)
             saida.append({'pedido': num, 'conta': _conta_da_loja(lin[i_loja]) if i_loja is not None and i_loja < len(lin) else '',
                           'estado': str(lin[i_est] or '')[:40] if i_est is not None and i_est < len(lin) else ''})
         if not saida:
             raise envios.ArquivoInvalido('A planilha não tem nenhum número de pedido.')
-        return jsonify(ok=True, pedidos=saida)
+        return jsonify(ok=True, pedidos=saida, linhas=total, outras_lojas=outras, repetidos=repetidos)
     except Exception as exc:
         return _erro(exc)
 

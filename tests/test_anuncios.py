@@ -99,6 +99,31 @@ class TestTrocarSkuVendas(Base):
         self.assertEqual(d['resultados'][0]['status'], 'PULADO')
         self.assertEqual(self.fake.puts, [])
 
+    def test_lista_cada_variacao_do_anuncio(self):
+        d = self.post('/api/vendas/anuncios-skus', {'conta': 'ML19', 'itens': [{'mlb': 'MLB100000004'}, {'mlb': 'MLB100000001'}, {'mlb': 'MLB100000006'}]}).get_json()
+        por = {a['mlb']: a for a in d['anuncios']}
+        self.assertEqual([(l['variacao'], l['sku']) for l in por['MLB100000004']['locais']], [(11, 'GR_P'), (12, 'GR_G'), (13, 'ZZ')])
+        self.assertEqual(por['MLB100000001']['locais'][0]['variacao'], None)
+        self.assertIn('erro', por['MLB100000006'])            # de outra conta
+        self.assertEqual(self.fake.puts, [])
+
+    def test_troca_varias_variacoes_do_mesmo_anuncio_com_sku_diferente(self):
+        trocas = [{'variacao': 11, 'sku_atual': 'GR_P', 'sku_novo': 'NOVO_P'}, {'variacao': 12, 'sku_atual': 'GR_G', 'sku_novo': 'NOVO_G'}, {'variacao': 13, 'sku_atual': 'ZZ', 'sku_novo': 'NOVO_Z'}]
+        d = self.post('/api/vendas/sku-trocar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'itens': [{'mlb': 'MLB100000004', 'trocas': trocas}]}).get_json()
+        self.assertEqual(d['resultados'][0]['status'], 'OK', d)
+        v = {x['id']: x for x in self.fake.itens['MLB100000004']['variations']}
+        self.assertEqual(v[11]['seller_custom_field'], 'NOVO_P')
+        self.assertEqual(v[13]['seller_custom_field'], 'NOVO_Z')
+        self.assertTrue(any(a['value_name'] == 'NOVO_G' for a in v[12]['attributes']))
+
+    def test_variacao_errada_ou_mudada_nao_troca_e_o_resto_segue(self):
+        trocas = [{'variacao': 11, 'sku_atual': 'OUTRO', 'sku_novo': 'X'}, {'variacao': 13, 'sku_atual': 'ZZ', 'sku_novo': 'NOVO_Z'}]
+        d = self.post('/api/vendas/sku-trocar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'itens': [{'mlb': 'MLB100000004', 'trocas': trocas}]}).get_json()
+        self.assertNotEqual(d['resultados'][0]['status'], 'OK')
+        v = {x['id']: x for x in self.fake.itens['MLB100000004']['variations']}
+        self.assertEqual(v[11]['seller_custom_field'], 'GR_P')
+        self.assertEqual(v[13]['seller_custom_field'], 'NOVO_Z')
+
 
 if __name__ == '__main__':
     unittest.main()

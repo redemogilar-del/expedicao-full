@@ -758,6 +758,11 @@ def api_vendas_exportar():
                 raise envios.ArquivoInvalido('Nenhuma venda com prejuízo ou abaixo da margem nesta lista.')
             buf = _gerar_xlsx_vendas('Prejuízo e abaixo da margem', CAB_DIA, [_linha_dia(l) for l in neg], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
             nome = 'prejuizo_e_abaixo_da_margem_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
+        elif tipo == 'selecionadas':
+            if not linhas:
+                raise envios.ArquivoInvalido('Marque pelo menos uma venda na coluna "Excel".')
+            buf = _gerar_xlsx_vendas('Vendas selecionadas', CAB_DIA, [_linha_dia(l) for l in sorted(linhas, key=lambda l: ({'sem_dados': 0, 'prejuizo': 1, 'abaixo': 2}.get(l['classe'], 3), -(l['perda'] or 0)))], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
+            nome = 'vendas_selecionadas_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')
         elif tipo == 'dia':
             buf = _gerar_xlsx_vendas('Vendas do dia', CAB_DIA, [_linha_dia(l) for l in linhas], [10, 17, 16, 7, 17, 16, 20, 20, 15, 46, 5, 11, 11, 11, 11, 11, 12, 11, 10, 10, 11, 50], (3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20), _resumo_linhas(linhas, params, periodo))
             nome = 'vendas_do_dia_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M')

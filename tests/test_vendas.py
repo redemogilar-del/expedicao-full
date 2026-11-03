@@ -316,6 +316,15 @@ class TestEndpointsVendas(unittest.TestCase):
         self.assertEqual(dados[2][6], "'=CMD()"); self.assertEqual((dados[0][0], dados[1][0]), ('SIM', None)); self.assertEqual(dados[1][2], None)
         self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'xx', 'linhas': lin, 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
+    def test_exportar_selecionadas(self):
+        import openpyxl
+        lin = self.linhas()[:2]
+        r = self.c.post('/api/vendas/exportar', json={'tipo': 'selecionadas', 'linhas': lin, 'parametros': {'imposto_pct': 8}})
+        self.assertEqual(r.status_code, 200)
+        ws = openpyxl.load_workbook(io.BytesIO(r.data))['Vendas selecionadas']
+        self.assertEqual(ws.max_row - 1, 2)
+        self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'selecionadas', 'linhas': [], 'parametros': {'imposto_pct': 8}}).status_code, 400)
+
     def test_salvar(self):
         enviado = {}
         def falso(p): enviado.update(p); return {'abas': ['Vendas 2026-10-29']}

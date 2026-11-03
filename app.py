@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -584,6 +584,15 @@ def _params_vendas(c):
         raise envios.ArquivoInvalido(str(exc))
 
 
+def _expira_ate(horas):
+    """Limite do filtro "expira em até X horas" (None = sem filtro; 0 = só os já vencidos)."""
+    if horas is None or horas == '':
+        return None
+    if isinstance(horas, bool) or not isinstance(horas, int) or horas not in (0, 2, 4, 6, 8, 12, 16, 24):
+        raise envios.ArquivoInvalido('Horas do prazo inválidas.')
+    return datetime.now(FUSO) + timedelta(hours=horas)
+
+
 @app.post('/api/vendas/pedidos')
 def api_vendas_pedidos():
     try:
@@ -602,8 +611,9 @@ def api_vendas_pedidos():
         prazo, hoje = c.get('prazo', ''), datetime.now(FUSO).strftime('%Y-%m-%d')
         if prazo not in ('', 'hoje', 'proximos'):
             raise envios.ArquivoInvalido('Prazo inválido.')
+        expira = _expira_ate(c.get('expira_horas'))
         r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off, somente_a_enviar=c.get('somente_a_enviar') is True, etapa=etapa,
-                                       vence_ate=hoje if prazo == 'hoje' else None, vence_apos=hoje if prazo == 'proximos' else None)
+                                       vence_ate=hoje if prazo == 'hoje' else None, vence_apos=hoje if prazo == 'proximos' else None, expira_ate=expira)
         return jsonify(ok=True, **r)
     except Exception as exc:
         return _erro_fonte(exc)
@@ -722,7 +732,8 @@ def api_vendas_diagnostico():
                 raise envios.ArquivoInvalido('Número de pedido inválido.')
             alvos.append((str(p.get('conta') or ''), num))
         enviar = c.get('somente_a_enviar') is True
-        f = lambda a: fontes.diagnosticar_pedido(a[0], a[1], etapa if enviar else 'todos', hoje if enviar and prazo == 'hoje' else None, hoje if enviar and prazo == 'proximos' else None, de, ate)
+        expira = _expira_ate(c.get('expira_horas')) if enviar else None
+        f = lambda a: fontes.diagnosticar_pedido(a[0], a[1], etapa if enviar else 'todos', hoje if enviar and prazo == 'hoje' else None, hoje if enviar and prazo == 'proximos' else None, de, ate, expira)
         with ThreadPoolExecutor(max_workers=len(alvos)) as ex:
             return jsonify(ok=True, resultados=list(ex.map(f, alvos)))
     except Exception as exc:

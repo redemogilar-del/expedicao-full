@@ -192,6 +192,12 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
+        from datetime import datetime, timedelta, timezone
+        fuso = timezone(timedelta(hours=-3))
+        envios[1] = ('ready_to_ship', 'invoice_pending', '2026-11-03'); envios[2] = ('ready_to_ship', 'ready_to_print', '2026-11-03'); envios[3] = ('ready_to_ship', 'ready_to_print', '2026-11-09'); envios[4] = ('ready_to_ship', 'ready_to_print', None)
+        antes = datetime(2026, 11, 3, 23, 0, tzinfo=fuso)                                                       # prazo dos pedidos 1 e 2: 03/11 23:59
+        self.assertEqual([i['pedido'] for i in rodar(expira_ate=antes)], ['4'])      # 1 e 2 vencem só às 23:59 (depois do limite); 3 é 09/11; 4 não tem prazo e fica
+        self.assertEqual(sorted(i['pedido'] for i in rodar(expira_ate=antes + timedelta(hours=2))), ['1', '2', '4'])   # limite 01:00 do dia 04: 1 e 2 entram; 3 (09/11) não
         it = rodar(etapa='etiqueta')[0]; self.assertEqual(it['limite_dt'][:19], '2026-11-03T23:59:59'); self.assertIn('enviar até 03/11 23:59', it['status_rotulo'])      # prazo com hora, para o filtro "expira em X horas"
 
     def test_pedido_sem_envio_na_busca_acha_no_pedido_completo_e_traz_preco_do_anuncio(self):

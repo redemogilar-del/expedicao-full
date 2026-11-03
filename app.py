@@ -622,21 +622,31 @@ def api_vendas_upseller_ler():
         from openpyxl import load_workbook
         arq, _ = _arquivo('planilha')
         ws = load_workbook(arq, read_only=True, data_only=True).worksheets[0]
+        ws.reset_dimensions()                 # planilhas exportadas (Google/UpSeller) às vezes declaram tamanho errado e o Excel "acaba" na 1ª linha
         linhas = ws.iter_rows(values_only=True)
-        cab = next(linhas, None) or ()
-        norm = [re.sub(r'\s+', ' ', str(v or '')).strip().lower() for v in cab]
-        i_ped = next((i for i, v in enumerate(norm) if 'pedido da plataforma' in v), None)
+        cab, i_ped = (), None
+        for _ in range(15):                   # o cabeçalho costuma ser a 1ª linha; procura nas primeiras
+            cab = next(linhas, None) or ()
+            norm = [re.sub(r'\s+', ' ', str(v or '')).strip().lower() for v in cab]
+            i_ped = next((i for i, v in enumerate(norm) if 'pedido da plataforma' in v), None)
+            if i_ped is not None:
+                break
         i_loja = next((i for i, v in enumerate(norm) if v.startswith('nome da loja')), None)
         i_est = next((i for i, v in enumerate(norm) if v.startswith('estado do pedido')), None)
         if i_ped is None:
             raise envios.ArquivoInvalido('Não achei a coluna "Nº de Pedido da Plataforma". Use a planilha exportada do UpSeller (Pedidos > Exportar).')
+
+        def so_digitos(v):
+            if isinstance(v, float) and v == int(v):
+                v = int(v)                    # número gravado como número: sem ".0" e sem notação científica
+            return re.sub(r'\D', '', str(v if v is not None else ''))
         vistos, saida = set(), []
         for lin in linhas:
             if len(saida) >= 5000:
                 break
             if i_ped >= len(lin):
                 continue
-            num = re.sub(r'\D', '', str(lin[i_ped] if lin[i_ped] is not None else ''))
+            num = so_digitos(lin[i_ped])
             if len(num) < 12 or num in vistos:
                 continue
             vistos.add(num)

@@ -340,6 +340,23 @@ class TestEndpointsVendas(unittest.TestCase):
         wb2 = openpyxl.Workbook(); wb2.active.append(['outra coisa']); b2 = io.BytesIO(); wb2.save(b2); b2.seek(0)
         self.assertEqual(self.c.post('/api/vendas/upseller-ler', data={'planilha': (b2, 'x.xlsx')}, content_type='multipart/form-data').status_code, 400)
 
+    def test_upseller_ler_dimensao_errada_e_numeros(self):
+        import openpyxl, zipfile, re
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(['Título solto']); ws.append(['Nº de Pedido da Plataforma', 'Nome da Loja no UpSeller'])
+        ws.append([2000015760779799, 'Mercado Livre 44']); ws.append([2000019232343594.0, 'Mercado Livre 19'])        # gravados como número
+        buf = io.BytesIO(); wb.save(buf)
+        ruim = io.BytesIO()                                                                                          # simula o Excel que declara só a célula A1
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zi, zipfile.ZipFile(ruim, 'w') as zo:
+            for it in zi.infolist():
+                dados = zi.read(it.filename)
+                if it.filename == 'xl/worksheets/sheet1.xml':
+                    dados = re.sub(rb'<dimension ref="[^"]*"/>', b'<dimension ref="A1"/>', dados)
+                zo.writestr(it, dados)
+        ruim.seek(0)
+        d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (ruim, 'Export.xlsx')}, content_type='multipart/form-data').get_json()
+        self.assertEqual([(p['pedido'], p['conta']) for p in d['pedidos']], [('2000015760779799', 'ML44'), ('2000019232343594', 'ML19')])
+
     def test_diagnostico_pedidos(self):
         pedido = {'id': 2000015760779799, 'status': 'paid', 'date_created': '2026-10-29T09:06:00.000-03:00', 'seller': {'id': 99}, 'shipping': {'id': 5}, 'order_items': []}
         def ml(tk, caminho, params=None):

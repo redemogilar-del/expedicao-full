@@ -54,7 +54,7 @@ async function buscar(modo){
     const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
     const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
       5 + 55 * contas.reduce((t, c) => t + (andamento[c].total ? Math.min(1, andamento[c].off / andamento[c].total) : 0), 0) / contas.length);
-    const pedir = (conta, off) => comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar, etapa: enviar ? $('vEtapa').value : 'todos', vence_hoje: false}));
+    const pedir = (conta, off) => comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar, etapa: enviar ? $('vEtapa').value : 'todos', prazo: enviar ? $('vPrazo').value : ''}));
     await Promise.all(contas.map(async conta => {          // as duas contas são lidas ao mesmo tempo
       mostra();
       let d = await pedir(conta, 0);                        // 1ª página: descobre o total

@@ -180,6 +180,7 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3', '4'])
         self.assertEqual([i['pedido'] for i in rodar(etapa='nf')], ['1'])
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
+        self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
 
     def test_pedido_normal_e_full(self):

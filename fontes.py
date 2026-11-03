@@ -430,7 +430,7 @@ def _grupo_envio(logistica, status):
     return 'enviado' if str(status or '').lower() in FINAIS_ENVIO else 'a_enviar'
 
 
-def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None):
+def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
     saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': ''}
@@ -452,6 +452,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
         fora = saida['logistica'] == 'fulfillment' or saida['status_envio'].lower() in FINAIS_ENVIO
         fora = fora or (permitidos is not None and not (saida['status_envio'].lower() == 'ready_to_ship' and saida['substatus'].lower() in permitidos))
         fora = fora or bool(vence_ate and saida['limite'] and saida['limite'] > vence_ate)   # prazo desconhecido: mantém (não some do nada)
+        fora = fora or bool(vence_apos and saida['limite'] and saida['limite'] <= vence_apos)
         if fora:
             saida['pular'] = True                   # já enviado, Full ou fora da etapa escolhida: não entra na lista, então nem consulta o frete
             return saida
@@ -475,7 +476,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
     return saida
 
 
-def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None):
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None, vence_apos=None):
     """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
 
     Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
@@ -495,7 +496,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
     pedidos = [p for p in dados['results'] if isinstance(p, dict)]
     ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
     with ThreadPoolExecutor(max_workers=6) as ex:
-        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate), ativos))
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate, vence_apos), ativos))
     itens = []
     for ped, env in zip(ativos, envios):
         if env.get('pular'):

@@ -137,7 +137,7 @@ const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está n
 const expiraEm = r => { const h = $('vExpira').value; if (h === '' || !r.limite_dt) return true; const t = Date.parse(r.limite_dt); return Number.isNaN(t) || t <= Date.now() + Number(h) * 3600000; };
 function visiveis(){
   const q = busca.trim().toLowerCase(), f = UPS ? UPS_FILTRO : 'todos';
-  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || r.classe === classe) && expiraEm(r)
+  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || (classe === 'ruins' ? (r.classe === 'abaixo' || r.classe === 'prejuizo') : r.classe === classe)) && expiraEm(r)
     && (f === 'todos' || (f === 'ambos' ? naUps(r) && !soUps(r) : f === 'so_site' ? !naUps(r) : true))
     && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
@@ -277,8 +277,8 @@ function desenhar(){
   if (aba !== 'full') for (const [k, nome] of [['a_enviar', 'A enviar'], ['enviado', 'Já enviados'], ['todos', 'Todas']])
     gb.append(el('button', {class: k === sub ? 'on' : '', onclick: () => { sub = k; desenhar(); }}, nome + ' (' + (k === 'todos' ? LINHAS.filter(r => r.grupo !== 'full').length : LINHAS.filter(r => r.grupo === k).length) + ')'));
   const cb = $('vClasses'); cb.replaceChildren();
-  for (const [k, nome] of [['todas', 'Todas'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
-    cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : (c[k] || 0)) + ')'));
+  for (const [k, nome] of [['todas', 'Todas'], ['ruins', 'Abaixo da margem + prejuízo'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
+    cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : k === 'ruins' ? (c.abaixo || 0) + (c.prejuizo || 0) : (c[k] || 0)) + ')'));
   cabecalho();
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
   $('vVazio').hidden = lista.length > 0;

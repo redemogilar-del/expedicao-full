@@ -257,6 +257,41 @@ def _corpo(mudancas):
     return corpo
 
 
+def diagnosticar(conta, mlb):
+    """Somente leitura: o que o Mercado Livre guarda de SKU e de fotos num anúncio, e se a varredura enxergou o mesmo."""
+    tk = fontes.token(conta)
+    completo = fontes._ml(tk, '/items/' + mlb)
+    if not isinstance(completo, dict) or str(completo.get('id')) != mlb:
+        raise Bloqueio('A API não retornou este anúncio.')
+    if str(completo.get('seller_id')) != str(fontes._vendedor(conta, tk)):
+        raise Bloqueio('Anúncio não pertence à conta.')
+    varredura = None
+    try:
+        lista = fontes._ml(tk, '/items', {'ids': mlb, 'attributes': CAMPOS_ITEM})
+        varredura = (lista[0].get('body') if lista and isinstance(lista[0], dict) else None)
+    except (RuntimeError, ValueError):
+        pass
+    cat = {}
+    if completo.get('category_id'):
+        try:
+            cat = fontes._ml(tk, '/categories/' + str(completo['category_id'])) or {}
+        except (RuntimeError, ValueError):
+            cat = {}
+
+    def sem(item):
+        return None if not isinstance(item, dict) else [l['variacao'] for l in locais_sem_sku(item)]
+    vs = []
+    for v in completo.get('variations') or []:
+        if isinstance(v, dict):
+            vs.append({'id': v.get('id'), 'nome': nome_variacao(completo, v.get('id')), 'seller_custom_field': str(v.get('seller_custom_field') or ''),
+                       'SELLER_SKU': _attr_sku(v.get('attributes')), 'fotos': len(v.get('picture_ids') or [])})
+    return {'mlb': mlb, 'status': completo.get('status'), 'categoria': completo.get('category_id'),
+            'fotos_do_anuncio': len(completo.get('pictures') or []),
+            'limite_fotos_anuncio': cat.get('max_pictures_per_item'), 'limite_fotos_por_variacao': cat.get('max_pictures_per_item_var'),
+            'sku_do_anuncio': {'seller_custom_field': str(completo.get('seller_custom_field') or ''), 'SELLER_SKU': _attr_sku(completo.get('attributes'))},
+            'variacoes': vs, 'sem_sku_lendo_o_anuncio_completo': sem(completo), 'sem_sku_como_a_varredura_enxerga': sem(varredura)}
+
+
 def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
     """Troca o SKU dos locais `alvos` [(variacao, sku_visto, sku_novo_individual)] de um anúncio. Devolve um dicionário de resultado."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': '', 'trocas': []}

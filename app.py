@@ -988,6 +988,23 @@ def api_skus_buscar():
         return _erro_fonte(exc)
 
 
+@app.post('/api/skus/diagnostico')
+def api_skus_diagnostico():
+    """Somente leitura: mostra os SKUs e as fotos que o Mercado Livre guarda de um anúncio (para entender recusas)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        mlb = str(c.get('mlb') or '').strip().upper()
+        if c.get('conta') not in fontes.CONTAS or not fontes._MLB.match(mlb):
+            raise envios.ArquivoInvalido('Informe a conta e o código do anúncio (MLB...).')
+        try:
+            d = skus.diagnosticar(c['conta'], mlb)
+        except skus.Bloqueio as exc:
+            raise envios.ArquivoInvalido(str(exc))
+        return jsonify(ok=True, somente_leitura=True, **d)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/skus/aplicar')
 def api_skus_aplicar():
     """Troca o SKU dos anúncios marcados. Lê cada anúncio de novo, só troca se o SKU ainda for o que a pessoa viu e confere depois."""

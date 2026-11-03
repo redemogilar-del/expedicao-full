@@ -72,6 +72,12 @@
     <h2>Resultado das trocas</h2>
     <div class="tabela-caixa"><table><thead><tr><th>Conta</th><th>MLB</th><th>Resultado</th><th>O que aconteceu</th></tr></thead><tbody id="sFeitosCorpo"></tbody></table></div>
   </section>
+  <section class="cartao" id="sDiag">
+    <h2>Conferir um anúncio (só leitura)</h2>
+    <p class="suave">Mostra o que o Mercado Livre guarda de SKU e de fotos num anúncio e se esta tela enxergou o mesmo. Não altera nada.</p>
+    <div class="barra"><select id="sDiagConta"><option>ML19</option><option>ML44</option></select><input type="text" id="sDiagMlb" maxlength="20" autocomplete="off" placeholder="MLB do anúncio"><button id="sDiagBtn">Conferir</button></div>
+    <p id="sDiagRes" class="suave" style="white-space:pre-wrap"></p>
+  </section>
 </section>
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='skus.js') }}"></script>{% endblock %}

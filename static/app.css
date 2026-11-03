@@ -93,6 +93,7 @@ th.ord{cursor:pointer;user-select:none}
 .v-dentro{background:var(--verde-fundo);color:var(--verde)}.v-abaixo{background:var(--ambar-fundo)}.v-prejuizo{background:var(--verm-fundo);color:var(--verm)}.v-sem_dados{background:var(--cinza-fundo);color:var(--suave)}
 td.pos{color:var(--verde)}td.neg{color:var(--verm);font-weight:600}
 tr.naoenviar td{background:var(--verm-fundo)}
+tr.marcada td{background:#fff8d6}
 .card.risco{border-color:var(--verm);background:var(--verm-fundo)}
 .progresso #vBarra{height:100%;background:var(--destaque,#ffc933);opacity:.35;transition:width .3s}
 

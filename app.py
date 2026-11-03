@@ -4,6 +4,7 @@ Primeira aba: Envios Full (planejamento de envios ao Fulfillment do Mercado Livr
 Todo o processamento é feito a partir dos arquivos enviados pela pessoa; nada é gravado no servidor
 e nada é alterado no Mercado Livre.
 """
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
@@ -1043,10 +1044,13 @@ def api_skus_aplicar():
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         resultados = []
-        for mlb, alvos in grupos.items():
+        def um(par):
+            mlb, alvos = par
             r = skus.trocar_item(conta, tk, vendedor, mlb, alvos, regra)
             log.info('SKU %s %s: %s %s', conta, mlb, r['status'], r['trocas'])
-            resultados.append(r)
+            return r
+        with ThreadPoolExecutor(max_workers=len(grupos)) as ex:      # os anúncios do pedido são trocados ao mesmo tempo (cada um relê, grava e confere)
+            resultados = list(ex.map(um, grupos.items()))
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)

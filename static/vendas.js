@@ -55,7 +55,7 @@ async function buscar(modo){
     await Promise.all(contas.map(async conta => {          // as duas contas são lidas ao mesmo tempo
       let off = 0, total = 0; mostra();
       for (;;) {
-        const d = await comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar}));
+        const d = await comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar, etapa: enviar ? $('vEtapa').value : 'todos', vence_hoje: enviar && $('vPrazo').value === 'hoje'}));
         RAW.push(...d.itens); total = d.total; off = d.proximo; andamento[conta] = {off, total}; mostra();
         if (d.concluido) break;
       }

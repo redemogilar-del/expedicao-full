@@ -36,7 +36,7 @@
   <details class="cartao" id="vUpsCaixa">
     <summary>Conferir com o UpSeller (ver quais pedidos vieram a mais)</summary>
     <p class="suave pequeno">Cole aqui os números dos pedidos que o UpSeller mostra (“Nº de Pedido da Plataforma”), um por linha ou separados por espaço ou vírgula. A tela marca os pedidos daqui que não estão na lista do UpSeller e diz quais do UpSeller não vieram aqui. Use o botão ⧉ ao lado do número do pedido para copiar e procurar no UpSeller.</p>
-    <label class="inline-campo">Ou anexe a planilha do UpSeller (Excel): <input type="file" id="vUpsArquivo" accept=".xlsx,.xlsm"></label>
+    <label class="inline-campo">Ou anexe a planilha do UpSeller (Excel; pode escolher até 3 de uma vez): <input type="file" id="vUpsArquivo" accept=".xlsx,.xlsm" multiple></label>
     <textarea id="vUpsTexto" rows="4" placeholder="2000019162918088&#10;2000019170218904"></textarea>
     <div class="barra"><button class="secundario" id="vUpsConferir" type="button">Conferir</button><button class="secundario" id="vUpsLimpar" type="button">Limpar</button></div>
     <p class="suave pequeno" id="vUpsRes"></p>
@@ -53,6 +53,7 @@
   </div>
   <div class="barra">
     <div class="filtros" id="vClasses"></div>
+    <div class="filtros" id="vUpsFiltro" hidden></div>
   </div>
   <div class="barra">
     <button class="secundario" id="vMarcarRuins">Marcar: abaixo da margem e prejuízo (que estão na tela)</button>

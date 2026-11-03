@@ -15,7 +15,8 @@ const CONFIRMACAO = 'APLICAR_PRECO_VENDAS';
 
 let RAW = [], CAD = {}, LINHAS = [], SEL = new Set(), OVR = {}, INFO = {}, PEND = new Set(), IMPOSTOS = {}, RES = {};
 let PERIODO = '', DIA = '', VERSAO = 0;
-let MODO_ENVIAR = false, aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
+let MODO_ENVIAR = false, aba = 'mogilar', sub = 'a_enviar', busca = '';
+const CLASSES = new Set(), UPF = new Set();     // filtros que podem ser ligados juntos: situação (vazio = todas) e UpSeller (vazio = os dois); entre os grupos vale "e", dentro do grupo "ou"
 
 function mensagem(texto, tipo){ const m = $('vMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, p){
@@ -50,7 +51,7 @@ async function buscar(modo){
   if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
   $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
-    UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = '';
+    UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; $('vUpsRes').textContent = '';
     RAW = []; SEL.clear(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
     const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
     const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
@@ -86,7 +87,7 @@ async function buscar(modo){
     if (enviar) PERIODO = 'A enviar hoje (pedidos de ' + PERIODO + ')';
     progresso('Calculando o lucro…', 95);
     await recalcular();
-    aba = 'mogilar'; sub = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = ''; $('vExpira').value = '';
+    aba = 'mogilar'; sub = 'a_enviar'; CLASSES.clear(); UPF.clear(); busca = ''; $('vBusca').value = ''; $('vExpira').value = '';
     if (!LINHAS.some(r => r.grupo !== 'full' && r.grupo === 'a_enviar')) sub = 'todos';
     $('vResultado').hidden = false; desenhar(); progresso(null);
     if (falhas.length && !$('vImposto').value) mensagem('Não consegui ler o imposto da planilha (' + falhas.join(' · ') + '). As vendas dessa conta ficam "Sem dados" até você digitar o imposto no campo.', 'erro');
@@ -137,7 +138,7 @@ const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está n
 const expiraEm = r => { const h = $('vExpira').value; if (h === '' || !r.limite_dt) return true; const t = Date.parse(r.limite_dt); return Number.isNaN(t) || t <= Date.now() + Number(h) * 3600000; };
 function visiveis(){
   const q = busca.trim().toLowerCase();      // os botões do UpSeller NÃO mexem nesta lista: eles só filtram a tabela da caixa "Conferir com o UpSeller"
-  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || (classe === 'ruins' ? (r.classe === 'abaixo' || r.classe === 'prejuizo') : r.classe === classe)) && expiraEm(r)
+  return LINHAS.filter(r => daAba(r) && noSub(r) && (!CLASSES.size || CLASSES.has(r.classe)) && (!UPS || !UPF.size || (UPF.has('no') && naUps(r)) || (UPF.has('fora') && !naUps(r))) && expiraEm(r)
     && (!q || [r.pedido, r.pack_id, r.envio_id, r.pedido_upseller, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
 
@@ -160,14 +161,14 @@ const numerosDe = t => new Set((String(t || '').match(/\d{12,}/g) || []));
 const chavesSite = () => { const c = new Set(); for (const r of LINHAS) if (!soUps(r)) { c.add(String(r.pedido)); if (r.pack_id) c.add(String(r.pack_id)); } return c; };
 function conferirUpseller(manter){
   const nums = numerosDe($('vUpsTexto').value), r = $('vUpsRes');
-  if (!nums.size) { UPS = null; UPS_FILTRO = 'todos'; r.textContent = 'Cole os números dos pedidos do UpSeller (com 12 dígitos ou mais).'; desenhar(); return; }
+  if (!nums.size) { UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; r.textContent = 'Cole os números dos pedidos do UpSeller (com 12 dígitos ou mais).'; desenhar(); return; }
   UPS = nums; if (!manter) UPS_FILTRO = 'todos';
   const site = chavesSite(), foraSet = new Set(), ambosSet = new Set();
   for (const x of LINHAS) if (!soUps(x)) (naUps(x) ? ambosSet : foraSet).add(String(x.pedido));
   const fora = [...foraSet], semAqui = [...nums].filter(n => !site.has(n));
   const cancUps = semAqui.filter(n => UPS_CANC.has(n)), semAquiVivos = semAqui.filter(n => !UPS_CANC.has(n));
   const noUpsSite = nums.size - semAqui.length, pl = PLANILHA && PLANILHA.ml === nums.size ? PLANILHA : null;
-  const linhasTxt = pl ? 'A planilha tem ' + pl.linhas + ' linhas: ' + pl.ml + ' pedidos do Mercado Livre' + (pl.outras ? ' + ' + pl.outras + ' de outras lojas (ex.: Shopee, não entram na conta)' : '') + (pl.repetidos ? ' + ' + pl.repetidos + ' repetidos' : '') + '. ' : '';
+  const linhasTxt = pl ? (pl.arquivos > 1 ? 'As ' + pl.arquivos + ' planilhas têm ' : 'A planilha tem ') + pl.linhas + ' linhas: ' + pl.ml + ' pedidos do Mercado Livre' + (pl.outras ? ' + ' + pl.outras + ' de outras lojas (ex.: Shopee, não entram na conta)' : '') + (pl.repetidos ? ' + ' + pl.repetidos + ' repetidos' : '') + '. ' : '';
   r.replaceChildren(document.createTextNode(linhasTxt + 'Dos ' + nums.size + ' pedidos do UpSeller: ' + noUpsSite + ' estão no site e ' + semAqui.length + ' não vieram na busca' + (cancUps.length ? ' (' + cancUps.length + ' deles o próprio UpSeller marca como Cancelado, então não precisam vir)' : '') + (semAquiVivos.length ? ': ' + semAquiVivos.slice(0, 30).join(', ') + (semAquiVivos.length > 30 ? '…' : '') : '') + '. O site trouxe ' + (foraSet.size + ambosSet.size) + ' pedidos, e ' + foraSet.size + ' deles não estão no UpSeller. '));
   const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + noUpsSite + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + (semAquiVivos.length + cancUps.filter(n => UPS_MAE[n]).length) + ')']];
   const grupo = el('div', {class:'filtros'}); for (const [k, nome] of opc) grupo.append(el('button', {type:'button', class: UPS_FILTRO === k ? 'on' : '', onclick: () => { UPS_FILTRO = k; conferirUpseller(true); }}, nome));
@@ -177,19 +178,28 @@ function conferirUpseller(manter){
 }
 // anexar a planilha do UpSeller: lê os números e, para os que NÃO vieram aqui, pergunta ao Mercado Livre o motivo
 let UPS_MAE = {}, UPS_CANC = new Set(), PLANILHA = null, UPS_CONTA = {}, FILTRO = {de: '', ate: '', enviar: false, etapa: 'todos', prazo: ''};
-async function anexarUpseller(arquivo){
-  const r = $('vUpsRes'); r.textContent = 'Lendo a planilha…'; $('vUpsMotivosCx').hidden = true;
+const MAX_PLANILHAS = 3;
+async function anexarUpseller(arquivos){
+  const r = $('vUpsRes'); r.textContent = 'Lendo ' + (arquivos.length > 1 ? 'as ' + arquivos.length + ' planilhas' : 'a planilha') + '…'; $('vUpsMotivosCx').hidden = true;
   try {
-    const fd = new FormData(); fd.append('planilha', arquivo);
-    const resp = await fetch('/api/vendas/upseller-ler', {method:'POST', body: fd});
-    if (resp.status === 401) { location.href = '/login'; return; }
-    let d = null; try { d = await resp.json(); } catch(e) {}
-    if (!resp.ok || !d || d.ok === false) throw new Error((d && d.error) || ('Erro ' + resp.status));
-    UPS_CONTA = {}; for (const p of d.pedidos) UPS_CONTA[p.pedido] = p.conta;
-    UPS_CANC = new Set(d.pedidos.filter(p => p.cancelado).map(p => p.pedido));
-    UPS_MAE = {}; for (const p of d.pedidos) if (p.mae) UPS_MAE[p.pedido] = Object.assign({conta: p.conta}, p.mae);
-    PLANILHA = {linhas: d.linhas, ml: d.pedidos.length, outras: d.outras_lojas, repetidos: d.repetidos};
-    $('vUpsTexto').value = d.pedidos.map(p => p.pedido).join('\n');
+    UPS_CONTA = {}; UPS_CANC = new Set(); UPS_MAE = {};
+    const todos = new Map(); let linhas = 0, outras = 0, repetidos = 0;
+    for (const arquivo of arquivos) {
+      const fd = new FormData(); fd.append('planilha', arquivo);
+      const resp = await fetch('/api/vendas/upseller-ler', {method:'POST', body: fd});
+      if (resp.status === 401) { location.href = '/login'; return; }
+      let d = null; try { d = await resp.json(); } catch(e) {}
+      if (!resp.ok || !d || d.ok === false) throw new Error(arquivo.name + ': ' + ((d && d.error) || ('Erro ' + resp.status)));
+      linhas += d.linhas; outras += d.outras_lojas || 0; repetidos += d.repetidos || 0;
+      for (const p of d.pedidos) {
+        if (todos.has(p.pedido)) { repetidos++; continue; }       // o mesmo pedido em duas planilhas conta uma vez só
+        todos.set(p.pedido, p); UPS_CONTA[p.pedido] = p.conta;
+        if (p.cancelado) UPS_CANC.add(p.pedido);
+        if (p.mae) UPS_MAE[p.pedido] = Object.assign({conta: p.conta}, p.mae);
+      }
+    }
+    PLANILHA = {linhas, ml: todos.size, outras, repetidos, arquivos: arquivos.length};
+    $('vUpsTexto').value = [...todos.keys()].join('\n');
     conferirUpseller();
     await explicarFaltantes();
   } catch (e) { r.textContent = 'Não consegui ler a planilha: ' + e.message; }
@@ -225,7 +235,12 @@ async function explicarFaltantes(){
   await trazerFaltantes(limite, canc.filter(n => UPS_MAE[n]));
   res.textContent = 'Motivos dos ' + linhas.length + ' que faltam' + (canc.length ? ' (' + canc.length + ' cancelados no UpSeller)' : '') + ': ' + [...grupos].sort((a, b) => b[1] - a[1]).map(([k, v]) => v + ' × ' + k).join(' | ') + (vivos.length > limite.length ? ' (mostrei só os primeiros ' + limite.length + ')' : '');
 }
-$('vUpsArquivo').onchange = e => { const f = e.target.files[0]; if (f) anexarUpseller(f); e.target.value = ''; };
+$('vUpsArquivo').onchange = e => {
+  const fs = [...e.target.files]; e.target.value = '';
+  if (!fs.length) return;
+  if (fs.length > MAX_PLANILHAS) { $('vUpsRes').textContent = 'Escolha no máximo ' + MAX_PLANILHAS + ' planilhas de uma vez (você escolheu ' + fs.length + ').'; return; }
+  anexarUpseller(fs);
+};
 // coloca na lista (com lucro e margem) os pedidos que estão no UpSeller e a busca não trouxe
 function linhasDaMae(n){
   const m = UPS_MAE[n], soma = m.itens.reduce((t, i) => t + i.preco * i.quantidade, 0), arred = v => v === null || v === undefined ? null : Math.round(v * 100) / 100;
@@ -283,13 +298,22 @@ function desenhar(){
   $('vCartoes').replaceChildren(...cartoes);
   const ab = $('vAbas'); ab.replaceChildren();
   for (const [k, nome, n] of [['mogilar', 'Vendas Mogilar (não Full)', LINHAS.filter(r => r.grupo !== 'full').length], ['full', 'Vendas Full', LINHAS.filter(r => r.grupo === 'full').length]])
-    ab.append(el('button', {class: k === aba ? 'on' : '', onclick: () => { aba = k; classe = 'todas'; desenhar(); }}, nome + ' (' + n + ')'));
+    ab.append(el('button', {class: k === aba ? 'on' : '', onclick: () => { aba = k; CLASSES.clear(); UPF.clear(); desenhar(); }}, nome + ' (' + n + ')'));
   const gb = $('vGrupos'); gb.replaceChildren(); gb.hidden = aba === 'full';
   if (aba !== 'full') for (const [k, nome] of [['a_enviar', 'A enviar'], ['enviado', 'Já enviados'], ['todos', 'Todas']])
     gb.append(el('button', {class: k === sub ? 'on' : '', onclick: () => { sub = k; desenhar(); }}, nome + ' (' + (k === 'todos' ? LINHAS.filter(r => r.grupo !== 'full').length : LINHAS.filter(r => r.grupo === k).length) + ')'));
   const cb = $('vClasses'); cb.replaceChildren();
-  for (const [k, nome] of [['todas', 'Todas'], ['ruins', 'Abaixo da margem + prejuízo'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
-    cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : k === 'ruins' ? (c.abaixo || 0) + (c.prejuizo || 0) : (c[k] || 0)) + ')'));
+  const alterna = (conj, ...ks) => { const todos = ks.every(k => conj.has(k)); for (const k of ks) { if (todos) conj.delete(k); else conj.add(k); } desenhar(); };
+  cb.append(el('button', {class: !CLASSES.size ? 'on' : '', onclick: () => { CLASSES.clear(); desenhar(); }}, 'Todas (' + esc.length + ')'));
+  for (const [k, nome, ks] of [['ruins', 'Abaixo da margem + prejuízo', ['abaixo', 'prejuizo']], ['prejuizo', 'Prejuízo', ['prejuizo']], ['abaixo', 'Abaixo da margem', ['abaixo']], ['dentro', 'Dentro da margem', ['dentro']], ['sem_dados', 'Sem dados', ['sem_dados']]])
+    cb.append(el('button', {class: ks.every(x => CLASSES.has(x)) ? 'on' : '', title: 'Clique em mais de um para juntar os filtros', onclick: () => alterna(CLASSES, ...ks)}, nome + ' (' + (k === 'ruins' ? (c.abaixo || 0) + (c.prejuizo || 0) : (c[k] || 0)) + ')'));
+  const ub = $('vUpsFiltro'); ub.replaceChildren(); ub.hidden = !UPS;
+  if (UPS) {
+    ub.append(el('span', {class: 'mlbs'}, 'UpSeller: '));
+    ub.append(el('button', {class: !UPF.size ? 'on' : '', onclick: () => { UPF.clear(); desenhar(); }}, 'Todas (' + esc.length + ')'));
+    for (const [k, nome, n] of [['no', 'Encontradas no UpSeller', esc.filter(naUps).length], ['fora', 'Não encontradas no UpSeller', esc.filter(r => !naUps(r)).length]])
+      ub.append(el('button', {class: UPF.has(k) ? 'on' : '', title: 'Pode ligar junto com os filtros de situação acima', onclick: () => alterna(UPF, k)}, nome + ' (' + n + ')'));
+  }
   cabecalho();
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
   $('vVazio').hidden = lista.length > 0;
@@ -367,7 +391,7 @@ function linha(r){
   return el('tr', {class: SEL.has(r._i) ? 'marcada' : ''}, ...cels);
 }
 $('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); UPS_MAE = {}; conferirUpseller(); await explicarFaltantes(); };
-$('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; UPS_FALTAM = []; $('vUpsRes').textContent = ''; desenhar(); };
+$('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; UPS_FALTAM = []; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
 $('vExpira').onchange = () => desenhar();
 $('vMarcarRuins').onclick = () => {

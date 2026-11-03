@@ -369,6 +369,9 @@ def itens_info(conta, ids):
 
 
 # ---------------------------------------------------------------- vendas com tarifa e frete (aba Vendas do dia)
+# etapas do envio que o Mercado Livre mostra (o UpSeller usa etapas próprias: Para Emitir ≈ NF pendente; Para Enviar/Imprimir ≈ etiqueta pronta; Para Retirada ≈ etiqueta impressa)
+ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print'},
+                'impressa': {'printed', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'picked_up', 'dropped_off'}}
 FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
 
 
@@ -427,10 +430,10 @@ def _grupo_envio(logistica, status):
     return 'enviado' if str(status or '').lower() in FINAIS_ENVIO else 'a_enviar'
 
 
-def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False):
+def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', vence_ate=None):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
-    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': ''}
+    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': ''}
     if not env:
         saida['erro'] = 'Pedido sem envio'
         return saida
@@ -440,11 +443,18 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False):
             saida['status_envio'] = str(sh.get('status') or '')
             saida['substatus'] = str(sh.get('substatus') or '')
             saida['logistica'] = str(sh.get('logistic_type') or (sh.get('logistic') or {}).get('type') or '')
+            lim = ((sh.get('lead_time') or {}).get('estimated_handling_limit') or {}).get('date')     # prazo para despachar (o "Expira em" do UpSeller)
+            saida['limite'] = str(lim or '')[:10] if _re.match(r'^\d{4}-\d{2}-\d{2}', str(lim or '')) else ''
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
-    if somente_a_enviar and (saida['logistica'] == 'fulfillment' or saida['status_envio'].lower() in FINAIS_ENVIO):
-        saida['pular'] = True                       # já enviado ou Full: não entra na lista "a enviar", então nem consulta o frete
-        return saida
+    if somente_a_enviar:
+        permitidos = ETAPAS_ENVIO.get(etapa)
+        fora = saida['logistica'] == 'fulfillment' or saida['status_envio'].lower() in FINAIS_ENVIO
+        fora = fora or (permitidos is not None and not (saida['status_envio'].lower() == 'ready_to_ship' and saida['substatus'].lower() in permitidos))
+        fora = fora or bool(vence_ate and saida['limite'] and saida['limite'] > vence_ate)   # prazo desconhecido: mantém (não some do nada)
+        if fora:
+            saida['pular'] = True                   # já enviado, Full ou fora da etapa escolhida: não entra na lista, então nem consulta o frete
+            return saida
     try:
         saida['frete'] = _frete_vendedor(_ml(tk, '/shipments/%s/costs' % env), vendedor)
         if saida['frete'] is None:
@@ -465,7 +475,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False):
     return saida
 
 
-def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False):
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False, etapa='todos', vence_ate=None):
     """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
 
     Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
@@ -485,7 +495,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
     pedidos = [p for p in dados['results'] if isinstance(p, dict)]
     ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
     with ThreadPoolExecutor(max_workers=6) as ex:
-        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar), ativos))
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar, etapa, vence_ate), ativos))
     itens = []
     for ped, env in zip(ativos, envios):
         if env.get('pular'):
@@ -516,7 +526,8 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
                 'tarifa': None if fee is None else round(abs(fee) * q, 2),
                 'frete': None if frete_pedido is None else round(frete_pedido * (venda / soma if soma > 0 else 1.0 / max(1, len(regs))), 2),
                 'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'substatus': env['substatus'],
-                'status_rotulo': rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado', 'obs': obs,
+                'status_rotulo': (rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado') + (' · enviar até %s/%s' % (env['limite'][8:10], env['limite'][5:7]) if env['limite'] and env['status_envio'].lower() not in FINAIS_ENVIO else ''),
+                'limite_envio': env['limite'], 'obs': obs,
             })
     pag = dados.get('paging') or {}
     total = int(pag.get('total') or 0)

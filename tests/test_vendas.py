@@ -163,6 +163,25 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual(r['itens'][0]['grupo'], 'a_enviar')
         self.assertNotIn('/shipments/2/costs', consultados); self.assertNotIn('/shipments/3/costs', consultados)
 
+    def test_etapa_e_prazo(self):
+        peds = [self.ped(i, [self.oi('MLB100000%d' % i, 1, 50.0, 8.0)], envio=i) for i in (1, 2, 3, 4)]
+        envios = {1: ('ready_to_ship', 'invoice_pending', '2026-11-03'), 2: ('ready_to_ship', 'ready_to_print', '2026-11-03'), 3: ('ready_to_ship', 'ready_to_print', '2026-11-09'), 4: ('ready_to_ship', 'ready_to_print', None)}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/search': return {'results': peds, 'paging': {'total': 4}}
+            for i, (st, sub, lim) in envios.items():
+                if caminho == '/shipments/%d' % i:
+                    return {'status': st, 'substatus': sub, 'logistic_type': 'xd_drop_off', 'lead_time': {'estimated_handling_limit': {'date': lim + 'T23:59:59.000-03:00'}} if lim else {}}
+                if caminho == '/shipments/%d/costs' % i: return {'senders': [{'user_id': 99, 'cost': 10.0}]}
+            raise RuntimeError('rota inesperada ' + caminho)
+        def rodar(**kw):
+            with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+                return fontes.pedidos_financeiros('ML19', '2026-10-29', '2026-10-29', somente_a_enviar=True, **kw)['itens']
+        self.assertEqual([i['pedido'] for i in rodar()], ['1', '2', '3', '4'])
+        self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3', '4'])
+        self.assertEqual([i['pedido'] for i in rodar(etapa='nf')], ['1'])
+        self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
+        self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
+
     def test_pedido_normal_e_full(self):
         peds = [self.ped(1, [self.oi('MLB1000001', 2, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 80.0, 12.0)], envio=2)]
         rotas = {'/shipments/1/costs': {'senders': [{'user_id': 99, 'cost': 11.0}]}, '/shipments/2/costs': {'senders': [{'user_id': 99, 'cost': 20.0}]},

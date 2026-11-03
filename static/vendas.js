@@ -15,7 +15,7 @@ const CONFIRMACAO = 'APLICAR_PRECO_VENDAS';
 
 let RAW = [], CAD = {}, LINHAS = [], MARCA = new Set(), PRECO = new Set(), OVR = {}, INFO = {}, PEND = new Set(), IMPOSTOS = {}, RES = {};
 let PERIODO = '', DIA = '', VERSAO = 0;
-let aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
+let MODO_ENVIAR = false, aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
 
 function mensagem(texto, tipo){ const m = $('vMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, p){
@@ -38,13 +38,15 @@ const parametros = () => ({imposto_pct: $('vImposto').value, margem_padrao: $('v
 const chaveSku = r => r.sku || r.mlb;
 
 // ---------- busca ----------
+const DIAS_A_ENVIAR = 30;   // o UpSeller não tem filtro de data; o Mercado Livre só deixa ler até 31 dias por vez, então olhamos os últimos 30 dias de pedidos pagos (pedido a enviar mais antigo que isso quase não existe)
 const dataIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 // modo 'periodo': vendas feitas entre "De" e "Até". modo 'enviar': pedidos pagos que AINDA NÃO FORAM ENVIADOS (como a lista "Para enviar" do UpSeller), mesmo de dias anteriores
 async function buscar(modo){
   const enviar = modo === 'enviar';
+  MODO_ENVIAR = enviar;
   const escolhida = $(enviar ? 'vEConta' : 'vConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
   let de = $('vDe').value, ate = $('vAte').value;
-  if (enviar) { const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - Number($('vDias').value || 15)); de = dataIso(ini); ate = dataIso(hoje); }
+  if (enviar) { const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - DIAS_A_ENVIAR); de = dataIso(ini); ate = dataIso(hoje); }
   if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
   $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
@@ -52,15 +54,22 @@ async function buscar(modo){
     const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
     const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
       5 + 55 * contas.reduce((t, c) => t + (andamento[c].total ? Math.min(1, andamento[c].off / andamento[c].total) : 0), 0) / contas.length);
+    const pedir = (conta, off) => comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar, etapa: enviar ? $('vEtapa').value : 'todos', vence_hoje: false}));
     await Promise.all(contas.map(async conta => {          // as duas contas são lidas ao mesmo tempo
-      let off = 0, total = 0; mostra();
-      for (;;) {
-        const d = await comTentativas(() => json('/api/vendas/pedidos', {conta, de, ate, offset: off, somente_a_enviar: enviar, etapa: enviar ? $('vEtapa').value : 'todos', vence_hoje: enviar && $('vPrazo').value === 'hoje'}));
-        RAW.push(...d.itens); total = d.total; off = d.proximo; andamento[conta] = {off, total}; mostra();
-        if (d.concluido) break;
-      }
+      mostra();
+      let d = await pedir(conta, 0);                        // 1ª página: descobre o total
+      RAW.push(...d.itens); andamento[conta] = {off: d.proximo, total: d.total}; mostra();
+      const posicoes = [];
+      for (let o = d.proximo; !d.concluido && o < d.total; o += 20) posicoes.push(o);   // o resto das páginas, 4 de cada vez por conta
+      let prox = 0;
+      await Promise.all([0, 1, 2, 3].map(async () => {
+        while (prox < posicoes.length) {
+          const o = posicoes[prox++], r = await pedir(conta, o);
+          RAW.push(...r.itens); andamento[conta].off += 20; mostra();
+        }
+      }));
     }));
-    if (!RAW.length) { progresso(null); mensagem(enviar ? 'Nenhum pedido pago esperando envio nos últimos ' + $('vDias').value + ' dias.' : 'Nenhuma venda paga neste período.', ''); $('vBuscar').disabled = false; $('vEnviar').disabled = false; return; }
+    if (!RAW.length) { progresso(null); mensagem(enviar ? 'Nenhum pedido pago esperando envio nessa etapa.' : 'Nenhuma venda paga neste período.', ''); $('vBuscar').disabled = false; $('vEnviar').disabled = false; return; }
     const skus = [...new Set(RAW.map(r => r.sku).filter(Boolean))]; CAD = {};
     for (let i = 0; i < skus.length; i += 100) {
       progresso('Lendo custos e margens na planilha (' + Math.min(i + 100, skus.length) + ' de ' + skus.length + ' SKUs)…', 60 + 30 * i / skus.length);
@@ -128,7 +137,14 @@ const infoDe = r => INFO[chaveInfo(r)];
 const selecionavel = r => { const i = infoDe(r); return !!(i && i.acao === 'subir'); };
 
 // ---------- tela ----------
+function resumoEnvio(){
+  const p = $('vResumoEnvio'); p.hidden = !MODO_ENVIAR || !LINHAS.length; if (p.hidden) return;
+  const por = new Map(), pedidos = new Set();
+  for (const r of LINHAS) { const k = (r.status_rotulo || '—').replace(/ · enviar até.*$/, ''), id = r.conta + '|' + r.pedido; pedidos.add(id); if (!por.has(k)) por.set(k, new Set()); por.get(k).add(id); }
+  p.textContent = pedidos.size + ' pedido(s) esperando envio, por situação no Mercado Livre: ' + [...por].sort((a, b) => b[1].size - a[1].size).map(([k, v]) => k + ' ' + v.size).join(' · ') + '. (Um pedido com vários produtos aparece em várias linhas abaixo.)';
+}
 function desenhar(){
+  resumoEnvio();
   const esc = LINHAS.filter(r => daAba(r) && noSub(r)), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let prej = 0, deixou = 0;
   esc.forEach(r => { c[r.classe]++; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; });
   const marcados = LINHAS.filter(r => MARCA.has(r._i));

@@ -13,7 +13,7 @@ const ROT = {prejuizo: 'Prejuízo', abaixo: 'Abaixo da margem', dentro: 'Dentro 
 const ENV = {a_enviar: 'A enviar', enviado: 'Já enviado', full: 'Full'};
 const CONFIRMACAO = 'APLICAR_PRECO_VENDAS';
 
-let RAW = [], CAD = {}, LINHAS = [], MARCA = new Set(), EXCEL = new Set(), PRECO = new Set(), OVR = {}, INFO = {}, PEND = new Set(), IMPOSTOS = {}, RES = {};
+let RAW = [], CAD = {}, LINHAS = [], SEL = new Set(), OVR = {}, INFO = {}, PEND = new Set(), IMPOSTOS = {}, RES = {};
 let PERIODO = '', DIA = '', VERSAO = 0;
 let MODO_ENVIAR = false, aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
 
@@ -51,7 +51,7 @@ async function buscar(modo){
   $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
     UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = '';
-    RAW = []; MARCA = new Set(); EXCEL.clear(); PRECO = new Set(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
+    RAW = []; SEL.clear(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
     const andamento = {}; for (const c of contas) andamento[c] = {off: 0, total: 0};
     const mostra = () => progresso(contas.map(c => c + ': ' + (andamento[c].total ? Math.min(andamento[c].off, andamento[c].total) + ' de ' + andamento[c].total + ' pedidos' : 'lendo…')).join(' · ') + (enviar ? ' (só os que faltam enviar)' : ''),
       5 + 55 * contas.reduce((t, c) => t + (andamento[c].total ? Math.min(1, andamento[c].off / andamento[c].total) : 0), 0) / contas.length);
@@ -137,7 +137,7 @@ const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está n
 const expiraEm = r => { const h = $('vExpira').value; if (h === '' || !r.limite_dt) return true; const t = Date.parse(r.limite_dt); return Number.isNaN(t) || t <= Date.now() + Number(h) * 3600000; };
 function visiveis(){
   const q = busca.trim().toLowerCase(), f = UPS ? UPS_FILTRO : 'todos';
-  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || r.classe === classe) && expiraEm(r)
+  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || (classe === 'ruins' ? (r.classe === 'abaixo' || r.classe === 'prejuizo') : r.classe === classe)) && expiraEm(r)
     && (f === 'todos' || (f === 'ambos' ? naUps(r) && !soUps(r) : f === 'so_site' ? !naUps(r) : true))
     && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
@@ -157,7 +157,6 @@ function botaoCopiar(texto){
 }
 // conferência com o UpSeller: a pessoa cola os números dos pedidos de lá; a tela marca os daqui que não estão lá
 let UPS = null, UPS_FILTRO = 'todos';   // UPS_FILTRO: todos | ambos (UpSeller e site) | so_site (site, não UpSeller) | so_ups (UpSeller, não veio no site)
-// (EXCEL declarado no início)
 const numerosDe = t => new Set((String(t || '').match(/\d{12,}/g) || []));
 const chavesSite = () => { const c = new Set(); for (const r of LINHAS) if (!soUps(r)) { c.add(String(r.pedido)); if (r.pack_id) c.add(String(r.pack_id)); } return c; };
 function conferirUpseller(manter){
@@ -262,14 +261,14 @@ function desenhar(){
   resumoEnvio();
   const esc = LINHAS.filter(r => daAba(r) && noSub(r)), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let prej = 0, deixou = 0;
   esc.forEach(r => { c[r.classe]++; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; });
-  const marcados = LINHAS.filter(r => MARCA.has(r._i));
+  const marcados = LINHAS.filter(r => SEL.has(r._i) && podeMarcar(r));        // as marcadas que ainda serão enviadas por você = lista "Não enviar"
   const cartoes = [
     el('div', {class:'card'}, el('b', {}, num(esc.length)), el('span', {}, 'itens vendidos (nesta lista)')),
     el('div', {class:'card destaque'}, el('b', {}, num(c.dentro)), el('span', {}, 'dentro da margem')),
     el('div', {class:'card'}, el('b', {}, num(c.abaixo)), el('span', {}, 'abaixo da margem · deixou de ganhar ' + brl(deixou))),
     el('div', {class:'card risco'}, el('b', {}, num(c.prejuizo)), el('span', {}, 'com prejuízo · perdeu ' + brl(prej))),
     el('div', {class:'card'}, el('b', {}, num(c.sem_dados)), el('span', {}, 'sem dados (digite o custo ou a margem na linha)'))];
-  if (aba === 'mogilar') cartoes.push(el('div', {class:'card risco'}, el('b', {}, num(marcados.length)), el('span', {}, 'marcados para não enviar')));
+  if (SEL.size) cartoes.push(el('div', {class:'card risco'}, el('b', {}, num(SEL.size)), el('span', {}, 'vendas marcadas')));
   $('vCartoes').replaceChildren(...cartoes);
   const ab = $('vAbas'); ab.replaceChildren();
   for (const [k, nome, n] of [['mogilar', 'Vendas Mogilar (não Full)', LINHAS.filter(r => r.grupo !== 'full').length], ['full', 'Vendas Full', LINHAS.filter(r => r.grupo === 'full').length]])
@@ -278,20 +277,16 @@ function desenhar(){
   if (aba !== 'full') for (const [k, nome] of [['a_enviar', 'A enviar'], ['enviado', 'Já enviados'], ['todos', 'Todas']])
     gb.append(el('button', {class: k === sub ? 'on' : '', onclick: () => { sub = k; desenhar(); }}, nome + ' (' + (k === 'todos' ? LINHAS.filter(r => r.grupo !== 'full').length : LINHAS.filter(r => r.grupo === k).length) + ')'));
   const cb = $('vClasses'); cb.replaceChildren();
-  for (const [k, nome] of [['todas', 'Todas'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
-    cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : (c[k] || 0)) + ')'));
+  for (const [k, nome] of [['todas', 'Todas'], ['ruins', 'Abaixo da margem + prejuízo'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
+    cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : k === 'ruins' ? (c.abaixo || 0) + (c.prejuizo || 0) : (c[k] || 0)) + ')'));
   cabecalho();
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
   $('vVazio').hidden = lista.length > 0;
-  const th = $('vTodos'); if (th) { const m = lista.filter(podeMarcar); th.checked = m.length > 0 && m.every(r => MARCA.has(r._i)); th.disabled = !m.length; }
-  const nEx = LINHAS.filter(r => EXCEL.has(r._i)).length; $('vBaixarSel').disabled = !nEx; $('vBaixarSel').textContent = 'Baixar Excel das vendas marcadas (' + nEx + ')';
-  const te = $('vTodosExcel'); if (te) { te.checked = lista.length > 0 && lista.every(r => EXCEL.has(r._i)); te.disabled = !lista.length; }
-  const tp = $('vTodosPreco'); if (tp) { const m = lista.filter(selecionavel); tp.checked = m.length > 0 && m.every(r => PRECO.has(r._i)); tp.disabled = !m.length; }
-  const nao = aba === 'mogilar';
-  for (const id of ['vMarcarRuins', 'vLimpar', 'vBaixarNao']) $(id).hidden = !nao;
+  const nEx = SEL.size; $('vBaixarSel').disabled = !nEx; $('vBaixarSel').textContent = 'Baixar Excel das vendas marcadas (' + nEx + ')';
+  const te = $('vTodosSel'); if (te) { te.checked = lista.length > 0 && lista.every(r => SEL.has(r._i)); te.disabled = !lista.length; }
   $('vBaixarNao').disabled = !marcados.length; $('vBaixarNao').textContent = 'Baixar lista “Não enviar” (' + marcados.length + ')';
-  $('vMarcarRuins').disabled = !lista.some(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo'));
-  const sel = LINHAS.filter(r => PRECO.has(r._i) && selecionavel(r));
+  $('vMarcarRuins').disabled = !lista.some(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); $('vLimpar').disabled = !SEL.size;
+  const sel = LINHAS.filter(r => SEL.has(r._i) && selecionavel(r));
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
   const negs = LINHAS.filter(r => r.classe === 'prejuizo' || r.classe === 'abaixo').length; $('vBaixarNeg').disabled = !negs; $('vBaixarNeg').textContent = 'Baixar Excel dos prejuízos e abaixo da margem (' + negs + ')';
   resumoManual();
@@ -300,11 +295,9 @@ function desenhar(){
 function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
   const cols = [];
-  if (aba === 'mogilar') cols.push(el('th', {class:'chk'}, Object.assign(el('input', {type:'checkbox', id:'vTodos', title:'Marcar/desmarcar “não enviar” em tudo que está na tela'}), {onchange: e => { visiveis().filter(podeMarcar).forEach(r => { if (e.target.checked) MARCA.add(r._i); else MARCA.delete(r._i); }); desenhar(); }})));
-  cols.push(el('th', {class:'chk', title:'Marcar as vendas que você quer baixar em Excel'}, Object.assign(el('input', {type:'checkbox', id:'vTodosExcel', title:'Marcar/desmarcar tudo que está na tela para o Excel'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) EXCEL.add(r._i); else EXCEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
+  cols.push(el('th', {class:'chk', title:'Marcar as vendas: vale para baixar em Excel, atualizar o preço (só as que podem) e a lista “Não enviar” (só as que ainda serão enviadas)'}, Object.assign(el('input', {type:'checkbox', id:'vTodosSel', title:'Marcar/desmarcar tudo que está na tela'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r._i); else SEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
     t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
     t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
-    el('th', {class:'chk', title:'Marcar para atualizar o preço no Mercado Livre'}, Object.assign(el('input', {type:'checkbox', id:'vTodosPreco', title:'Marcar/desmarcar atualização de preço em tudo que pode'}), {onchange: e => { visiveis().filter(selecionavel).forEach(r => { if (e.target.checked) PRECO.add(r._i); else PRECO.delete(r._i); }); desenhar(); }})),
     t('Envio'));
   $('vCab').replaceChildren(...cols);
 }
@@ -323,14 +316,9 @@ function campoEditavel(r, campo){
 }
 function linha(r){
   const cels = [];
-  if (aba === 'mogilar') {
-    const cb = el('input', {type:'checkbox', checked: MARCA.has(r._i), disabled: !podeMarcar(r), title: podeMarcar(r) ? 'Não enviar este pedido' : 'Só dá para marcar o que ainda será enviado por você'});
-    cb.onchange = () => { if (cb.checked) MARCA.add(r._i); else MARCA.delete(r._i); desenhar(); };
-    cels.push(el('td', {class:'chk'}, cb));
-  }
   const sinal = v => v === null || v === undefined ? '' : (v < 0 ? 'n neg' : 'n pos');
   const info = infoDe(r);
-  let precoAtual = r.preco_ml === null || r.preco_ml === undefined ? '—' : brl(r.preco_ml), precoNovo = '—', cbPreco = null;
+  let precoAtual = r.preco_ml === null || r.preco_ml === undefined ? '—' : brl(r.preco_ml), precoNovo = '—';
   if (precisaPreco(r)) {
     if (info) {
       precoAtual = info.preco_atual !== undefined && info.preco_atual !== null ? brl(info.preco_atual) : '—';
@@ -338,15 +326,11 @@ function linha(r){
       else precoNovo = el('span', {class:'mlbs', title: info.mensagem}, info.acao === 'ok' ? 'já atinge a margem' : 'bloqueado: ' + info.mensagem);
     } else precoNovo = el('span', {class:'mlbs'}, PEND.has(chaveInfo(r)) ? 'calculando…' : '…');
   } else if (r.classe === 'sem_dados') precoNovo = el('span', {class:'mlbs'}, /custo|SKU/.test(r.pendencias || '') ? 'digite o custo' : 'falta: ' + (r.pendencias || 'dado'));
-  if (selecionavel(r)) {
-    cbPreco = el('input', {type:'checkbox', checked: PRECO.has(r._i), title: 'Atualizar o preço deste anúncio no Mercado Livre'});
-    cbPreco.onchange = () => { if (cbPreco.checked) PRECO.add(r._i); else PRECO.delete(r._i); desenhar(); };
-  }
-  const cbEx = el('input', {type:'checkbox', checked: EXCEL.has(r._i), title:'Incluir esta venda no Excel'});
-  cbEx.onchange = () => { if (cbEx.checked) EXCEL.add(r._i); else EXCEL.delete(r._i); desenhar(); };
+  const cb = el('input', {type:'checkbox', checked: SEL.has(r._i), title: 'Marcar esta venda (Excel, atualizar preço' + (selecionavel(r) ? ' — este anúncio pode ter o preço atualizado' : '') + (podeMarcar(r) ? ', lista “Não enviar”' : '') + ')'});
+  cb.onchange = () => { if (cb.checked) SEL.add(r._i); else SEL.delete(r._i); desenhar(); };
   const ups = !UPS ? el('span', {class:'mlbs', title:'Cole a lista do UpSeller na caixa acima para conferir'}, '—') : (naUps(r) ? el('span', {class:'tag v-dentro'}, 'OK') : el('span', {class:'tag v-abaixo', title:'Este pedido não está na lista que você colou do UpSeller'}, 'não achei'));
   cels.push(
-    el('td', {class:'chk'}, cbEx),
+    el('td', {class:'chk'}, cb),
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
     el('td', {}, ups),
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
@@ -356,18 +340,18 @@ function linha(r){
     el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),
     el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)), el('td', {class:'n'}, brl(r.imposto)),
     el('td', {class:'n'}, campoEditavel(r, 'custo')), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
-    el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {class:'chk'}, cbPreco), el('td', {}, ENV[r.grupo] || r.grupo));
-  return el('tr', {class: MARCA.has(r._i) ? 'naoenviar' : ''}, ...cels);
+    el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {}, ENV[r.grupo] || r.grupo));
+  return el('tr', {class: SEL.has(r._i) ? 'marcada' : ''}, ...cels);
 }
 $('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); UPS_MAE = {}; conferirUpseller(); await explicarFaltantes(); };
 $('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
 $('vExpira').onchange = () => desenhar();
 $('vMarcarRuins').onclick = () => {
-  const a = visiveis().filter(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo')); a.forEach(r => MARCA.add(r._i)); desenhar();
+  const a = visiveis().filter(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); a.forEach(r => SEL.add(r._i)); desenhar();
   mensagem(a.length + ' vendas marcadas para não enviar. Desmarque na lista as que quiser enviar mesmo assim.', 'ok');
 };
-$('vLimpar').onclick = () => { MARCA = new Set(); desenhar(); mensagem(''); };
+$('vLimpar').onclick = () => { SEL.clear(); desenhar(); mensagem(''); };
 
 // ---------- preço necessário (somente leitura, calculado aos poucos para as vendas da lista aberta) ----------
 let calculando = false;
@@ -406,7 +390,7 @@ let ALVOS = [];
 function alvosSelecionados(){
   const por = new Map();
   for (const r of LINHAS) {
-    if (!PRECO.has(r._i) || !selecionavel(r)) continue;
+    if (!SEL.has(r._i) || !selecionavel(r)) continue;
     const k = r.conta + '|' + r.mlb, i = infoDe(r), ant = por.get(k);
     if (!ant || r.meta > ant.meta) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku, custo: r.custo_unit, meta: r.meta, imposto_pct: r.imposto_pct, info: i, pedidos: ant ? ant.pedidos : []});
     por.get(k).pedidos.push(String(r.pedido));
@@ -437,7 +421,7 @@ $('vPrecoOk').onclick = async () => {
         for (const r of d.resultados) RES[conta + '|' + r.mlb] = {status: r.status, mensagem: r.mensagem};
         for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem + (r.planilha ? ' (planilha de preços: ' + r.planilha + ')' : '') + (r.historico ? ' · ' + r.historico : '')); }
         ok += d.atualizados;
-        for (const r of d.resultados) if (r.status === 'OK') for (const l of LINHAS) if (l.conta === conta && l.mlb === r.mlb) PRECO.delete(l._i);
+        for (const r of d.resultados) if (r.status === 'OK') for (const l of LINHAS) if (l.conta === conta && l.mlb === r.mlb) SEL.delete(l._i);
       }
     }
     res.className = 'aviso ' + (ok === ALVOS.length ? 'ok' : 'erro'); res.replaceChildren(el('b', {}, ok + ' de ' + ALVOS.length + ' preços atualizados.'), ...linhasRes.map(t => el('div', {}, t)));
@@ -447,8 +431,8 @@ $('vPrecoOk').onclick = async () => {
 
 // ---------- relatórios ----------
 const corpoRelatorio = tipo => ({tipo, dia: DIA, periodo: PERIODO, parametros: parametros(),
-  linhas: LINHAS.filter(r => tipo !== 'selecionadas' || EXCEL.has(r._i)).map(r => ({conta: r.conta, pedido: r.pedido, data: r.data, mlb: r.mlb, sku: r.sku, titulo: r.titulo, grupo: r.grupo, logistica: r.logistica, status_envio: r.status_envio, substatus: r.substatus, status_rotulo: r.status_rotulo, obs: r.obs,
-    meta_origem: r.meta_origem, quantidade: r.quantidade, venda: r.venda, tarifa: r.tarifa, frete: r.frete, custo_unit: r.custo_unit, meta: r.meta, nao_enviar: MARCA.has(r._i)}))});
+  linhas: LINHAS.filter(r => tipo !== 'selecionadas' || SEL.has(r._i)).map(r => ({conta: r.conta, pedido: r.pedido, data: r.data, mlb: r.mlb, sku: r.sku, titulo: r.titulo, grupo: r.grupo, logistica: r.logistica, status_envio: r.status_envio, substatus: r.substatus, status_rotulo: r.status_rotulo, obs: r.obs,
+    meta_origem: r.meta_origem, quantidade: r.quantidade, venda: r.venda, tarifa: r.tarifa, frete: r.frete, custo_unit: r.custo_unit, meta: r.meta, nao_enviar: SEL.has(r._i) && podeMarcar(r)}))});
 async function baixar(tipo, botao){
   botao.disabled = true;
   try {

@@ -181,12 +181,21 @@ def reservar(conta, mlb):
         return True
 
 
+ESPERAS_429 = (1.5, 3.0, 5.0)      # segundos entre as tentativas quando o ML responde 429 (limite de pedidos)
+
+
 def enviar_preco(tk, item, novo):
     """PUT do preço e conferência. Retorna (ok, preço lido no ML)."""
     mlb = item['id']
     variacoes = [v for v in item.get('variations') or [] if isinstance(v, dict)]
     corpo = {'variations': [{'id': v['id'], 'price': float(novo)} for v in variacoes]} if variacoes else {'price': float(novo)}
-    resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=corpo, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+    for espera in ESPERAS_429 + (None,):
+        resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=corpo, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        if resp.status_code != 429 or espera is None:
+            break
+        fontes.time.sleep(espera)                  # 429 = o ML pediu calma e NÃO aplicou nada: espera e tenta de novo (o preço só é conferido depois)
+    if resp.status_code == 429:
+        raise RuntimeError('O Mercado Livre pediu para esperar (muitas alterações seguidas) e não alterou o preço. Tente de novo em 1 minuto')
     if not resp.ok:
         raise RuntimeError('O Mercado Livre recusou a alteração (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
     conf = fontes._ml(tk, '/items/' + mlb)

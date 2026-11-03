@@ -344,6 +344,15 @@ class TestEndpointsVendas(unittest.TestCase):
         wb2 = openpyxl.Workbook(); wb2.active.append(['outra coisa']); b2 = io.BytesIO(); wb2.save(b2); b2.seek(0)
         self.assertEqual(self.c.post('/api/vendas/upseller-ler', data={'planilha': (b2, 'x.xlsx')}, content_type='multipart/form-data').status_code, 400)
 
+    def test_upseller_ler_marca_cancelados(self):
+        import openpyxl
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(['Nº de Pedido da Plataforma', 'Nome da Loja no UpSeller', 'Pós-venda/Cancelado/Devolvido'])
+        ws.append(['2000015694393359', 'Mercado Livre 19', 'Cancelado']); ws.append(['2000019232343594', 'Mercado Livre 19', None])
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'x.xlsx')}, content_type='multipart/form-data').get_json()
+        self.assertEqual([(p['pedido'], p['cancelado']) for p in d['pedidos']], [('2000015694393359', True), ('2000019232343594', False)])
+
     def test_upseller_ler_dimensao_errada_e_numeros(self):
         import openpyxl, zipfile, re
         wb = openpyxl.Workbook(); ws = wb.active
@@ -374,6 +383,14 @@ class TestEndpointsVendas(unittest.TestCase):
             self.assertIn('cancelado', m); self.assertIn('2000015763008995 (Entregue)', m); self.assertIn('2000015763008993', m)
             orig['pack_id'] = None
             self.assertIn('separou a venda em pacotes', fontes.diagnosticar_pedido('ML19', '2000015694393359')['motivo'])
+            orig['pack_id'] = 777                                                                   # irmãos também cancelados: não diz que "valem"
+            ml_antigo = ml
+            def ml2(tk, caminho, params=None):
+                if caminho in ('/orders/2000015763008995', '/orders/2000015763008993'): return {'status': 'cancelled', 'shipping': {}}
+                return ml_antigo(tk, caminho, params)
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml2):
+            m = fontes.diagnosticar_pedido('ML19', '2000015694393359')['motivo']
+            self.assertIn('também estão cancelados', m); self.assertNotIn('que valem', m)
 
     def test_calcular_mantem_preco_ml_e_pack(self):
         lin = self.linhas()[0]; lin.update(preco_ml=129.9, pack_id='3000', pedido_upseller='2000')

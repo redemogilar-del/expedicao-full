@@ -521,8 +521,11 @@ def _pedidos_irmaos(tk, ped):
                     novos.append(oid)
         except (RuntimeError, ValueError, AttributeError):
             pass
+    vivos = [n for n in novos if '(cancelled)' not in n and '(cancelado)' not in n]
+    if vivos:
+        return '. Outros pedidos do mesmo carrinho: ' + ', '.join(vivos)
     if novos:
-        return '. Foi separado em outros pedidos, que são os que valem: ' + ', '.join(novos)
+        return '. Os outros pedidos do carrinho também estão cancelados. Se a venda foi separada em pacotes, os números novos aparecem no Mercado Livre (procure pela venda lá)'
     return '. Se o Mercado Livre separou a venda em pacotes, os números de venda são novos (procure pela venda no Mercado Livre); o UpSeller continua mostrando o número antigo como "Cancelado"'
 
 

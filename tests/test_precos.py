@@ -140,6 +140,28 @@ class TestEndpointsPreco(unittest.TestCase):
             corpo = dict({'conta': 'ML19', 'parametros': {'imposto_pct': 8}, 'itens': [item], 'confirmacao': precos.CONFIRMACAO}, **extra)
             return a, self.c.post('/api/vendas/preco-aplicar', json=corpo)
 
+    def test_aplicar_tenta_de_novo_quando_ml_limita_429(self):
+        fake = FakeML(preco=70.0); chamadas = []
+        original = fake.put
+        def put429(url, json=None, **kw):
+            chamadas.append(1)
+            if len(chamadas) <= 2:                                  # as duas primeiras o ML manda esperar e não altera nada
+                fake.puts.append((url, json)); return mock.Mock(ok=False, status_code=429, text='{"message":"local_rate_limited"}')
+            return original(url, json=json, **kw)
+        fake.put = put429
+        with mock.patch.object(fontes.time, 'sleep', lambda s: None):
+            a, r = self.aplicar(fake)
+        d = r.get_json()
+        self.assertEqual((d['atualizados'], d['resultados'][0]['status']), (1, 'OK')); self.assertEqual(len(chamadas), 3)
+
+    def test_aplicar_429_sempre_avisa_sem_dizer_que_alterou(self):
+        fake = FakeML(preco=70.0)
+        fake.put = lambda url, json=None, **kw: (fake.puts.append((url, json)), mock.Mock(ok=False, status_code=429, text='x'))[1]
+        with mock.patch.object(fontes.time, 'sleep', lambda s: None):
+            a, r = self.aplicar(fake)
+        d = r.get_json()
+        self.assertEqual(d['atualizados'], 0); self.assertIn('pediu para esperar', d['resultados'][0]['mensagem']); self.assertEqual(fake.preco, 70.0)
+
     def test_aplicar_altera_confere_e_atualiza_planilha(self):
         fake = FakeML(preco=70.0)
         a, r = self.aplicar(fake)

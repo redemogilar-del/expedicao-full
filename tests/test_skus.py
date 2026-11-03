@@ -373,7 +373,25 @@ class TestEndpoints(unittest.TestCase):
             d = self.c.post('/api/skus/aplicar', json=self.corpo([{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': 'GR_25kg'}])).get_json()
         self.assertEqual(d['resultados'][0]['status'], 'ERRO')
         self.assertEqual(len(fake.puts), 2)                          # tentou duas formas
-        self.assertEqual(skus._motivo_recusa('{"code":"attributes.duplicated"}')[-33:], '(SKU repetido nos campos do anúncio)'[-33:])
+        m = skus._motivo_recusa('{"cause":[{"code":"attributes.duplicated","message":"Attributes with names: [SELLER_SKU] are duplicated"}]}')
+        self.assertIn('[SELLER_SKU] are duplicated', m)                 # mensagem inteira, não cortada
+        self.assertIn('atributo repetido', m)
+
+    def test_recusa_duplicated_diz_o_que_esta_repetido_no_anuncio(self):
+        fake = FakeML()
+        fake.itens['MLB100000001']['attributes'] = [{'id': 'SELLER_SKU', 'value_name': 'GR_25kg'}, {'id': 'SELLER_SKU', 'value_name': 'GR_25kg'}]
+        fake.itens['MLB100000001']['user_product_id'] = 'MLBU1'
+        original = fake.put
+        def put(url, json=None, **kw):
+            fake.puts.append((url, json))
+            return mock.Mock(ok=False, status_code=400, text='{"cause":[{"code":"attributes.duplicated","message":"Attributes with names: [SELLER_SKU]"}]}')
+        fake.put = put
+        with self.com(fake):
+            d = self.c.post('/api/skus/aplicar', json=self.corpo([{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': 'GR_25kg'}])).get_json()
+        msg = d['resultados'][0]['mensagem']
+        self.assertEqual(d['resultados'][0]['status'], 'ERRO')
+        self.assertIn('SELLER_SKU (2x)', msg)
+        self.assertIn('produto do usuário', msg)
 
     def test_exige_login_e_pagina_no_menu(self):
         c = app_mod.app.test_client()

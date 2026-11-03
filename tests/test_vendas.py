@@ -353,6 +353,21 @@ class TestEndpointsVendas(unittest.TestCase):
         d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'x.xlsx')}, content_type='multipart/form-data').get_json()
         self.assertEqual([(p['pedido'], p['cancelado']) for p in d['pedidos']], [('2000015694393359', True), ('2000019232343594', False)])
 
+    def test_upseller_ler_venda_mae_separada(self):
+        import openpyxl
+        cab = ['Nº de Pedido da Plataforma', 'Nome da Loja no UpSeller', 'Hora do Pedido', 'Valor do Pedido', 'Comissão Total', 'Total de Frete', 'Frete do Comprador', 'Pós-venda/Cancelado/Devolvido', 'Nome do Anúncio', 'ID do Anúncio', 'SKU', 'Preço de Produto', 'Qtd. do Produto']
+        wb = openpyxl.Workbook(); ws = wb.active; ws.append(cab)
+        ws.append(['2000015809239491', 'Mercado Livre 19', '2026-11-01 16:48:06', '299.42', '-49.4', '-62.8', '0.0', 'Cancelado', 'Tinta A', 'MLB1', 'KA', '149.71', 1])
+        ws.append(['2000015809239491', 'Mercado Livre 19', '2026-11-01 16:48:06', '', '', '', '', 'Cancelado', 'Tinta B', 'MLB1', 'KB', '149.71', 1])
+        ws.append(['2000015813409505', 'Mercado Livre 44', '2026-11-01 17:00:00', '63.75', '-7.33', '-45.54', '34.99', 'Cancelado', 'Peça', 'MLB2', 'P', '63.75', 1])      # comprador pagou parte do frete
+        ws.append(['2000015800000000', 'Mercado Livre 44', '2026-11-01 17:00:00', '10', '-1', '-2', '0', '', 'Normal', 'MLB3', 'N', '10', 1])                  # não cancelado: sem venda mãe
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        d = {p['pedido']: p for p in self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'x.xlsx')}, content_type='multipart/form-data').get_json()['pedidos']}
+        m = d['2000015809239491']['mae']
+        self.assertEqual((m['tarifa'], m['frete'], len(m['itens']), m['itens'][1]['sku'], m['itens'][1]['preco']), (49.4, 62.8, 2, 'KB', 149.71))      # valores da venda toda, itens das duas linhas
+        self.assertEqual(d['2000015813409505']['mae']['frete'], 10.55)                                                                                  # 45,54 total − 34,99 do comprador
+        self.assertNotIn('mae', d['2000015800000000'])
+
     def test_upseller_ler_dimensao_errada_e_numeros(self):
         import openpyxl, zipfile, re
         wb = openpyxl.Workbook(); ws = wb.active

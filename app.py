@@ -614,6 +614,32 @@ def _conta_da_loja(nome):
     return 'ML19' if '19' in n else ('ML44' if '44' in n else '')
 
 
+def _venda_mae(rows, cols):
+    """Venda "mãe" que o UpSeller guarda quando o ML separa a venda em pacotes: itens (SKU, anúncio, preço, quantidade) e os
+    valores da venda toda (tarifa, frete do vendedor). Vem da planilha do UpSeller; campo vazio fica None (nunca vira zero)."""
+    def cel(lin, k):
+        i = cols.get(k)
+        return lin[i] if i is not None and i < len(lin) else None
+
+    def num(v):
+        try:
+            return float(str(v).replace(',', '.').strip()) if v is not None and str(v).strip() != '' else None
+        except ValueError:
+            return None
+    itens = []
+    for lin in rows:
+        q, preco = num(cel(lin, 'qtd. do produto')), num(cel(lin, 'preço de produto'))
+        mlb = str(cel(lin, 'id do anúncio') or '').strip()
+        if q and q > 0 and preco is not None and mlb:
+            itens.append({'mlb': mlb[:20], 'sku': str(cel(lin, 'sku') or '').strip()[:80], 'titulo': str(cel(lin, 'nome do anúncio') or '')[:200], 'quantidade': int(q), 'preco': round(preco, 2)})
+    topo = next((l for l in rows if num(cel(l, 'valor do pedido')) is not None), None)         # valores da venda inteira ficam na 1ª linha
+    if not itens or topo is None:
+        return None
+    comissao, frete_total, frete_comprador = num(cel(topo, 'comissão total')), num(cel(topo, 'total de frete')), num(cel(topo, 'frete do comprador'))
+    frete = None if frete_total is None else round(max(0.0, abs(frete_total) - abs(frete_comprador or 0.0)), 2)        # parte do vendedor (confere com o "Lucro Estimado" do UpSeller)
+    return {'data': str(cel(topo, 'hora do pedido') or '')[:16], 'itens': itens, 'tarifa': None if comissao is None else round(abs(comissao), 2), 'frete': frete}
+
+
 @app.post('/api/vendas/upseller-ler')
 def api_vendas_upseller_ler():
     """Lê a planilha exportada do UpSeller e devolve os números de pedido (e a conta, se a loja disser). Só leitura."""
@@ -634,6 +660,8 @@ def api_vendas_upseller_ler():
         i_loja = next((i for i, v in enumerate(norm) if v.startswith('nome da loja')), None)
         i_est = next((i for i, v in enumerate(norm) if v.startswith('estado do pedido')), None)
         i_canc = next((i for i, v in enumerate(norm) if 'cancelado' in v and ('pós' in v or 'pos' in v)), None)     # "Pós-venda/Cancelado/Devolvido"
+        col = lambda nome: next((i for i, v in enumerate(norm) if v == nome), None)
+        cols = {k: col(k) for k in ('valor do pedido', 'comissão total', 'total de frete', 'frete do comprador', 'hora do pedido', 'sku', 'id do anúncio', 'nome do anúncio', 'preço de produto', 'qtd. do produto')}
         if i_ped is None:
             raise envios.ArquivoInvalido('Não achei a coluna "Nº de Pedido da Plataforma". Use a planilha exportada do UpSeller (Pedidos > Exportar).')
 
@@ -641,7 +669,7 @@ def api_vendas_upseller_ler():
             if isinstance(v, float) and v == int(v):
                 v = int(v)                    # número gravado como número: sem ".0" e sem notação científica
             return re.sub(r'\D', '', str(v if v is not None else ''))
-        vistos, saida = set(), []
+        vistos, saida, por_num = set(), [], {}
         total = outras = repetidos = 0
         for lin in linhas:
             if len(saida) >= 5000:
@@ -653,6 +681,7 @@ def api_vendas_upseller_ler():
             if len(num) < 12 or not str(lin[i_ped]).strip().isdigit() and not isinstance(lin[i_ped], (int, float)):
                 outras += 1                       # não é número do Mercado Livre (ex.: pedido da Shopee, com letras)
                 continue
+            por_num.setdefault(num, []).append(lin)
             if num in vistos:
                 repetidos += 1
                 continue
@@ -660,6 +689,9 @@ def api_vendas_upseller_ler():
             canc = i_canc is not None and i_canc < len(lin) and 'cancel' in str(lin[i_canc] or '').lower()
             saida.append({'pedido': num, 'cancelado': canc, 'conta': _conta_da_loja(lin[i_loja]) if i_loja is not None and i_loja < len(lin) else '',
                           'estado': str(lin[i_est] or '')[:40] if i_est is not None and i_est < len(lin) else ''})
+        for p in saida:
+            if p['cancelado']:
+                p['mae'] = _venda_mae(por_num.get(p['pedido'], []), cols)
         if not saida:
             raise envios.ArquivoInvalido('A planilha não tem nenhum número de pedido.')
         return jsonify(ok=True, pedidos=saida, linhas=total, outras_lojas=outras, repetidos=repetidos)

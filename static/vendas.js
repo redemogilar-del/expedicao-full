@@ -15,7 +15,7 @@ const CONFIRMACAO = 'APLICAR_PRECO_VENDAS';
 
 let RAW = [], CAD = {}, LINHAS = [], MARCA = new Set(), PRECO = new Set(), OVR = {}, INFO = {}, PEND = new Set(), IMPOSTOS = {}, RES = {};
 let PERIODO = '', DIA = '', VERSAO = 0;
-let aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
+let MODO_ENVIAR = false, aba = 'mogilar', sub = 'a_enviar', classe = 'todas', busca = '';
 
 function mensagem(texto, tipo){ const m = $('vMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function progresso(texto, p){
@@ -43,6 +43,7 @@ const dataIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2
 // modo 'periodo': vendas feitas entre "De" e "Até". modo 'enviar': pedidos pagos que AINDA NÃO FORAM ENVIADOS (como a lista "Para enviar" do UpSeller), mesmo de dias anteriores
 async function buscar(modo){
   const enviar = modo === 'enviar';
+  MODO_ENVIAR = enviar;
   const escolhida = $(enviar ? 'vEConta' : 'vConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
   let de = $('vDe').value, ate = $('vAte').value;
   if (enviar) { const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - DIAS_A_ENVIAR); de = dataIso(ini); ate = dataIso(hoje); }
@@ -136,7 +137,14 @@ const infoDe = r => INFO[chaveInfo(r)];
 const selecionavel = r => { const i = infoDe(r); return !!(i && i.acao === 'subir'); };
 
 // ---------- tela ----------
+function resumoEnvio(){
+  const p = $('vResumoEnvio'); p.hidden = !MODO_ENVIAR || !LINHAS.length; if (p.hidden) return;
+  const por = new Map(), pedidos = new Set();
+  for (const r of LINHAS) { const k = (r.status_rotulo || '—').replace(/ · enviar até.*$/, ''), id = r.conta + '|' + r.pedido; pedidos.add(id); if (!por.has(k)) por.set(k, new Set()); por.get(k).add(id); }
+  p.textContent = pedidos.size + ' pedido(s) esperando envio, por situação no Mercado Livre: ' + [...por].sort((a, b) => b[1].size - a[1].size).map(([k, v]) => k + ' ' + v.size).join(' · ') + '. (Um pedido com vários produtos aparece em várias linhas abaixo.)';
+}
 function desenhar(){
+  resumoEnvio();
   const esc = LINHAS.filter(r => daAba(r) && noSub(r)), c = {prejuizo: 0, abaixo: 0, dentro: 0, sem_dados: 0}; let prej = 0, deixou = 0;
   esc.forEach(r => { c[r.classe]++; if (r.perda_tipo === 'prejuizo') prej += r.perda; else if (r.perda_tipo === 'deixou') deixou += r.perda; });
   const marcados = LINHAS.filter(r => MARCA.has(r._i));

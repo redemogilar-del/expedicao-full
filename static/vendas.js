@@ -131,10 +131,15 @@ function ordem(a, b){
   if (a.classe === 'dentro') return a.lucro - b.lucro;
   return String(a.sku || a.mlb).localeCompare(String(b.sku || b.mlb)) || String(a.pedido).localeCompare(String(b.pedido));
 }
+const naUps = r => !!UPS && (UPS.has(String(r.pedido)) || (!!r.pack_id && UPS.has(String(r.pack_id))) || (!!r.pedido_upseller && UPS.has(String(r.pedido_upseller))));   // o número do UpSeller pode ser o do pedido ou o do carrinho
+const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está no UpSeller (a busca não tinha trazido)
 function visiveis(){
-  const q = busca.trim().toLowerCase();
-  return LINHAS.filter(r => daAba(r) && noSub(r) && (classe === 'todas' || r.classe === classe) && (!UPS || UPS_FILTRO === 'todos' || (UPS_FILTRO === 'ambos' ? UPS.has(String(r.pedido)) : UPS_FILTRO === 'so_site' ? !UPS.has(String(r.pedido)) : false)) && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
+  const q = busca.trim().toLowerCase(), f = UPS ? UPS_FILTRO : 'todos';
+  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || r.classe === classe)
+    && (f === 'todos' || (f === 'ambos' ? naUps(r) && !soUps(r) : f === 'so_site' ? !naUps(r) : true))
+    && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
+
 const infoDe = r => INFO[chaveInfo(r)];
 const selecionavel = r => { const i = infoDe(r); return !!(i && i.acao === 'subir'); };
 
@@ -152,13 +157,16 @@ function botaoCopiar(texto){
 let UPS = null, UPS_FILTRO = 'todos';   // UPS_FILTRO: todos | ambos (UpSeller e site) | so_site (site, não UpSeller) | so_ups (UpSeller, não veio no site)
 // (EXCEL declarado no início)
 const numerosDe = t => new Set((String(t || '').match(/\d{12,}/g) || []));
+const chavesSite = () => { const c = new Set(); for (const r of LINHAS) if (!soUps(r)) { c.add(String(r.pedido)); if (r.pack_id) c.add(String(r.pack_id)); } return c; };
 function conferirUpseller(manter){
   const nums = numerosDe($('vUpsTexto').value), r = $('vUpsRes');
   if (!nums.size) { UPS = null; UPS_FILTRO = 'todos'; r.textContent = 'Cole os números dos pedidos do UpSeller (com 12 dígitos ou mais).'; desenhar(); return; }
   UPS = nums; if (!manter) UPS_FILTRO = 'todos';
-  const nossos = new Set(LINHAS.map(x => String(x.pedido))), fora = [...nossos].filter(n => !nums.has(n)), semAqui = [...nums].filter(n => !nossos.has(n));
+  const site = chavesSite(), foraSet = new Set(), ambosSet = new Set();
+  for (const x of LINHAS) if (!soUps(x)) (naUps(x) ? ambosSet : foraSet).add(String(x.pedido));
+  const fora = [...foraSet], semAqui = [...nums].filter(n => !site.has(n));
   r.replaceChildren(document.createTextNode(fora.length + ' pedido(s) daqui não estão na lista do UpSeller; ' + semAqui.length + ' do UpSeller não vieram aqui' + (semAqui.length ? ' (' + semAqui.slice(0, 30).join(', ') + (semAqui.length > 30 ? '…' : '') + ')' : '') + '. '));
-  const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + (nossos.size - fora.length) + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + semAqui.length + ')']];
+  const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + ambosSet.size + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + semAqui.length + ')']];
   const grupo = el('div', {class:'filtros'}); for (const [k, nome] of opc) grupo.append(el('button', {type:'button', class: UPS_FILTRO === k ? 'on' : '', onclick: () => { UPS_FILTRO = k; conferirUpseller(true); }}, nome));
   r.append(grupo);
   desenhar();
@@ -180,7 +188,7 @@ async function anexarUpseller(arquivo){
   } catch (e) { r.textContent = 'Não consegui ler a planilha: ' + e.message; }
 }
 async function explicarFaltantes(){
-  const nossos = new Set(LINHAS.map(x => String(x.pedido))), faltam = [...(UPS || [])].filter(n => !nossos.has(n)), cx = $('vUpsMotivosCx'), corpo = $('vUpsMotivos');
+  const site = chavesSite(), faltam = [...(UPS || [])].filter(n => !site.has(n)), cx = $('vUpsMotivosCx'), corpo = $('vUpsMotivos');
   corpo.replaceChildren(); cx.hidden = !faltam.length; if (!faltam.length) return;
   const limite = faltam.slice(0, 200), res = $('vUpsMotivoTxt'), base = '';
   const linhas = [];
@@ -193,9 +201,35 @@ async function explicarFaltantes(){
     corpo.replaceChildren(...linhas.map(x => el('tr', {}, el('td', {}, el('span', {class:'pedido-n'}, x.pedido, botaoCopiar(x.pedido))), el('td', {}, x.conta || '—'), el('td', {}, x.situacao || '—'), el('td', {}, x.motivo || 'Deveria ter aparecido: busque de novo (pode ter sido só uma falha de leitura do Mercado Livre).'))));
   }
   const grupos = new Map(); for (const x of linhas) { const k = x.motivo ? x.motivo.replace(/"[^"]*"/g, '“…”').replace(/\d{2}\/\d{2}/g, 'dd/mm') : 'Deveria ter aparecido'; grupos.set(k, (grupos.get(k) || 0) + 1); }
+  await trazerFaltantes(limite);
   res.textContent = 'Motivos dos ' + linhas.length + ' que faltam: ' + [...grupos].sort((a, b) => b[1] - a[1]).map(([k, v]) => v + ' × ' + k).join(' | ') + (faltam.length > limite.length ? ' (mostrei só os primeiros ' + limite.length + ')' : '');
 }
 $('vUpsArquivo').onchange = e => { const f = e.target.files[0]; if (f) anexarUpseller(f); e.target.value = ''; };
+// coloca na lista (com lucro e margem) os pedidos que estão no UpSeller e a busca não trouxe
+async function trazerFaltantes(numeros){
+  RAW = RAW.filter(r => !r.pedido_upseller);
+  const lotes = []; for (let i = 0; i < numeros.length; i += 8) lotes.push(numeros.slice(i, i + 8));
+  let prox = 0, ignorados = 0;
+  const msg = $('vUpsMotivoTxt');
+  await Promise.all([0, 1, 2].map(async () => {
+    while (prox < lotes.length) {
+      const lote = lotes[prox++];
+      try {
+        const d = await comTentativas(() => json('/api/vendas/pedidos-por-numero', {pedidos: lote.map(n => ({pedido: n, conta: UPS_CONTA[n] || ''}))}));
+        RAW.push(...d.itens); ignorados += d.ignorados.length;
+        msg.textContent = 'Trazendo para a lista os pedidos do UpSeller que faltavam… ' + RAW.filter(r => r.pedido_upseller).length + ' linhas';
+      } catch (e) { ignorados += lote.length; }
+    }
+  }));
+  const novos = RAW.filter(r => r.pedido_upseller);
+  if (!novos.length) return 0;
+  const faltaSku = [...new Set(novos.map(r => r.sku).filter(k => k && !CAD[k]))];
+  for (let i = 0; i < faltaSku.length; i += 100) Object.assign(CAD, (await comTentativas(() => json('/api/vendas/cadastro', {skus: faltaSku.slice(i, i + 100)}))).cadastro);
+  const contasNovas = [...new Set(novos.map(r => r.conta))].filter(c => !IMPOSTOS[c]);
+  if (contasNovas.length) { try { Object.assign(IMPOSTOS, (await json('/api/vendas/impostos', {contas: contasNovas})).impostos); } catch (e) {} }
+  await recalcular(); conferirUpseller(true);
+  return novos.length;
+}
 function resumoEnvio(){
   const p = $('vResumoEnvio'); p.hidden = !MODO_ENVIAR || !LINHAS.length; if (p.hidden) return;
   const por = new Map(), pedidos = new Set();
@@ -228,7 +262,6 @@ function desenhar(){
   for (const [k, nome] of [['todas', 'Todas'], ['prejuizo', 'Prejuízo'], ['abaixo', 'Abaixo da margem'], ['dentro', 'Dentro da margem'], ['sem_dados', 'Sem dados']])
     cb.append(el('button', {class: k === classe ? 'on' : '', onclick: () => { classe = k; desenhar(); }}, nome + ' (' + (k === 'todas' ? esc.length : (c[k] || 0)) + ')'));
   cabecalho();
-  $('vTabela').closest('.tabela-caixa').hidden = !!UPS && UPS_FILTRO === 'so_ups';       // "só no UpSeller": a lista de baixo é a dos motivos
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
   $('vVazio').hidden = lista.length > 0;
   const th = $('vTodos'); if (th) { const m = lista.filter(podeMarcar); th.checked = m.length > 0 && m.every(r => MARCA.has(r._i)); th.disabled = !m.length; }
@@ -292,13 +325,13 @@ function linha(r){
   }
   const cbEx = el('input', {type:'checkbox', checked: EXCEL.has(r._i), title:'Incluir esta venda no Excel'});
   cbEx.onchange = () => { if (cbEx.checked) EXCEL.add(r._i); else EXCEL.delete(r._i); desenhar(); };
-  const ups = !UPS ? el('span', {class:'mlbs', title:'Cole a lista do UpSeller na caixa acima para conferir'}, '—') : (UPS.has(String(r.pedido)) ? el('span', {class:'tag v-dentro'}, 'OK') : el('span', {class:'tag v-abaixo', title:'Este pedido não está na lista que você colou do UpSeller'}, 'não achei'));
+  const ups = !UPS ? el('span', {class:'mlbs', title:'Cole a lista do UpSeller na caixa acima para conferir'}, '—') : (naUps(r) ? el('span', {class:'tag v-dentro'}, 'OK') : el('span', {class:'tag v-abaixo', title:'Este pedido não está na lista que você colou do UpSeller'}, 'não achei'));
   cels.push(
     el('td', {class:'chk'}, cbEx),
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
     el('td', {}, ups),
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
-    el('td', {}, r.conta), el('td', {}, el('span', {class:'pedido-n'}, r.pedido, botaoCopiar(r.pedido)), el('div', {class:'mlbs'}, r.data)), el('td', {}, r.sku || '—'),
+    el('td', {}, r.conta), el('td', {}, el('span', {class:'pedido-n'}, r.pedido, botaoCopiar(r.pedido)), el('div', {class:'mlbs'}, r.data), soUps(r) ? el('div', {}, el('span', {class:'tag v-abaixo', title:'Este pedido está no UpSeller e a busca não o tinha trazido; foi buscado no Mercado Livre pelo número'}, 'só no UpSeller')) : ''), el('td', {}, r.sku || '—'),
     el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
     el('td', {}, r.mlb),
     el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),

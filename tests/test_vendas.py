@@ -374,6 +374,29 @@ class TestEndpointsVendas(unittest.TestCase):
             orig['pack_id'] = None
             self.assertIn('separou a venda em pacotes', fontes.diagnosticar_pedido('ML19', '2000015694393359')['motivo'])
 
+    def test_calcular_mantem_preco_ml_e_pack(self):
+        lin = self.linhas()[0]; lin.update(preco_ml=129.9, pack_id='3000', pedido_upseller='2000')
+        d = self.c.post('/api/vendas/calcular', json={'linhas': [lin], 'cadastro': {'A': {'custo': 10, 'margem': 20}}, 'parametros': {'imposto_pct': 8}}).get_json()
+        l = d['linhas'][0]
+        self.assertEqual((l['preco_ml'], l['pack_id'], l['pedido_upseller']), (129.9, '3000', '2000'))
+
+    def test_pedidos_por_numero_aceita_numero_de_carrinho(self):
+        def ped(i): return {'id': i, 'status': 'paid', 'seller': {'id': 99}, 'pack_id': 5000, 'date_created': '2026-10-31T07:09:00.000-03:00', 'shipping': {'id': 8},
+                            'order_items': [{'item': {'id': 'MLB1000000001', 'title': 'Manta', 'seller_sku': 'GE02'}, 'quantity': 3, 'unit_price': 34.67, 'sale_fee': 5.0}]}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/5000': raise RuntimeError('HTTP 404')                      # o número do UpSeller é o do carrinho
+            if caminho == '/packs/5000': return {'orders': [{'id': 111}, {'id': 222}]}
+            if caminho in ('/orders/111', '/orders/222'): return ped(int(caminho[-3:]))
+            if caminho == '/shipments/8': return {'status': 'ready_to_ship', 'substatus': 'printed', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/8/costs': return {'senders': [{'user_id': 99, 'cost': 10.0}]}
+            if caminho == '/items': return [{'body': {'id': 'MLB1000000001', 'price': 34.67}}]
+            raise RuntimeError('HTTP 404')
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            r = fontes.pedidos_por_numero('ML44', ['5000', '9999999999999'])
+        self.assertEqual(sorted(i['pedido'] for i in r['itens']), ['111', '222'])
+        self.assertEqual({i['pedido_upseller'] for i in r['itens']}, {'5000'}); self.assertEqual(r['itens'][0]['status_rotulo'], 'Etiqueta impressa'); self.assertEqual(r['itens'][0]['preco_ml'], 34.67)
+        self.assertEqual([x['pedido'] for x in r['ignorados']], ['9999999999999'])
+
     def test_diagnostico_pedidos(self):
         pedido = {'id': 2000015760779799, 'status': 'paid', 'date_created': '2026-10-29T09:06:00.000-03:00', 'seller': {'id': 99}, 'shipping': {'id': 5}, 'order_items': []}
         def ml(tk, caminho, params=None):

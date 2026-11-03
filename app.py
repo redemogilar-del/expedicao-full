@@ -575,7 +575,7 @@ if __name__ == '__main__':
 
 
 # ------------------------------------------------------------------ Vendas do dia (lucro por venda)
-_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'pedido_upseller', 'limite_envio', 'limite_dt')
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'envio_id', 'pedido_upseller', 'limite_envio', 'limite_dt')
 
 
 def _params_vendas(c):

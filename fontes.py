@@ -374,6 +374,7 @@ def itens_info(conta, ids):
 ETAPAS_ENVIO = {'todos': None, 'nf': {'invoice_pending'}, 'etiqueta': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'},
                 'impressa': {'printed'},
                 'prontos': {'ready_to_print', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup', 'printed'}}   # etiqueta liberada OU já impressa: tudo que ainda não foi bipado na coleta
+SUBS_NA_COLETA = {'printed', 'ready_for_pickup', 'ready_for_dispatch', 'waiting_for_pickup'}     # pacote pronto, esperando a coleta
 FINAIS_ENVIO = ('shipped', 'in_transit', 'out_for_delivery', 'delivered', 'not_delivered', 'returned', 'cancelled', 'canceled')
 
 
@@ -488,6 +489,8 @@ def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None):
     permitidos = ETAPAS_ENVIO.get(etapa)
     if permitidos is not None and not (st == 'ready_to_ship' and sub in permitidos):
         return 'Está em "%s", que fica fora da etapa escolhida na tela. Escolha "Todos os que esperam envio" na etapa para ver' % rotulo_envio(saida['status_envio'], saida['substatus'])
+    if sub in SUBS_NA_COLETA:                  # etiqueta já impressa / pacote pronto: sai na próxima coleta (hoje), não importa o prazo de despacho
+        return 'O pacote já está pronto e sai na coleta de hoje (não é da lista "Próximos dias")' if vence_apos else ''
     if vence_ate and saida['limite'] and saida['limite'] > vence_ate:
         return 'O prazo de envio é %s/%s (lista "Próximos dias", não "Envios de hoje")' % (saida['limite'][8:10], saida['limite'][5:7])
     if vence_apos and saida['limite'] and saida['limite'] <= vence_apos:

@@ -441,7 +441,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
             env = ((_ml(tk, '/orders/%s' % ped['id']) or {}).get('shipping') or {}).get('id')
         except (RuntimeError, ValueError, AttributeError):
             env = None
-    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': ''}
+    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': '', 'limite_dt': ''}
     if not env:
         saida['erro'] = 'Pedido sem envio'
         return saida
@@ -453,6 +453,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
             saida['logistica'] = str(sh.get('logistic_type') or (sh.get('logistic') or {}).get('type') or '')
             lim = ((sh.get('lead_time') or {}).get('estimated_handling_limit') or {}).get('date')     # prazo para despachar (o "Expira em" do UpSeller)
             saida['limite'] = str(lim or '')[:10] if _re.match(r'^\d{4}-\d{2}-\d{2}', str(lim or '')) else ''
+            saida['limite_dt'] = str(lim)[:29] if saida['limite'] and _re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}', str(lim)) else ''      # prazo com hora (para o filtro "expira em X horas")
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
     if somente_a_enviar:
@@ -627,8 +628,8 @@ def _itens_dos_pedidos(conta, tk, ativos, envios):
                 'tarifa': None if fee is None else round(abs(fee) * q, 2),
                 'frete': None if frete_pedido is None else round(frete_pedido * (venda / soma if soma > 0 else 1.0 / max(1, len(regs))), 2),
                 'grupo': _grupo_envio(env['logistica'], env['status_envio']), 'logistica': env['logistica'], 'status_envio': env['status_envio'], 'substatus': env['substatus'],
-                'status_rotulo': (rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado') + (' · enviar até %s/%s' % (env['limite'][8:10], env['limite'][5:7]) if env['limite'] and env['status_envio'].lower() not in FINAIS_ENVIO else ''),
-                'limite_envio': env['limite'], 'preco_ml': precos_ml.get(mlb), 'obs': obs,
+                'status_rotulo': (rotulo_envio(env['status_envio'], env['substatus']) if env['status_envio'] else 'Não consultado') + (' · enviar até %s/%s%s' % (env['limite'][8:10], env['limite'][5:7], (' ' + env['limite_dt'][11:16]) if env['limite_dt'] else '') if env['limite'] and env['status_envio'].lower() not in FINAIS_ENVIO else ''),
+                'limite_envio': env['limite'], 'limite_dt': env['limite_dt'], 'preco_ml': precos_ml.get(mlb), 'obs': obs,
             })
     return itens
 

@@ -86,7 +86,7 @@ async function buscar(modo){
     if (enviar) PERIODO = 'A enviar hoje (pedidos de ' + PERIODO + ')';
     progresso('Calculando o lucro…', 95);
     await recalcular();
-    aba = 'mogilar'; sub = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = '';
+    aba = 'mogilar'; sub = 'a_enviar'; classe = 'todas'; busca = ''; $('vBusca').value = ''; $('vExpira').value = '';
     if (!LINHAS.some(r => r.grupo !== 'full' && r.grupo === 'a_enviar')) sub = 'todos';
     $('vResultado').hidden = false; desenhar(); progresso(null);
     if (falhas.length && !$('vImposto').value) mensagem('Não consegui ler o imposto da planilha (' + falhas.join(' · ') + '). As vendas dessa conta ficam "Sem dados" até você digitar o imposto no campo.', 'erro');
@@ -133,9 +133,11 @@ function ordem(a, b){
 }
 const naUps = r => !!UPS && (UPS.has(String(r.pedido)) || (!!r.pack_id && UPS.has(String(r.pack_id))) || (!!r.pedido_upseller && UPS.has(String(r.pedido_upseller))));   // o número do UpSeller pode ser o do pedido ou o do carrinho
 const soUps = r => !!r.pedido_upseller;      // linha trazida só porque está no UpSeller (a busca não tinha trazido)
+// filtro "expira em X horas" (como o Modo Rápido do UpSeller): prazo de despacho até agora + X h; vencidos entram; sem prazo conhecido continua na lista
+const expiraEm = r => { const h = $('vExpira').value; if (h === '' || !r.limite_dt) return true; const t = Date.parse(r.limite_dt); return Number.isNaN(t) || t <= Date.now() + Number(h) * 3600000; };
 function visiveis(){
   const q = busca.trim().toLowerCase(), f = UPS ? UPS_FILTRO : 'todos';
-  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || r.classe === classe)
+  return LINHAS.filter(r => (f === 'so_ups' ? soUps(r) : daAba(r) && noSub(r)) && (classe === 'todas' || r.classe === classe) && expiraEm(r)
     && (f === 'todos' || (f === 'ambos' ? naUps(r) && !soUps(r) : f === 'so_site' ? !naUps(r) : true))
     && (!q || [r.pedido, r.sku, r.titulo, r.mlb].join(' ').toLowerCase().includes(q))).sort(ordem);
 }
@@ -360,6 +362,7 @@ function linha(r){
 $('vUpsConferir').onclick = async () => { UPS_CONTA = {}; PLANILHA = null; UPS_CANC = new Set(); UPS_MAE = {}; conferirUpseller(); await explicarFaltantes(); };
 $('vUpsLimpar').onclick = () => { $('vUpsMotivosCx').hidden = true; $('vUpsMotivoTxt').textContent = ''; $('vUpsTexto').value = ''; UPS = null; UPS_FILTRO = 'todos'; $('vUpsRes').textContent = ''; desenhar(); };
 $('vBusca').oninput = e => { busca = e.target.value; desenhar(); };
+$('vExpira').onchange = () => desenhar();
 $('vMarcarRuins').onclick = () => {
   const a = visiveis().filter(r => podeMarcar(r) && (r.classe === 'abaixo' || r.classe === 'prejuizo')); a.forEach(r => MARCA.add(r._i)); desenhar();
   mensagem(a.length + ' vendas marcadas para não enviar. Desmarque na lista as que quiser enviar mesmo assim.', 'ok');

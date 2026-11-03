@@ -192,6 +192,7 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
         self.assertIn('enviar até 03/11', rodar(etapa='etiqueta')[0]['status_rotulo'])
+        it = rodar(etapa='etiqueta')[0]; self.assertEqual(it['limite_dt'][:19], '2026-11-03T23:59:59'); self.assertIn('enviar até 03/11 23:59', it['status_rotulo'])      # prazo com hora, para o filtro "expira em X horas"
 
     def test_pedido_sem_envio_na_busca_acha_no_pedido_completo_e_traz_preco_do_anuncio(self):
         ped = self.ped(1, [self.oi('MLB1000001', 1, 50.0, 8.0)], envio=None)

@@ -442,7 +442,7 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
             env = ((_ml(tk, '/orders/%s' % ped['id']) or {}).get('shipping') or {}).get('id')
         except (RuntimeError, ValueError, AttributeError):
             env = None
-    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': '', 'limite_dt': ''}
+    saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': '', 'limite': '', 'limite_dt': '', 'envio_id': str(env or '')}
     if not env:
         saida['erro'] = 'Pedido sem envio'
         return saida
@@ -629,7 +629,7 @@ def _itens_dos_pedidos(conta, tk, ativos, envios):
             if env['divisor'] > 1:
                 obs = (obs + '; ' if obs else '') + 'Carrinho com %d pedidos: frete dividido igualmente' % env['divisor']
             itens.append({
-                'conta': conta, 'pedido': str(ped.get('id') or ''), 'pack_id': str(ped.get('pack_id') or ''), 'data': str(ped.get('date_created') or '')[:16].replace('T', ' '),
+                'conta': conta, 'pedido': str(ped.get('id') or ''), 'pack_id': str(ped.get('pack_id') or ''), 'envio_id': env.get('envio_id', ''), 'data': str(ped.get('date_created') or '')[:16].replace('T', ' '),
                 'mlb': mlb, 'sku': str(it.get('seller_sku') or it.get('seller_custom_field') or r.get('seller_sku') or '').strip()[:80],
                 'titulo': str(it.get('title') or '')[:200], 'quantidade': q, 'venda': venda,
                 'tarifa': None if fee is None else round(abs(fee) * q, 2),

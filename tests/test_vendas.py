@@ -214,6 +214,7 @@ class TestFontesVendas(unittest.TestCase):
             r = fontes.pedidos_financeiros('ML19', '2026-10-29', '2026-10-29')
         self.assertEqual(r['itens'][0]['frete'], 12.0); self.assertEqual(r['itens'][0]['preco_ml'], 59.9)
         self.assertEqual(r['itens'][0]['obs'], '')
+        self.assertEqual(r['itens'][0]['envio_id'], '5')            # número do envio (o #… do Mercado Livre), para a busca da tela
 
     def test_pedido_normal_e_full(self):
         peds = [self.ped(1, [self.oi('MLB1000001', 2, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 80.0, 12.0)], envio=2)]
@@ -419,6 +420,9 @@ class TestEndpointsVendas(unittest.TestCase):
         d = self.c.post('/api/vendas/calcular', json={'linhas': [lin], 'cadastro': {'A': {'custo': 10, 'margem': 20}}, 'parametros': {'imposto_pct': 8}}).get_json()
         l = d['linhas'][0]
         self.assertEqual((l['preco_ml'], l['pack_id'], l['pedido_upseller']), (129.9, '3000', '2000'))
+        lin['envio_id'] = '48414335136'
+        d = self.c.post('/api/vendas/calcular', json={'linhas': [lin], 'cadastro': {'A': {'custo': 10, 'margem': 20}}, 'parametros': {'imposto_pct': 8}}).get_json()
+        self.assertEqual(d['linhas'][0]['envio_id'], '48414335136')
 
     def test_pedidos_por_numero_aceita_numero_de_carrinho(self):
         def ped(i): return {'id': i, 'status': 'paid', 'seller': {'id': 99}, 'pack_id': 5000, 'date_created': '2026-10-31T07:09:00.000-03:00', 'shipping': {'id': 8},

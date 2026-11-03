@@ -599,8 +599,11 @@ def api_vendas_pedidos():
         etapa = c.get('etapa', 'todos')
         if etapa not in fontes.ETAPAS_ENVIO:
             raise envios.ArquivoInvalido('Etapa do envio inválida.')
-        vence = datetime.now(FUSO).strftime('%Y-%m-%d') if c.get('vence_hoje') is True else None
-        r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off, somente_a_enviar=c.get('somente_a_enviar') is True, etapa=etapa, vence_ate=vence)
+        prazo, hoje = c.get('prazo', ''), datetime.now(FUSO).strftime('%Y-%m-%d')
+        if prazo not in ('', 'hoje', 'proximos'):
+            raise envios.ArquivoInvalido('Prazo inválido.')
+        r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off, somente_a_enviar=c.get('somente_a_enviar') is True, etapa=etapa,
+                                       vence_ate=hoje if prazo == 'hoje' else None, vence_apos=hoje if prazo == 'proximos' else None)
         return jsonify(ok=True, **r)
     except Exception as exc:
         return _erro_fonte(exc)

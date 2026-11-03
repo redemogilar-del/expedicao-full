@@ -288,6 +288,16 @@ function desenhar(){
   $('vMarcarRuins').disabled = !lista.some(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); $('vLimpar').disabled = !SEL.size;
   const sel = LINHAS.filter(r => SEL.has(r._i) && selecionavel(r));
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
+  { // explica por que marcadas não entram no preço (nada some em silêncio)
+    const m = LINHAS.filter(r => SEL.has(r._i)); let ja = 0, calc = 0, bloq = 0, sem = 0;
+    for (const r of m) { if (selecionavel(r)) continue; const i = infoDe(r); if (!precisaPreco(r)) sem++; else if (!i) calc++; else if (i.acao === 'ok') ja++; else bloq++; }
+    const partes = [];
+    if (ja) partes.push(ja + ' já atingem a margem com o preço de hoje no Mercado Livre');
+    if (calc) partes.push(calc + ' ainda calculando o preço novo');
+    if (bloq) partes.push(bloq + ' bloqueadas (passe o mouse na coluna do preço novo para ver o motivo)');
+    if (sem) partes.push(sem + ' sem custo/imposto ou dentro da margem');
+    $('vPrecoDica').textContent = m.length && !sel.length ? 'Nenhuma marcada pode ter o preço atualizado: ' + partes.join('; ') + '.' : (partes.length ? 'Fora da atualização de preço: ' + partes.join('; ') + '.' : '');
+  }
   const negs = LINHAS.filter(r => r.classe === 'prejuizo' || r.classe === 'abaixo').length; $('vBaixarNeg').disabled = !negs; $('vBaixarNeg').textContent = 'Baixar Excel dos prejuízos e abaixo da margem (' + negs + ')';
   resumoManual();
   buscarPrecos();

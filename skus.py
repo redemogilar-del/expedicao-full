@@ -257,6 +257,21 @@ def _corpo(mudancas):
     return corpo
 
 
+def _motivo_recusa(resp):
+    """Texto simples para a recusa do ML. Casos conhecidos viram uma orientação clara; o resto mostra o que o ML disse (até 400 caracteres)."""
+    try:
+        d = resp.json()
+    except ValueError:
+        d = None
+    causas = [c for c in (d.get('cause') or []) if isinstance(c, dict)] if isinstance(d, dict) else []
+    codigos = ' '.join(str(c.get('code') or '') for c in causas)
+    if 'pictures' in codigos:
+        return ('O Mercado Livre não deixa salvar este anúncio porque ele tem mais fotos do que a categoria permite hoje. '
+                'Nada foi alterado. Reduza as fotos no próprio anúncio e tente de novo (ou troque o SKU direto pelo Mercado Livre).')
+    msgs = '; '.join(str(c.get('message') or c.get('code') or '') for c in causas)
+    return 'O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, (msgs or resp.text)[:400])
+
+
 def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
     """Troca o SKU dos locais `alvos` [(variacao, sku_visto, sku_novo_individual)] de um anúncio. Devolve um dicionário de resultado."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': '', 'trocas': []}
@@ -300,7 +315,7 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
             previstos = [(v, l, {'scf': m['scf']}) for v, l, m in previstos]
             resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json=_corpo(mudancas), headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
         if not resp.ok:
-            r.update(status='ERRO', mensagem='O Mercado Livre recusou a troca (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
+            r.update(status='ERRO', mensagem=_motivo_recusa(resp))
             return r
         conf = {l['variacao']: l for l in locais(fontes._ml(tk, '/items/' + mlb))}      # (locais sem SKU não aparecem aqui; um SKU novo aparece)
         tudo_ok = True

@@ -145,6 +145,24 @@ class TestFontesVendas(unittest.TestCase):
     def oi(self, mlb, q, preco, fee, sku='S1'):
         return {'item': {'id': mlb, 'title': 'T ' + mlb, 'seller_sku': sku}, 'quantity': q, 'unit_price': preco, 'sale_fee': fee}
 
+    def test_somente_a_enviar_pula_enviados_e_full_sem_consultar_frete(self):
+        peds = [self.ped(1, [self.oi('MLB1000001', 1, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 50.0, 8.0)], envio=2), self.ped(3, [self.oi('MLB1000003', 1, 50.0, 8.0)], envio=3)]
+        consultados = []
+        def ml(tk, caminho, params=None):
+            consultados.append(caminho)
+            if caminho == '/orders/search':
+                return {'results': peds, 'paging': {'total': 3}}
+            if caminho == '/shipments/1': return {'status': 'ready_to_ship', 'substatus': 'ready_to_print', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/2': return {'status': 'shipped', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/3': return {'status': 'ready_to_ship', 'logistic_type': 'fulfillment'}
+            if caminho == '/shipments/1/costs': return {'senders': [{'user_id': 99, 'cost': 10.0}]}
+            raise RuntimeError('rota inesperada ' + caminho)
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            r = fontes.pedidos_financeiros('ML19', '2026-10-29', '2026-10-29', somente_a_enviar=True)
+        self.assertEqual([i['pedido'] for i in r['itens']], ['1'])
+        self.assertEqual(r['itens'][0]['grupo'], 'a_enviar')
+        self.assertNotIn('/shipments/2/costs', consultados); self.assertNotIn('/shipments/3/costs', consultados)
+
     def test_pedido_normal_e_full(self):
         peds = [self.ped(1, [self.oi('MLB1000001', 2, 50.0, 8.0)], envio=1), self.ped(2, [self.oi('MLB1000002', 1, 80.0, 12.0)], envio=2)]
         rotas = {'/shipments/1/costs': {'senders': [{'user_id': 99, 'cost': 11.0}]}, '/shipments/2/costs': {'senders': [{'user_id': 99, 'cost': 20.0}]},
@@ -198,7 +216,7 @@ class TestEndpointsVendas(unittest.TestCase):
 
     def test_pagina_e_pedidos(self):
         self.assertEqual(self.c.get('/vendas').status_code, 200)
-        with mock.patch.object(fontes, 'pedidos_financeiros', lambda *a: {'itens': [], 'total': 0, 'proximo': 0, 'concluido': True}):
+        with mock.patch.object(fontes, 'pedidos_financeiros', lambda *a, **k: {'itens': [], 'total': 0, 'proximo': 0, 'concluido': True}):
             self.assertTrue(self.c.post('/api/vendas/pedidos', json={'conta': 'ML19', 'de': '2026-10-29', 'ate': '2026-10-29'}).get_json()['ok'])
         for ruim in ({'conta': 'XX', 'de': '2026-10-29', 'ate': '2026-10-29'}, {'conta': 'ML19', 'de': 'hoje', 'ate': '2026-10-29'}, {'conta': 'ML19', 'de': '2026-10-30', 'ate': '2026-10-29'},
                      {'conta': 'ML19', 'de': '2026-01-01', 'ate': '2026-10-29'}, {'conta': 'ML19', 'de': '2026-10-29', 'ate': '2026-10-29', 'offset': -1}):

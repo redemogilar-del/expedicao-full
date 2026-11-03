@@ -596,7 +596,7 @@ def api_vendas_pedidos():
         off = c.get('offset', 0)
         if not isinstance(off, int) or isinstance(off, bool) or not 0 <= off <= 20000:
             raise envios.ArquivoInvalido('Posição inválida.')
-        r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off)
+        r = fontes.pedidos_financeiros(c['conta'], de.strftime('%Y-%m-%d'), ate.strftime('%Y-%m-%d'), off, somente_a_enviar=c.get('somente_a_enviar') is True)
         return jsonify(ok=True, **r)
     except Exception as exc:
         return _erro_fonte(exc)

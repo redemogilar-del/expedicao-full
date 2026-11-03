@@ -427,7 +427,7 @@ def _grupo_envio(logistica, status):
     return 'enviado' if str(status or '').lower() in FINAIS_ENVIO else 'a_enviar'
 
 
-def _envio_do_pedido(tk, vendedor, ped):
+def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False):
     """{'frete', 'logistica', 'status_envio', 'divisor', 'erro'} do envio de um pedido."""
     env = (ped.get('shipping') or {}).get('id')
     saida = {'frete': None, 'logistica': '', 'status_envio': '', 'substatus': '', 'divisor': 1, 'erro': ''}
@@ -442,6 +442,9 @@ def _envio_do_pedido(tk, vendedor, ped):
             saida['logistica'] = str(sh.get('logistic_type') or (sh.get('logistic') or {}).get('type') or '')
     except RuntimeError as exc:
         saida['erro'] = 'Envio não consultado (%s)' % str(exc)[:40]
+    if somente_a_enviar and (saida['logistica'] == 'fulfillment' or saida['status_envio'].lower() in FINAIS_ENVIO):
+        saida['pular'] = True                       # já enviado ou Full: não entra na lista "a enviar", então nem consulta o frete
+        return saida
     try:
         saida['frete'] = _frete_vendedor(_ml(tk, '/shipments/%s/costs' % env), vendedor)
         if saida['frete'] is None:
@@ -462,7 +465,7 @@ def _envio_do_pedido(tk, vendedor, ped):
     return saida
 
 
-def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20):
+def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_enviar=False):
     """Uma página (até 20 pedidos pagos) com venda, tarifa e frete por item. Só leitura.
 
     Devolve {'itens': [...], 'total', 'proximo', 'concluido'}. Cada item: conta, pedido, data, mlb, sku, titulo,
@@ -482,9 +485,11 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20):
     pedidos = [p for p in dados['results'] if isinstance(p, dict)]
     ativos = [p for p in pedidos if str(p.get('status') or '') not in ('cancelled', 'invalid')]
     with ThreadPoolExecutor(max_workers=6) as ex:
-        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p), ativos))
+        envios = list(ex.map(lambda p: _envio_do_pedido(tk, vendedor, p, somente_a_enviar), ativos))
     itens = []
     for ped, env in zip(ativos, envios):
+        if env.get('pular'):
+            continue
         regs = [r for r in (ped.get('order_items') or []) if isinstance(r, dict)]
         totais = []
         for r in regs:

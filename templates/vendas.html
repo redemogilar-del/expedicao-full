@@ -16,6 +16,16 @@
   <button class="primario" id="vBuscar">Buscar vendas e calcular</button>
 </section>
 
+<section class="cartao" id="vEnviarCaixa">
+  <h2>A enviar hoje (como no UpSeller)</h2>
+  <p class="suave pequeno">Traz os pedidos <b>pagos que ainda não foram enviados</b> (fora o Full), mesmo os feitos em dias anteriores, e calcula o lucro do mesmo jeito. Usa o imposto e a margem padrão do quadro de cima.</p>
+  <div class="regras">
+    <label>Conta<select id="vEConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
+    <label>Pedidos feitos nos últimos<select id="vDias"><option value="3">3 dias</option><option value="7">7 dias</option><option value="15" selected>15 dias</option><option value="30">30 dias</option></select></label>
+  </div>
+  <button class="primario" id="vEnviar">Buscar o que falta enviar e calcular</button>
+</section>
+
 <p id="vMsg" class="aviso" hidden role="status"></p>
 <div id="vProg" class="progresso" hidden><div id="vBarra"></div><span id="vTxt"></span></div>
 

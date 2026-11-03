@@ -181,6 +181,10 @@ class TestFontesVendas(unittest.TestCase):
         self.assertEqual([i['pedido'] for i in rodar(etapa='nf')], ['1'])
         envios[3] = ('ready_to_ship', 'ready_for_pickup', '2026-11-09'); envios[4] = ('ready_to_ship', 'buffered', None)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['2', '3'])                  # pronto para coleta entra; aguardando (buffered) não
+        envios[2] = ('ready_to_ship', 'printed', '2026-11-03')                                         # etiqueta já impressa, ainda não bipada
+        self.assertEqual([i['pedido'] for i in rodar(etapa='prontos')], ['2', '3'])                  # "prontos" = liberada + impressa (sem aguardando)
+        self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta')], ['3'])
+        envios[2] = ('ready_to_ship', 'ready_to_print', '2026-11-03')
         envios[3] = ('ready_to_ship', 'ready_to_print', '2026-11-09'); envios[4] = ('ready_to_ship', 'ready_to_print', None)
         self.assertEqual([i['pedido'] for i in rodar(etapa='etiqueta', vence_ate='2026-11-03')], ['2', '4'])      # sem prazo conhecido: mantém
         self.assertEqual([i['pedido'] for i in rodar(vence_apos='2026-11-03')], ['3', '4'])                          # "próximos dias": prazo depois de hoje (sem prazo conhecido: mantém)
@@ -324,6 +328,34 @@ class TestEndpointsVendas(unittest.TestCase):
         ws = openpyxl.load_workbook(io.BytesIO(r.data))['Vendas selecionadas']
         self.assertEqual(ws.max_row - 1, 2)
         self.assertEqual(self.c.post('/api/vendas/exportar', json={'tipo': 'selecionadas', 'linhas': [], 'parametros': {'imposto_pct': 8}}).status_code, 400)
+
+    def test_upseller_ler_planilha(self):
+        import openpyxl
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(['Nº de Pedido da Plataforma', 'Nome da Loja no UpSeller', 'Estado do Pedido'])
+        ws.append(['2000015760779799', 'Mercado Livre 44', 'Em Processo']); ws.append(['2000015760779799', 'Mercado Livre 44', 'Em Processo']); ws.append(['123', 'Mercado Livre 19', 'x']); ws.append(['2000019232343594', 'Mercado Livre 19', 'Em Processo'])
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'Export.xlsx')}, content_type='multipart/form-data').get_json()
+        self.assertEqual([(p['pedido'], p['conta']) for p in d['pedidos']], [('2000015760779799', 'ML44'), ('2000019232343594', 'ML19')])   # sem repetidos, sem números curtos
+        wb2 = openpyxl.Workbook(); wb2.active.append(['outra coisa']); b2 = io.BytesIO(); wb2.save(b2); b2.seek(0)
+        self.assertEqual(self.c.post('/api/vendas/upseller-ler', data={'planilha': (b2, 'x.xlsx')}, content_type='multipart/form-data').status_code, 400)
+
+    def test_diagnostico_pedidos(self):
+        pedido = {'id': 2000015760779799, 'status': 'paid', 'date_created': '2026-10-29T09:06:00.000-03:00', 'seller': {'id': 99}, 'shipping': {'id': 5}, 'order_items': []}
+        def ml(tk, caminho, params=None):
+            if caminho == '/orders/2000015760779799': return pedido
+            if caminho == '/shipments/5': return {'status': 'ready_to_ship', 'substatus': 'printed', 'logistic_type': 'xd_drop_off'}
+            if caminho == '/shipments/5/costs': return {'senders': [{'user_id': 99, 'cost': 10.0}]}
+            raise RuntimeError('404')
+        with mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, '_ml', ml):
+            etiqueta = fontes.diagnosticar_pedido('ML44', '2000015760779799', etapa='etiqueta')
+            self.assertIn('fora da etapa', etiqueta['motivo']); self.assertEqual(etiqueta['situacao'], 'Etiqueta impressa')
+            self.assertEqual(fontes.diagnosticar_pedido('ML44', '2000015760779799', etapa='prontos')['motivo'], '')          # impressa entra em "prontos"
+            pedido['status'] = 'cancelled'
+            self.assertIn('cancelado', fontes.diagnosticar_pedido('ML44', '2000015760779799')['motivo'])
+            self.assertIn('Não encontrei', fontes.diagnosticar_pedido('ML44', '2000000000000001')['motivo'])
+        r = self.c.post('/api/vendas/diagnostico-pedidos', json={'pedidos': [{'pedido': 'abc'}]})
+        self.assertEqual(r.status_code, 400)
 
     def test_salvar(self):
         enviado = {}

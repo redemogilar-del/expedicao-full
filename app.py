@@ -609,6 +609,76 @@ def api_vendas_pedidos():
         return _erro_fonte(exc)
 
 
+def _conta_da_loja(nome):
+    n = str(nome or '')
+    return 'ML19' if '19' in n else ('ML44' if '44' in n else '')
+
+
+@app.post('/api/vendas/upseller-ler')
+def api_vendas_upseller_ler():
+    """Lê a planilha exportada do UpSeller e devolve os números de pedido (e a conta, se a loja disser). Só leitura."""
+    try:
+        import re
+        from openpyxl import load_workbook
+        arq, _ = _arquivo('planilha')
+        ws = load_workbook(arq, read_only=True, data_only=True).worksheets[0]
+        linhas = ws.iter_rows(values_only=True)
+        cab = next(linhas, None) or ()
+        norm = [re.sub(r'\s+', ' ', str(v or '')).strip().lower() for v in cab]
+        i_ped = next((i for i, v in enumerate(norm) if 'pedido da plataforma' in v), None)
+        i_loja = next((i for i, v in enumerate(norm) if v.startswith('nome da loja')), None)
+        i_est = next((i for i, v in enumerate(norm) if v.startswith('estado do pedido')), None)
+        if i_ped is None:
+            raise envios.ArquivoInvalido('Não achei a coluna "Nº de Pedido da Plataforma". Use a planilha exportada do UpSeller (Pedidos > Exportar).')
+        vistos, saida = set(), []
+        for lin in linhas:
+            if len(saida) >= 5000:
+                break
+            if i_ped >= len(lin):
+                continue
+            num = re.sub(r'\D', '', str(lin[i_ped] if lin[i_ped] is not None else ''))
+            if len(num) < 12 or num in vistos:
+                continue
+            vistos.add(num)
+            saida.append({'pedido': num, 'conta': _conta_da_loja(lin[i_loja]) if i_loja is not None and i_loja < len(lin) else '',
+                          'estado': str(lin[i_est] or '')[:40] if i_est is not None and i_est < len(lin) else ''})
+        if not saida:
+            raise envios.ArquivoInvalido('A planilha não tem nenhum número de pedido.')
+        return jsonify(ok=True, pedidos=saida)
+    except Exception as exc:
+        return _erro(exc)
+
+
+@app.post('/api/vendas/diagnostico-pedidos')
+def api_vendas_diagnostico():
+    """Por que estes pedidos (até 8 por vez) não apareceram na lista? Consulta o Mercado Livre, só leitura."""
+    try:
+        c = request.get_json(silent=True) or {}
+        lista = c.get('pedidos')
+        if not isinstance(lista, list) or not 1 <= len(lista) <= 8:
+            raise envios.ArquivoInvalido('Envie de 1 a 8 pedidos por vez.')
+        etapa = c.get('etapa', 'todos')
+        if etapa not in fontes.ETAPAS_ENVIO:
+            raise envios.ArquivoInvalido('Etapa do envio inválida.')
+        prazo, hoje = c.get('prazo', ''), datetime.now(FUSO).strftime('%Y-%m-%d')
+        if prazo not in ('', 'hoje', 'proximos'):
+            raise envios.ArquivoInvalido('Prazo inválido.')
+        de = _data(c.get('de')).strftime('%Y-%m-%d') if c.get('de') else None
+        ate = _data(c.get('ate')).strftime('%Y-%m-%d') if c.get('ate') else None
+        alvos = []
+        for p in lista:
+            num = str((p or {}).get('pedido') or '') if isinstance(p, dict) else ''
+            if not num.isdigit() or not 12 <= len(num) <= 20:
+                raise envios.ArquivoInvalido('Número de pedido inválido.')
+            alvos.append((str(p.get('conta') or ''), num))
+        enviar = c.get('somente_a_enviar') is True
+        f = lambda a: fontes.diagnosticar_pedido(a[0], a[1], etapa if enviar else 'todos', hoje if enviar and prazo == 'hoje' else None, hoje if enviar and prazo == 'proximos' else None, de, ate)
+        with ThreadPoolExecutor(max_workers=len(alvos)) as ex:
+            return jsonify(ok=True, resultados=list(ex.map(f, alvos)))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/vendas/impostos')
 def api_vendas_impostos():
     """Imposto/embalagem (%) da aba TaxasML por conta. Falha de uma conta não derruba as outras."""

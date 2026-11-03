@@ -169,11 +169,11 @@ async function trocar(){
   for (const l of sel) { const k = l.conta + '|' + l.mlb; if (!porAnuncio.has(k)) porAnuncio.set(k, []); porAnuncio.get(k).push(l); }
   const lotes = {};
   for (const [k, ls] of porAnuncio) { const c = ls[0].conta; (lotes[c] = lotes[c] || []).push(ls); }
-  let feitos = 0, total = porAnuncio.size, falhou = null;
-  try {
-    for (const conta of Object.keys(lotes)) {
-      for (let i = 0; i < lotes[conta].length; i += 5) {
-        const grupo = lotes[conta].slice(i, i + 5), itens = [];
+  let feitos = 0, total = porAnuncio.size, falhou = null, parar = false;
+  const gravarConta = async conta => {                    // ML19 e ML44 são gravadas ao mesmo tempo; dentro de cada conta, de 10 em 10 (o servidor troca os 10 ao mesmo tempo)
+    try {
+      for (let i = 0; i < lotes[conta].length && !parar; i += 10) {
+        const grupo = lotes[conta].slice(i, i + 10), itens = [];
         for (const ls of grupo) for (const l of ls) itens.push({mlb: l.mlb, variacao: l.variacao, sku_visto: l.sku_atual, sku_novo: indiv ? l.novo.trim() : undefined});
         TXT_TROCA = 'Trocando ' + (feitos + 1) + ' de ' + total + ' anúncios no Mercado Livre…' + (BUSCANDO ? ' (a busca continua rodando)' : ''); $('sDica').textContent = TXT_TROCA;
         // sem repetir automaticamente: se der erro, a pessoa busca de novo e confere o que ficou feito
@@ -184,8 +184,9 @@ async function trocar(){
         }
         feitos += grupo.length; desenhar();
       }
-    }
-  } catch (e) { falhou = e; }
+    } catch (e) { falhou = falhou || e; parar = true; }   // se uma conta falha, a outra termina o lote em andamento e para
+  };
+  await Promise.all(Object.keys(lotes).map(gravarConta));
   TROCANDO = false; $('sBuscar').disabled = BUSCANDO; $('sConfirma').value = ''; desenhar();
   const ok = LINHAS.filter(l => l.resultado && l.resultado.status === 'OK').length;
   if (falhou) mensagem('Parou no meio: ' + falhou.message + ' Faça a busca de novo para ver o que já foi trocado antes de repetir.', 'erro');

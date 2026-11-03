@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -132,6 +133,33 @@ class TestVarreduraRapida(unittest.TestCase):
         achados, d, passos = self.rodar(ml)
         self.assertEqual(len(achados), 350); self.assertEqual(len({a['mlb'] for a in achados}), 350)
         self.assertEqual(passos, 1)                                           # tudo num passo só
+
+
+class TestFatias(unittest.TestCase):
+    def test_fatias_por_tipo_andam_juntas_sem_perder_nem_repetir(self):
+        itens = {}
+        for i in range(250):
+            m = 'MLB%d' % (300000000 + i)
+            itens[m] = {'id': m, 'seller_id': 99, 'title': 't', 'status': 'active', 'listing_type_id': 'gold_pro' if i % 5 == 0 else 'gold_special', 'seller_custom_field': 'GR_25kg', 'attributes': []}
+        vistos = []
+        def ml(tk, caminho, params=None):
+            if caminho.endswith('/items/search'):
+                certos = [m for m, x in itens.items() if params.get('status') == x['status'] and (not params.get('listing_type_id') or params['listing_type_id'] == x['listing_type_id'])]
+                if params.get('limit') == 1:
+                    return {'results': certos[:1], 'paging': {'total': len(certos)}}
+                pos = int(params.get('scroll_id') or 0)
+                return {'results': certos[pos:pos + 100], 'scroll_id': str(pos + 100), 'paging': {'total': len(certos)}}
+            vistos.extend(params['ids'].split(','))
+            return [{'code': 200, 'body': itens[i]} for i in params['ids'].split(',')]
+        regra = skus.validar_regra('contem', '_25kg', 'NOVO', 'inteiro')
+        with mock.patch.object(fontes, '_ml', ml), mock.patch.object(fontes, 'token', lambda c: 't'), mock.patch.object(fontes, '_vendedor', lambda c, t: '99'):
+            d = skus.varrer('ML19', regra)
+            tok = json.loads(d['scroll_id'])
+            fim = skus.varrer('ML19', regra, d['scroll_id'])
+        self.assertEqual(len(tok['p']), 2)                                     # Clássico e Premium viraram duas fatias
+        self.assertEqual(len(d['achados']) + len(fim['achados']), 250)
+        self.assertEqual(len(vistos), 250); self.assertEqual(len(set(vistos)), 250)
+        self.assertTrue(fim['concluido']); self.assertEqual(d['total'], 250)
 
 
 class TestVarredura(unittest.TestCase):
@@ -403,7 +431,7 @@ class TestEndpoints(unittest.TestCase):
             r = self.c.post('/api/skus/aplicar', json=self.corpo(skus_visto, termo='GR_25KG', novo='OUTRO')).get_json()['resultados'][0]
             self.assertEqual(r['status'], 'PULADO')
             self.assertIn('acabou de ser alterado', r['mensagem'])
-            muitos = [{'mlb': 'MLB10000000%d' % i, 'variacao': None, 'sku_visto': 'x'} for i in range(1, 7)]
+            muitos = [{'mlb': 'MLB10000000%d' % i, 'variacao': None, 'sku_visto': 'x'} for i in range(1, 10)] + [{'mlb': 'MLB1000000%d' % i, 'variacao': None, 'sku_visto': 'x'} for i in (10, 11)]
             self.assertEqual(self.c.post('/api/skus/aplicar', json=self.corpo(muitos)).status_code, 400)
             self.assertEqual(self.c.post('/api/skus/aplicar', json=self.corpo(item + item)).status_code, 400)
 

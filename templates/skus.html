@@ -6,7 +6,7 @@
 
 <section class="cartao">
   <div class="regras">
-    <label>Conta<select id="sConta"><option value="ML19">ML19</option><option value="ML44">ML44</option><option value="AMBAS">As duas (ML19 e ML44)</option></select></label>
+    <label>Conta<select id="sConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
     <label>Como buscar<select id="sModo">
       <optgroup label="Pelo SKU que já existe">
         <option value="igual">SKU igual a…</option><option value="contem">SKU que contém…</option><option value="comeca">SKU que começa com…</option>
@@ -67,6 +67,7 @@
     <p><b id="sMarcados">0</b> marcado(s) com SKU pronto. Para gravar no Mercado Livre, digite <b>TROCAR</b> e clique no botão.</p>
     <div class="barra"><input type="text" id="sConfirma" autocomplete="off" placeholder="Digite TROCAR" maxlength="10"><button class="primario" id="sTrocar" disabled>Atualizar todos os SKU marcados no Mercado Livre</button></div>
     <p class="dica" id="sDica" role="status"></p>
+    <p class="suave">Os anúncios marcados do ML19 e do ML44 são gravados <b>ao mesmo tempo</b>, 10 por vez em cada conta.</p>
   </section>
   <section id="sFeitos" hidden>
     <h2>Resultado das trocas</h2>

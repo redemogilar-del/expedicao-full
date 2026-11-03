@@ -7,6 +7,7 @@ o que a pessoa viu, e confere no Mercado Livre depois de gravar. Nada é dado co
 O SKU do anúncio pode estar em dois campos (`seller_custom_field` e o atributo `SELLER_SKU`), no anúncio ou em cada
 variação. A troca mexe somente nos campos cujo valor casa com a regra e depois confere cada um.
 """
+import json
 import re
 import threading
 import time
@@ -18,7 +19,7 @@ CONFIRMACAO = 'TROCAR_SKU'
 MODOS = ('igual', 'contem', 'comeca', 'sem_contem', 'sem_comeca', 'sem_todos')
 MODOS_SEM_SKU = ('sem_contem', 'sem_comeca', 'sem_todos')     # anúncios que estão SEM SKU; o termo é buscado no TÍTULO
 ESCOPOS = ('inteiro', 'trecho')
-MAX_APLICAR = 5                 # anúncios por chamada
+MAX_APLICAR = 10                # anúncios por chamada (trocados ao mesmo tempo)
 MAX_SKU = 100
 MIN_TERMO_PARCIAL = 2           # "contém" / "começa com" com 1 letra pegaria quase tudo
 LOTE_VARREDURA = 100            # ids por passo da varredura
@@ -186,29 +187,52 @@ def achados(item, regra):
     return saida
 
 
-PAGINAS_POR_PASSO = 8           # páginas de 100 anúncios lidas por passo (o passo para antes se passar do tempo)
+PAGINAS_POR_PASSO = 5           # páginas de 100 anúncios lidas por fatia em cada passo (o passo para antes se passar do tempo)
 ORCAMENTO_PASSO_S = 15          # o servidor tem limite de 60 s por pedido
-LEITORES = 10                   # leituras de anúncios ao mesmo tempo
-ESTADOS = (('A', 'active'), ('P', 'paused'))   # só ativos e pausados podem ser alterados: encerrados nem são lidos
+LEITORES = 12                   # leituras de anúncios ao mesmo tempo
+ESTADOS = ('active', 'paused')  # só ativos e pausados podem ser alterados: encerrados nem são lidos
+TIPOS_FATIA = ('gold_special', 'gold_pro')   # Clássico e Premium: a conta é varrida em fatias ao mesmo tempo
 
 
-def _token_busca(texto):
-    """'A|<scroll>|<total>' -> (estado, scroll, total). Sem texto (ou do formato antigo): começa do zero."""
-    partes = str(texto or '').split('|')
-    if len(partes) == 3 and partes[0] in ('A', 'P', 'T') and partes[2].isdigit():
-        return partes[0], partes[1] or None, int(partes[2])
-    return None, None, 0
+def _total(busca, **filtros):
+    return int(((busca(dict(filtros, limit=1)) or {}).get('paging') or {}).get('total') or 0)
+
+
+def _plano(busca):
+    """(total, fatias). Cada fatia é uma busca independente (status [+ tipo de anúncio]) que anda ao mesmo tempo que as outras.
+    Só divide por tipo se Clássico + Premium somam exatamente o total do status; senão varre o status inteiro (nada fica de fora)."""
+    total, fatias = 0, []
+    for st in ESTADOS:
+        n = _total(busca, status=st)
+        total += n
+        if not n:
+            continue
+        por_tipo = [(tp, _total(busca, status=st, listing_type_id=tp)) for tp in TIPOS_FATIA]
+        if sum(x for _, x in por_tipo) == n:
+            fatias += [{'st': st, 'tp': tp, 's': None, 'f': False} for tp, x in por_tipo if x]
+        else:
+            fatias.append({'st': st, 'tp': None, 's': None, 'f': False})
+    return total, fatias
+
+
+def _ler_fatias(texto):
+    try:
+        d = json.loads(texto)
+        if isinstance(d, dict) and isinstance(d.get('p'), list) and d['p'] and all(isinstance(x, dict) for x in d['p']):
+            return int(d.get('t') or 0), d['p']
+    except (TypeError, ValueError):
+        pass
+    return None, None
 
 
 def varrer(conta, regra, scroll_id=None):
-    """Um passo da varredura (várias páginas de 100 anúncios, com as leituras em paralelo). Só leitura.
+    """Um passo da varredura: várias fatias da conta andam ao mesmo tempo, com as leituras dos anúncios em paralelo. Só leitura.
 
-    Lê só anúncios ativos e pausados (busca por status no Mercado Livre); se o ML recusar o filtro, volta a ler tudo.
-    Devolve {'achados', 'lidos', 'total', 'scroll_id', 'concluido'}. O `scroll_id` volta para o próximo passo."""
+    Lê só ativos e pausados (a busca do Mercado Livre filtra por status); se o ML recusar o filtro, volta a ler tudo.
+    Devolve {'achados', 'lidos', 'total', 'scroll_id', 'concluido'}. O `scroll_id` (opaco) volta para o próximo passo."""
     tk = fontes.token(conta)
     vendedor = fontes._vendedor(conta, tk)
     inicio = time.monotonic()
-    estado, scroll, total = _token_busca(scroll_id)
 
     def busca(params):
         try:
@@ -216,13 +240,12 @@ def varrer(conta, regra, scroll_id=None):
         except RuntimeError as exc:
             raise fontes.FonteIndisponivel('Não consegui listar os anúncios agora (%s). Tente de novo.' % str(exc)[:80])
 
-    if estado is None:                               # primeiro passo: descobre o total de ativos + pausados
+    total, fatias = _ler_fatias(scroll_id)
+    if fatias is None:                               # primeiro passo
         try:
-            total = sum(int(((busca({'status': st, 'limit': 1}) or {}).get('paging') or {}).get('total') or 0) for _, st in ESTADOS)
-            estado = 'A'
+            total, fatias = _plano(busca)
         except fontes.FonteIndisponivel:
-            estado, total = 'T', 0                   # o ML não aceitou o filtro: lê tudo, como antes
-        scroll = None
+            total, fatias = 0, [{'st': None, 'tp': None, 's': None, 'f': False}]     # o ML não aceitou o filtro: lê tudo, como antes
 
     def ler(grupo):
         try:
@@ -230,29 +253,38 @@ def varrer(conta, regra, scroll_id=None):
         except RuntimeError as exc:
             raise fontes.FonteIndisponivel('Não consegui ler os anúncios agora (%s). Tente de novo.' % str(exc)[:80])
 
-    futuros, concluido, paginas = [], False, 0
-    with ThreadPoolExecutor(max_workers=LEITORES) as ex:
-        while paginas < PAGINAS_POR_PASSO and (paginas == 0 or time.monotonic() - inicio < ORCAMENTO_PASSO_S):
+    futuros = []
+
+    def andar(f, leitores):
+        paginas = 0
+        while not f['f'] and paginas < PAGINAS_POR_PASSO and (paginas == 0 or time.monotonic() - inicio < ORCAMENTO_PASSO_S):
             params = {'search_type': 'scan', 'limit': LOTE_VARREDURA}
-            if estado in ('A', 'P'):
-                params['status'] = dict(ESTADOS)[estado]
-            if scroll:
-                params['scroll_id'] = str(scroll)[:300]
+            if f['st']:
+                params['status'] = f['st']
+            if f['tp']:
+                params['listing_type_id'] = f['tp']
+            if f['s']:
+                params['scroll_id'] = str(f['s'])[:300]
             pag = busca(params)
             ids = [i for i in (pag or {}).get('results') or [] if fontes._MLB.match(str(i))]
-            if estado == 'T':
-                total = int(((pag or {}).get('paging') or {}).get('total') or total or 0)
+            if not f['st'] and not total:
+                nonlocal_total[0] = int(((pag or {}).get('paging') or {}).get('total') or 0)
             if not ids:
-                if estado == 'A':                    # acabaram os ativos: segue para os pausados
-                    estado, scroll = 'P', None
-                    continue
-                concluido = True
+                f['f'] = True
                 break
-            scroll = (pag or {}).get('scroll_id') or scroll
+            f['s'] = (pag or {}).get('scroll_id') or f['s']
             paginas += 1
             for i in range(0, len(ids), 20):
-                futuros.append(ex.submit(ler, ids[i:i + 20]))
+                futuros.append(leitores.submit(ler, ids[i:i + 20]))
+
+    nonlocal_total = [total]
+    pendentes = [f for f in fatias if not f['f']]
+    with ThreadPoolExecutor(max_workers=LEITORES) as leitores:
+        with ThreadPoolExecutor(max_workers=max(1, len(pendentes))) as andadores:
+            for r in [andadores.submit(andar, f, leitores) for f in pendentes]:
+                r.result()
         respostas = [f.result() for f in futuros]
+    total = nonlocal_total[0]
     achou, lidos = [], 0
     for resp in respostas:
         for x in resp if isinstance(resp, list) else []:
@@ -263,7 +295,7 @@ def varrer(conta, regra, scroll_id=None):
                 continue
             lidos += 1
             achou.extend(achados(corpo, regra))
-    return {'achados': achou, 'lidos': lidos, 'total': total, 'scroll_id': '%s|%s|%d' % (estado, scroll or '', total), 'concluido': concluido}
+    return {'achados': achou, 'lidos': lidos, 'total': total, 'scroll_id': json.dumps({'t': total, 'p': fatias}), 'concluido': all(f['f'] for f in fatias)}
 
 
 def reservar(conta, mlb):

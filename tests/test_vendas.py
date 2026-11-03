@@ -340,6 +340,7 @@ class TestEndpointsVendas(unittest.TestCase):
         buf = io.BytesIO(); wb.save(buf); buf.seek(0)
         d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'Export.xlsx')}, content_type='multipart/form-data').get_json()
         self.assertEqual([(p['pedido'], p['conta']) for p in d['pedidos']], [('2000015760779799', 'ML44'), ('2000019232343594', 'ML19')])   # sem repetidos, sem números curtos
+        self.assertEqual((d['linhas'], d['outras_lojas'], d['repetidos']), (4, 1, 1))
         wb2 = openpyxl.Workbook(); wb2.active.append(['outra coisa']); b2 = io.BytesIO(); wb2.save(b2); b2.seek(0)
         self.assertEqual(self.c.post('/api/vendas/upseller-ler', data={'planilha': (b2, 'x.xlsx')}, content_type='multipart/form-data').status_code, 400)
 

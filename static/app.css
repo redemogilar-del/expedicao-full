@@ -185,3 +185,4 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 .pg-sugestao{background:var(--cinza-fundo);border-left:3px solid var(--azul);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:6px}
 .pg-sugestao p{margin:0;white-space:pre-wrap}.pg-falta{color:var(--suave)}
 .pg-ia-titulo{font-size:13px;color:var(--azul)}
+.pg-ficha{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.pg-ficha .pg-texto,.pg-ficha .pg-acoes{align-self:stretch}.pg-ficha .aviso{margin:0}

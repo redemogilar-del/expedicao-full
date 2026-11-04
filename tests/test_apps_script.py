@@ -8,3 +8,8 @@ class TestAppsScript(unittest.TestCase):
         r = subprocess.run(['node', str(Path(__file__).with_name('apps_script_mock.js'))], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('apps script OK', r.stdout)
+
+    def test_fichas_sku(self):
+        r = subprocess.run(['node', str(Path(__file__).with_name('fichas_mock.js'))], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('fichas apps script OK', r.stdout)

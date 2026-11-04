@@ -45,6 +45,9 @@ Cada venda é classificada em *Dentro da margem*, *Abaixo da margem*, *Prejuízo
 - **Preço necessário:** para as vendas abaixo da margem e com prejuízo, o painel consulta o anúncio e calcula o menor preço que atinge a margem mínima, com a **tarifa e o frete reais do Mercado Livre naquele preço**. Só sobe preço; anúncio que já atinge a margem aparece como "já atinge a margem" (a venda foi com desconto/promoção).
 - **Atualizar preço no ML** (única escrita no Mercado Livre): marque as vendas (caixinha da coluna de preço) → botão → conferência com preço atual → novo, aumento e margem depois → marcar "Entendo que isso muda o preço" → confirmar. O servidor recalcula na hora, recusa se o preço do anúncio, o custo, a tarifa ou o frete mudaram desde o que você viu (>1%), exige liberação extra para aumento acima de 15%, bloqueia clique duplo, confere o preço depois do PUT e avisa a planilha de preços (mesma ação do painel antigo). Anúncios Clássico/Premium ativos ou pausados, de preço único (sem preços diferentes por variação). Até 5 por chamada.
 
+## Aba Perguntas
+Lista as perguntas das duas contas (a responder, respondidas ou todas) com produto, SKU, preço e tempo de espera, e mostra o prazo médio de resposta de cada conta. A resposta sai direto no Mercado Livre depois de **Responder** e **Confirmar envio**: o painel relê a pergunta antes de enviar, confere depois e nunca repete o envio sozinho. A API do ML aceita 2.000 caracteres e uma resposta por pergunta. "Resposta sugerida" e "Respostas rápidas" do painel do ML não estão nesta aba.
+
 ## Regras (iguais às da planilha de controle)
 - Necessidade = vendas dos últimos 30 dias × meses de estoque (padrão 1,5) − recebimento pendente − aptas para venda, arredondado para cima.
 - Produto sem nenhum estoque no Full (aptas + pendente = 0): envia no mínimo o envio-teste (padrão 3). Se o ML sugere menos que isso, arredonda para o teste.

@@ -21,6 +21,7 @@ import fontes
 import precos
 import skus
 import anuncios
+import perguntas
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -39,7 +40,7 @@ app.config.update(
 USUARIO = os.environ.get('EXP_LOGIN_USER', '')
 SENHA_HASH = os.environ.get('EXP_LOGIN_PASSWORD_HASH', '')
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True), ('skus', 'Trocar SKU', True)]
+ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True), ('skus', 'Trocar SKU', True), ('perguntas', 'Perguntas', True)]
 
 
 def _configurado():
@@ -52,7 +53,7 @@ def _cabecalhos(resp):
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
     resp.headers.setdefault('Content-Security-Policy',
-                            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
+                            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://http2.mlstatic.com; frame-ancestors 'none'")
     if request.path.startswith('/api/') or request.path in ('/login', '/envios'):
         resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -126,6 +127,11 @@ def candidatos_pagina():
 @app.get('/skus')
 def skus_pagina():
     return render_template('skus.html', abas=ABAS, ativa='skus', confirmacao=skus.CONFIRMACAO)
+
+
+@app.get('/perguntas')
+def perguntas_pagina():
+    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO)
 
 
 @app.get('/vendas')
@@ -569,6 +575,48 @@ def api_exportar():
 def _grande(_):
     return jsonify(ok=False, error='Arquivo grande demais (limite de 12 MB).'), 413
 
+
+# ---------------------------------------------------------------- aba Perguntas
+def _conta_valida(c):
+    conta = c.get('conta')
+    if conta not in fontes.CONTAS:
+        raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+    return conta
+
+
+@app.post('/api/perguntas/listar')
+def api_perguntas_listar():
+    """Somente leitura."""
+    try:
+        c = request.get_json(silent=True) or {}
+        dias = c.get('dias')
+        if dias not in (None, 7, 15, 30, 60, 90):
+            raise envios.ArquivoInvalido('Período inválido.')
+        return jsonify(ok=True, **perguntas.listar(_conta_valida(c), c.get('situacao', 'a_responder'), dias))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/perguntas/prazo')
+def api_perguntas_prazo():
+    """Somente leitura."""
+    try:
+        return jsonify(ok=True, **perguntas.prazo(_conta_valida(request.get_json(silent=True) or {})))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/perguntas/responder')
+def api_perguntas_responder():
+    """Envia UMA resposta. Relê a pergunta na hora e confere depois."""
+    try:
+        conta, pid, texto = perguntas.validar_resposta(request.get_json(silent=True) or {})
+        tk = fontes.token(conta)
+        r = perguntas.responder(conta, tk, fontes._vendedor(conta, tk), pid, texto)
+        log.info('RESPOSTA %s %s: %s', conta, pid, r['status'])
+        return jsonify(ok=True, somente_leitura=False, **r)
+    except Exception as exc:
+        return _erro_fonte(exc)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)

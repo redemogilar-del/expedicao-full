@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block titulo %}Perguntas — Expedição Mogilar{% endblock %}
+{% block corpo %}
+<h1>Perguntas</h1>
+<p class="suave">Perguntas dos anúncios das duas contas. Cada pergunta aceita <b>uma só resposta</b>, enviada direto ao Mercado Livre depois da sua confirmação.</p>
+
+<section class="cartao pg-prazos" aria-label="Prazo de resposta">
+  <div class="pg-legenda pequeno"><span><i class="pg-ponto pg-lento"></i>Mais de 1 hora</span><span><i class="pg-ponto pg-rapido"></i>Até 1 hora</span></div>
+  <div class="pg-prazos-lista" id="pPrazos"><p class="suave pequeno">Carregando o prazo de resposta…</p></div>
+</section>
+
+<div class="barra pg-filtros">
+  <label class="inline-campo">Conta<select id="pConta"><option value="">As duas</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
+  <label class="inline-campo">Período<select id="pDias"><option value="">Todo o período</option><option value="7">Últimos 7 dias</option><option value="15">Últimos 15 dias</option><option value="30">Últimos 30 dias</option><option value="60">Últimos 60 dias</option><option value="90">Últimos 90 dias</option></select></label>
+  <label class="inline-campo">Situação<select id="pSituacao"><option value="a_responder">A responder</option><option value="respondidas">Respondidas</option><option value="todas">Todas</option></select></label>
+  <label class="inline-campo">Ordem<select id="pOrdem"><option value="asc">Menos recentes</option><option value="desc">Mais recentes</option></select></label>
+  <button type="button" id="pAtualizar">Atualizar</button>
+  <input type="search" id="pBusca" placeholder="Buscar SKU, produto, MLB, pergunta…" aria-label="Buscar nas perguntas">
+</div>
+<div class="barra pg-resumo">
+  <span id="pTotal" class="suave" role="status"></span>
+  <div class="filtros pg-visao" role="group" aria-label="Forma de ver a lista"><button type="button" id="pExpandida">Expandida</button><button type="button" id="pColapsada" class="on">Colapsada</button></div>
+</div>
+
+<p id="pMsg" class="aviso" hidden role="alert"></p>
+<div id="pLista" class="pg-lista" data-confirmacao="{{ confirmacao }}" data-max="{{ max_texto }}"></div>
+<p id="pVazio" class="cartao suave centro" hidden></p>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='perguntas.js') }}"></script>{% endblock %}

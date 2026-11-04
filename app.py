@@ -17,7 +17,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, sen
 from werkzeug.security import check_password_hash
 
 import envios
-import fichas
+import conhecimento
 import fontes
 import precos
 import skus
@@ -133,7 +133,7 @@ def skus_pagina():
 
 @app.get('/perguntas')
 def perguntas_pagina():
-    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO, ia_ligada=bool(sugestao.chave_ia()), conf_ficha=fichas.CONFIRMACAO, max_ficha=fichas.MAX_TEXTO)
+    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO, ia_ligada=bool(sugestao.chave_ia()), conhecimento_ligado=conhecimento.configurado())
 
 
 @app.get('/vendas')
@@ -618,23 +618,11 @@ def api_perguntas_sugerir():
         return _erro_fonte(exc)
 
 
-@app.post('/api/fichas/ler')
-def api_fichas_ler():
-    """Somente leitura: fichas por SKU da planilha."""
+@app.post('/api/conhecimento/ler')
+def api_conhecimento_ler():
+    """SOMENTE LEITURA: o que a planilha de conhecimento diz de cada SKU (família, regras especiais, base de conhecimento)."""
     try:
-        return jsonify(ok=True, fichas=fichas.ler((request.get_json(silent=True) or {}).get('skus')))
-    except Exception as exc:
-        return _erro_fonte(exc)
-
-
-@app.post('/api/fichas/salvar')
-def api_fichas_salvar():
-    """Grava UMA ficha na planilha do dono (confirmação SALVAR_FICHA) e confere lendo de volta."""
-    try:
-        sku, texto = fichas.validar_salvar(request.get_json(silent=True) or {})
-        r = fichas.salvar(sku, texto)
-        log.info('FICHA %s: %s', sku, r['status'])
-        return jsonify(ok=True, somente_leitura=False, **r)
+        return jsonify(ok=True, somente_leitura=True, skus=conhecimento.ler((request.get_json(silent=True) or {}).get('skus'))['skus'])
     except Exception as exc:
         return _erro_fonte(exc)
 

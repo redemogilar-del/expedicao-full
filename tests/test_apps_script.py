@@ -9,7 +9,7 @@ class TestAppsScript(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('apps script OK', r.stdout)
 
-    def test_fichas_sku(self):
-        r = subprocess.run(['node', str(Path(__file__).with_name('fichas_mock.js'))], capture_output=True, text=True, timeout=60)
+    def test_conhecimento_sku(self):
+        r = subprocess.run(['node', str(Path(__file__).with_name('conhecimento_mock.js'))], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn('fichas apps script OK', r.stdout)
+        self.assertIn('conhecimento apps script OK', r.stdout)

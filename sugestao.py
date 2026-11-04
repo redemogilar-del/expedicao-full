@@ -6,6 +6,7 @@ Falta de dado nunca vira chute: sem a informação no anúncio, o rascunho vem v
 """
 import json
 import os
+import time
 import re
 
 import requests
@@ -117,15 +118,25 @@ def _chamar_ia(contexto, pergunta):
         raise fontes.FonteIndisponivel('O nome do modelo da IA (EXP_IA_MODELO) está inválido.')
     corpo = {'systemInstruction': {'parts': [{'text': SISTEMA}]}, 'contents': [{'role': 'user', 'parts': [{'text': usuario}]}],
              'generationConfig': {'temperature': 0, 'maxOutputTokens': 1500, 'responseMimeType': 'application/json'}}
-    try:
-        r = requests.post(URL_IA % modelo, headers={'x-goog-api-key': chave, 'content-type': 'application/json'}, json=corpo, timeout=(5, 40))
-    except requests.RequestException:
+    r = None
+    for tentativa in range(3):  # IA sobrecarregada (429/500/503) costuma passar em segundos; gerar rascunho é seguro repetir
+        try:
+            r = requests.post(URL_IA % modelo, headers={'x-goog-api-key': chave, 'content-type': 'application/json'}, json=corpo, timeout=(5, 40))
+        except requests.RequestException:
+            r = None
+        if r is not None and r.status_code not in (429, 500, 502, 503, 504):
+            break
+        if tentativa < 2:
+            time.sleep(2 * (tentativa + 1))
+    if r is None:
         raise fontes.FonteIndisponivel('Não consegui falar com a IA agora. Tente de novo.')
     if r.status_code in (400, 401, 403) and 'API key' in r.text:
         raise fontes.FonteIndisponivel('A IA recusou a chave cadastrada (EXP_GEMINI_KEY). Confira se ela está certa e ativa.')
     if r.status_code == 404:
         raise fontes.FonteIndisponivel('A IA não achou o modelo "%s". Troque o nome em EXP_IA_MODELO no Render.' % modelo)
     if not r.ok:
+        if r.status_code in (429, 503):
+            raise fontes.FonteIndisponivel('A IA está sobrecarregada agora (HTTP %s), mesmo depois de 3 tentativas. Espere um minuto e clique em "Sugerir de novo".' % r.status_code)
         raise fontes.FonteIndisponivel('A IA não respondeu agora (HTTP %s). Tente de novo.' % r.status_code)
     try:
         d = r.json()

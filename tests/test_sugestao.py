@@ -18,6 +18,9 @@ ITEM = {'id': 'MLB100000001', 'seller_custom_field': 'GEO2', 'title': 'Manta Geo
 class BaseIA(Base):
     def setUp(self):
         super().setUp()
+        p = mock.patch('sugestao.time.sleep')
+        p.start()
+        self.addCleanup(p.stop)
         self.chamadas = []
         original = self.f.ml
 

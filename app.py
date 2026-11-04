@@ -694,7 +694,7 @@ def api_vendas_pedidos():
                                        vence_ate=hoje if prazo == 'hoje' else None, vence_apos=hoje if prazo == 'proximos' else None, expira_ate=expira)
         return jsonify(ok=True, **r)
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 def _conta_da_loja(nome):
@@ -838,7 +838,7 @@ def api_vendas_pedidos_por_numero():
             itens += r['itens']; ignorados += r['ignorados']
         return jsonify(ok=True, itens=itens, ignorados=ignorados)
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/vendas/impostos')
@@ -869,7 +869,7 @@ def api_vendas_cadastro():
             raise envios.ArquivoInvalido('Lista de SKUs inválida.')
         return jsonify(ok=True, cadastro=fontes.cadastro(skus))
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/vendas/calcular')

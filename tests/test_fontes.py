@@ -160,6 +160,16 @@ class TestFrete(unittest.TestCase):
         with self.assertRaises(fontes.FonteIndisponivel):
             fontes.token('ML19')
 
+    def test_token_pagina_de_erro_nao_vira_token(self):
+        os.environ['EXP_TOKEN_URL_ML19'] = 'https://script.google.com/macros/s/x/exec'; fontes._TOKENS.clear()
+        resp = mock.Mock(text='<!DOCTYPE html><html>erro</html>'); resp.raise_for_status = lambda: None; resp.json.side_effect = ValueError
+        with mock.patch.object(fontes._SESS, 'get', return_value=resp), mock.patch.object(fontes.time, 'sleep'):
+            with self.assertRaises(fontes.FonteIndisponivel) as c:
+                fontes.token('ML19')
+        self.assertIn('página de erro', str(c.exception))
+        self.assertNotIn('ML19', fontes._TOKENS)
+        os.environ.pop('EXP_TOKEN_URL_ML19', None)
+
 
 def pedido(pid, itens, status='paid'):
     return {'id': pid, 'status': status, 'order_items': [{'item': {'id': m, 'title': 'T ' + m, 'seller_sku': sku}, 'quantity': q, 'unit_price': p} for m, sku, q, p in itens]}

@@ -179,3 +179,10 @@ td input[type=text]{min-width:190px;padding:4px 8px}
   .pg-filtros .inline-campo{width:100%;justify-content:space-between}.pg-filtros select{flex:1 1 0;min-width:0;max-width:70%}
   .pg-prazos{padding:14px 12px}.pg-prazo h2{flex-wrap:wrap}
 }
+.pg-chips{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pg-chip{background:var(--azul-fundo,var(--cinza-fundo));color:var(--azul);border:0;border-radius:6px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.pg-chip:disabled{opacity:.55;cursor:not-allowed}
+.pg-sugestao{background:var(--cinza-fundo);border-left:3px solid var(--azul);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+.pg-sugestao p{margin:0;white-space:pre-wrap}.pg-falta{color:var(--suave)}
+.pg-ia-titulo{font-size:13px;color:var(--azul)}
+.pg-ficha{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.pg-ficha .pg-texto,.pg-ficha .pg-acoes{align-self:stretch}.pg-ficha .aviso{margin:0}

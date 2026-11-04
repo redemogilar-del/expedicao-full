@@ -65,13 +65,17 @@ def _thumb(corpo):
     return url if url.startswith(_THUMB) else ''
 
 
-def _sku(corpo):
+def _skus(corpo):
     vistos = []
     for lugar in skus.locais(corpo):
         s = lugar['scf'] or lugar['attr']
         if s and s not in vistos:
             vistos.append(s)
-    return ', '.join(vistos[:3])[:80]
+    return vistos
+
+
+def _sku(corpo):
+    return ', '.join(_skus(corpo)[:3])[:80]
 
 
 def _itens(tk, ids):
@@ -96,7 +100,7 @@ def _itens(tk, ids):
                 if not isinstance(corpo, dict) or not corpo.get('id'):
                     continue
                 link = str(corpo.get('permalink') or '')
-                saida[corpo['id']] = {'titulo': str(corpo.get('title') or ''), 'sku': _sku(corpo), 'preco': corpo.get('price'), 'estoque': corpo.get('available_quantity'),
+                saida[corpo['id']] = {'titulo': str(corpo.get('title') or ''), 'sku': _sku(corpo), 'skus': [x for x in _skus(corpo)[:10] if len(x) <= 80], 'preco': corpo.get('price'), 'estoque': corpo.get('available_quantity'),
                                       'status': str(corpo.get('status') or ''), 'frete_gratis': bool((corpo.get('shipping') or {}).get('free_shipping')),
                                       'thumb': _thumb(corpo), 'link': link if link.startswith('https://') else ''}
     return saida, falhou

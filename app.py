@@ -17,11 +17,13 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, sen
 from werkzeug.security import check_password_hash
 
 import envios
+import fichas
 import fontes
 import precos
 import skus
 import anuncios
 import perguntas
+import sugestao
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -131,7 +133,7 @@ def skus_pagina():
 
 @app.get('/perguntas')
 def perguntas_pagina():
-    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO)
+    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO, ia_ligada=bool(sugestao.chave_ia()), conf_ficha=fichas.CONFIRMACAO, max_ficha=fichas.MAX_TEXTO)
 
 
 @app.get('/vendas')
@@ -602,6 +604,37 @@ def api_perguntas_prazo():
     """Somente leitura."""
     try:
         return jsonify(ok=True, **perguntas.prazo(_conta_valida(request.get_json(silent=True) or {})))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/perguntas/sugerir')
+def api_perguntas_sugerir():
+    """SOMENTE LEITURA: a IA escreve um rascunho a partir do anúncio. Nada é enviado ao Mercado Livre."""
+    try:
+        conta, pid = sugestao.validar(request.get_json(silent=True) or {})
+        return jsonify(ok=True, somente_leitura=True, conta=conta, **sugestao.sugerir(conta, pid))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/fichas/ler')
+def api_fichas_ler():
+    """Somente leitura: fichas por SKU da planilha."""
+    try:
+        return jsonify(ok=True, fichas=fichas.ler((request.get_json(silent=True) or {}).get('skus')))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/fichas/salvar')
+def api_fichas_salvar():
+    """Grava UMA ficha na planilha do dono (confirmação SALVAR_FICHA) e confere lendo de volta."""
+    try:
+        sku, texto = fichas.validar_salvar(request.get_json(silent=True) or {})
+        r = fichas.salvar(sku, texto)
+        log.info('FICHA %s: %s', sku, r['status'])
+        return jsonify(ok=True, somente_leitura=False, **r)
     except Exception as exc:
         return _erro_fonte(exc)
 

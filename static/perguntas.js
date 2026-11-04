@@ -9,6 +9,10 @@ const el = (tag, props, ...filhos) => {
 const CONTAS = ['ML19', 'ML44'], UMA_HORA = 60, ESCALA = 90;
 const CONFIRMACAO = $('pLista').dataset.confirmacao, MAX = Number($('pLista').dataset.max);
 let PERGUNTAS = [], BUSCA_ATUAL = 0, EXPANDIDA = false;
+const CONF_FICHA = $('pLista').dataset.confFicha, MAX_FICHA = Number($('pLista').dataset.maxFicha);
+const FICHAS = new Map(), FICHA_RASC = new Map(), FICHA_ABERTA = new Set(), FICHA_ESCOLHA = new Map(), FICHA_MSG = new Map(), FICHA_OCUPADA = new Set();
+const IA_LIGADA = $('pLista').dataset.ia === '1';
+const SUGESTOES = new Map(), PEDINDO = new Set();
 const RASCUNHOS = new Map(), ABERTAS = new Set(), CONFIRMANDO = new Set(), ENVIANDO = new Set(), RETORNOS = new Map();
 
 function mensagem(texto){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; }
@@ -136,7 +140,78 @@ function formulario(q){
         el('button', {type: 'button', class: 'primario', disabled: envia, onclick: () => enviar(q)}, envia ? 'Enviando…' : 'Confirmar envio'),
         el('button', {type: 'button', disabled: envia, onclick: () => { CONFIRMANDO.delete(q.id); desenhar(); }}, 'Voltar'))
     : el('div', {class: 'pg-acoes'}, conta, botao);
-  return [texto, acoes];
+  return [texto, ...caixaSugestao(q, texto, envia || confirma), acoes];
+}
+// ---------- resposta sugerida pela IA (só preenche a caixa; quem envia é você) ----------
+function caixaSugestao(q, texto, travado){
+  const s = SUGESTOES.get(q.id), pedindo = PEDINDO.has(q.id);
+  const botao = el('button', {type: 'button', class: 'pg-chip', disabled: travado || pedindo || !IA_LIGADA,
+    title: IA_LIGADA ? 'A IA lê o anúncio e escreve um rascunho. Nada é enviado ao Mercado Livre.' : 'A IA ainda não foi ligada: falta a chave EXP_GEMINI_KEY no Render.',
+    onclick: () => sugerir(q)}, pedindo ? 'Pensando…' : (s ? '✦ Sugerir de novo' : '✦ Ver resposta sugerida'));
+  const caixa = el('div', {class: 'pg-sugestao', role: 'status'}, el('b', {class: 'pg-ia-titulo'}, 'Resposta IA'));
+  if (!IA_LIGADA) caixa.append(el('p', {class: 'suave pequeno'}, 'A IA ainda não foi ligada (falta a chave no Render).'));
+  else if (pedindo) caixa.append(el('p', {class: 'suave pequeno'}, 'A IA está lendo o anúncio e escrevendo o rascunho…'));
+  else if (s && s.erro) caixa.append(el('p', {class: 'erro pequeno'}, s.erro));
+  else if (s) {
+    if (s.resposta) caixa.append(el('p', null, s.resposta), el('small', {class: 'suave'}, 'Rascunho da IA: leia e confira antes de enviar.'));
+    if (s.falta) caixa.append(el('p', {class: 'pg-falta pequeno'}, (s.resposta ? 'Confira: ' : 'A IA não tem esta informação no anúncio. ') + s.falta));
+  } else caixa.append(el('p', {class: 'suave pequeno'}, 'Clique em "Ver resposta sugerida" para a IA escrever um rascunho a partir do anúncio.'));
+  const usar = s && s.resposta && !pedindo ? el('button', {type: 'button', disabled: travado, onclick: () => { RASCUNHOS.set(q.id, s.resposta); SUGESTOES.delete(q.id); desenhar(); }}, 'Usar esta resposta') : null;
+  caixa.append(el('div', {class: 'pg-chips'}, botao, usar));
+  return [caixa, painelFicha(q)];
+}
+// ---------- ficha do SKU: informações que você escreve e a IA usa (ficam na planilha) ----------
+async function carregarFicha(skus){
+  const faltam = skus.filter(s => !FICHAS.has(s));
+  if (!faltam.length) return;
+  try {
+    const d = await json('/api/fichas/ler', {skus: faltam});
+    faltam.forEach(s => FICHAS.set(s, {texto: (d.fichas[s] && d.fichas[s].texto) || '', atualizado: (d.fichas[s] && d.fichas[s].atualizado) || ''}));
+  } catch (e) { faltam.forEach(s => FICHAS.set(s, {erro: e.message})); }
+  desenhar();
+}
+async function salvarFicha(sku){
+  if (FICHA_OCUPADA.has(sku)) return;
+  FICHA_OCUPADA.add(sku); desenhar();
+  try {
+    const r = await json('/api/fichas/salvar', {sku, texto: FICHA_RASC.has(sku) ? FICHA_RASC.get(sku) : (FICHAS.get(sku) || {}).texto || '', confirmacao: CONF_FICHA});
+    FICHAS.set(sku, {texto: r.texto}); FICHA_MSG.set(sku, r);
+    if (r.status === 'OK') FICHA_RASC.delete(sku);
+  } catch (e) { FICHA_MSG.set(sku, {status: 'ERRO', mensagem: e.message}); }
+  FICHA_OCUPADA.delete(sku); desenhar();
+}
+function painelFicha(q){
+  const skus = (q.item && q.item.skus) || [], aberto = FICHA_ABERTA.has(q.id);
+  const botao = el('button', {type: 'button', class: 'pg-chip', ariaExpanded: String(aberto), onclick: () => {
+    if (FICHA_ABERTA.has(q.id)) FICHA_ABERTA.delete(q.id); else { FICHA_ABERTA.add(q.id); carregarFicha(skus.slice(0, 1)); }
+    desenhar(); }}, (aberto ? '▾ ' : '▸ ') + 'Ficha do SKU (informações que a IA usa)');
+  const c = el('div', {class: 'pg-ficha'}, botao);
+  if (!aberto) return c;
+  if (!skus.length) { c.append(el('p', {class: 'suave pequeno'}, 'Este anúncio não tem SKU cadastrado. A ficha é guardada por SKU.')); return c; }
+  const sku = FICHA_ESCOLHA.get(q.id) && skus.includes(FICHA_ESCOLHA.get(q.id)) ? FICHA_ESCOLHA.get(q.id) : skus[0];
+  if (skus.length > 1) {
+    const sel = el('select', {ariaLabel: 'SKU da ficha', onchange: () => { FICHA_ESCOLHA.set(q.id, sel.value); carregarFicha([sel.value]); desenhar(); }}, ...skus.map(s => el('option', {value: s, selected: s === sku}, s)));
+    c.append(el('label', {class: 'inline-campo'}, 'SKU', sel));
+  } else c.append(el('p', {class: 'suave pequeno'}, 'SKU ' + sku));
+  const f = FICHAS.get(sku), ocupada = FICHA_OCUPADA.has(sku);
+  if (!f) { c.append(el('p', {class: 'suave pequeno'}, 'Carregando a ficha…')); return c; }
+  if (f.erro) { c.append(el('p', {class: 'erro pequeno'}, f.erro), el('button', {type: 'button', onclick: () => { FICHAS.delete(sku); carregarFicha([sku]); desenhar(); }}, 'Tentar de novo')); return c; }
+  const texto = el('textarea', {class: 'pg-texto', rows: 4, maxLength: MAX_FICHA, disabled: ocupada, ariaLabel: 'Ficha do SKU ' + sku,
+    placeholder: 'Escreva o que você sabe deste produto: gramatura, medidas, o que acompanha, para que serve, cuidados… A IA usa isto para responder.',
+    value: FICHA_RASC.has(sku) ? FICHA_RASC.get(sku) : f.texto});
+  const conta = el('span', {class: 'suave pequeno'}, texto.value.length + ' / ' + MAX_FICHA + (f.atualizado ? ' · salva em ' + f.atualizado : ''));
+  texto.oninput = () => { FICHA_RASC.set(sku, texto.value); conta.textContent = texto.value.length + ' / ' + MAX_FICHA; };
+  c.append(texto, el('div', {class: 'pg-acoes'}, conta, el('button', {type: 'button', class: 'primario', disabled: ocupada, onclick: () => salvarFicha(sku)}, ocupada ? 'Salvando…' : 'Salvar ficha')));
+  const m = FICHA_MSG.get(sku);
+  if (m) c.append(el('p', {class: 'aviso' + (m.status === 'OK' ? ' ok' : m.status === 'ERRO' ? ' erro' : ''), role: 'status'}, m.mensagem));
+  return c;
+}
+async function sugerir(q){
+  if (PEDINDO.has(q.id)) return;
+  PEDINDO.add(q.id); SUGESTOES.delete(q.id); desenhar();
+  try { SUGESTOES.set(q.id, await json('/api/perguntas/sugerir', {conta: q.conta, pergunta: q.id})); }
+  catch (e) { SUGESTOES.set(q.id, {erro: e.message}); }
+  PEDINDO.delete(q.id); desenhar();
 }
 async function enviar(q){
   if (ENVIANDO.has(q.id)) return;

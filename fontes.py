@@ -242,7 +242,20 @@ def _vendedor(conta, tk):
 def frete_mlb(tk, vendedor, mlb):
     """Custo de frete do vendedor (list_cost da cotação V3) de um anúncio. (valor|None, motivo)."""
     try:
-        item = _ml(tk, '/items/' + mlb)
+        try:
+            item = _ml(tk, '/items/' + mlb)
+        except RuntimeError as exc:
+            if '403' not in str(exc):
+                raise
+            # 403 ao ler o anúncio com o acesso desta conta: lê sem acesso (dado público) só para saber de quem ele é
+            try:
+                pub = _SESS.get(API + '/items/' + mlb, params={'attributes': 'id,seller_id'}, timeout=(5, 18))
+                dono = str((pub.json() or {}).get('seller_id') or '') if pub.ok else ''
+            except (requests.RequestException, ValueError):
+                dono = ''
+            if dono and dono != vendedor:
+                return None, 'Anúncio é de OUTRA conta (confira se a conta escolhida é a do relatório)'
+            raise
         if not isinstance(item, dict) or item.get('id') != mlb:
             return None, 'Anúncio não identificado'
         # A cotação não depende de estoque: anúncio pausado ou sem estoque também é cotado

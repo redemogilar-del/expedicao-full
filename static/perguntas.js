@@ -146,18 +146,17 @@ function caixaSugestao(q, texto, travado){
   const botao = el('button', {type: 'button', class: 'pg-chip', disabled: travado || pedindo || !IA_LIGADA,
     title: IA_LIGADA ? 'A IA lê o anúncio e escreve um rascunho. Nada é enviado ao Mercado Livre.' : 'A IA ainda não foi ligada: falta a chave EXP_ANTHROPIC_KEY no Render.',
     onclick: () => sugerir(q)}, pedindo ? 'Pensando…' : (s ? '✦ Sugerir de novo' : '✦ Ver resposta sugerida'));
-  const saida = [el('div', {class: 'pg-chips'}, botao, IA_LIGADA ? null : el('span', {class: 'suave pequeno'}, 'A IA ainda não foi ligada (falta a chave no Render).'))];
-  if (s && s.erro) saida.push(el('p', {class: 'aviso erro', role: 'status'}, s.erro));
+  const caixa = el('div', {class: 'pg-sugestao', role: 'status'}, el('b', {class: 'pg-ia-titulo'}, 'Resposta IA'));
+  if (!IA_LIGADA) caixa.append(el('p', {class: 'suave pequeno'}, 'A IA ainda não foi ligada (falta a chave no Render).'));
+  else if (pedindo) caixa.append(el('p', {class: 'suave pequeno'}, 'A IA está lendo o anúncio e escrevendo o rascunho…'));
+  else if (s && s.erro) caixa.append(el('p', {class: 'erro pequeno'}, s.erro));
   else if (s) {
-    const caixa = el('div', {class: 'pg-sugestao', role: 'status'}, el('small', {class: 'suave'}, '✦ Rascunho da IA — leia e confira antes de enviar'));
-    if (s.resposta) {
-      caixa.append(el('p', null, s.resposta), el('div', {class: 'pg-acoes'}, el('span'), el('button', {type: 'button', disabled: travado, onclick: () => {
-        RASCUNHOS.set(q.id, s.resposta); SUGESTOES.delete(q.id); desenhar(); }}, 'Usar esta resposta')));
-    }
+    if (s.resposta) caixa.append(el('p', null, s.resposta), el('small', {class: 'suave'}, 'Rascunho da IA: leia e confira antes de enviar.'));
     if (s.falta) caixa.append(el('p', {class: 'pg-falta pequeno'}, (s.resposta ? 'Confira: ' : 'A IA não tem esta informação no anúncio. ') + s.falta));
-    saida.push(caixa);
-  }
-  return saida;
+  } else caixa.append(el('p', {class: 'suave pequeno'}, 'Clique em "Ver resposta sugerida" para a IA escrever um rascunho a partir do anúncio.'));
+  const usar = s && s.resposta && !pedindo ? el('button', {type: 'button', disabled: travado, onclick: () => { RASCUNHOS.set(q.id, s.resposta); SUGESTOES.delete(q.id); desenhar(); }}, 'Usar esta resposta') : null;
+  caixa.append(el('div', {class: 'pg-chips'}, botao, usar));
+  return [caixa];
 }
 async function sugerir(q){
   if (PEDINDO.has(q.id)) return;

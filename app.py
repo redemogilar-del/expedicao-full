@@ -164,6 +164,14 @@ def _params_form():
     return envios.validar_parametros({k: request.form.get(k) for k in envios.PADRAO})
 
 
+def _erro_leitura(exc):
+    """Para as telas só de leitura (Perguntas): erro inesperado mostra o tipo e o motivo, para dar para corrigir."""
+    if isinstance(exc, (envios.ArquivoInvalido, fontes.FonteIndisponivel)):
+        return _erro_fonte(exc)
+    log.exception('Falha inesperada (leitura)')
+    return jsonify(ok=False, error='Erro inesperado ao ler do Mercado Livre (%s: %s). Clique em Atualizar; se repetir, me mande esta mensagem.' % (type(exc).__name__, str(exc)[:120])), 500
+
+
 def _erro_fonte(exc):
     if isinstance(exc, fontes.FonteIndisponivel):
         return jsonify(ok=False, error=str(exc)), 503
@@ -596,7 +604,7 @@ def api_perguntas_listar():
             raise envios.ArquivoInvalido('Período inválido.')
         return jsonify(ok=True, **perguntas.listar(_conta_valida(c), c.get('situacao', 'a_responder'), dias))
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/perguntas/prazo')
@@ -605,7 +613,7 @@ def api_perguntas_prazo():
     try:
         return jsonify(ok=True, **perguntas.prazo(_conta_valida(request.get_json(silent=True) or {})))
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/perguntas/sugerir')
@@ -615,7 +623,7 @@ def api_perguntas_sugerir():
         conta, pid = sugestao.validar(request.get_json(silent=True) or {})
         return jsonify(ok=True, somente_leitura=True, conta=conta, **sugestao.sugerir(conta, pid))
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/conhecimento/ler')
@@ -624,7 +632,7 @@ def api_conhecimento_ler():
     try:
         return jsonify(ok=True, somente_leitura=True, skus=conhecimento.ler((request.get_json(silent=True) or {}).get('skus'))['skus'])
     except Exception as exc:
-        return _erro_fonte(exc)
+        return _erro_leitura(exc)
 
 
 @app.post('/api/perguntas/responder')

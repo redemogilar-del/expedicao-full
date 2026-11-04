@@ -216,3 +216,10 @@ class TestTela(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SkuEstranhoTest(unittest.TestCase):
+    def test_sku_numerico_nao_derruba(self):
+        corpo = {'id': 'MLB1', 'seller_custom_field': 12345, 'attributes': [], 'variations': []}
+        self.assertEqual(perguntas._skus(corpo), ['12345'])
+        self.assertEqual(perguntas._sku(corpo), '12345')

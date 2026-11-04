@@ -22,6 +22,11 @@ async function json(url, corpo){
   if (!r.ok || !d || d.ok === false) throw new Error((d && d.error) || ('Erro ' + r.status + '. O servidor pode estar acordando; tente de novo em 1 minuto.'));
   return d;
 }
+// Leituras (listar, prazo): uma nova tentativa automática, porque o Mercado Livre às vezes falha uma vez e acerta na seguinte.
+async function jsonLeitura(url, corpo){
+  try { return await json(url, corpo); }
+  catch (e) { await new Promise(r => setTimeout(r, 1500)); return json(url, corpo); }
+}
 const brl = v => (v === null || v === undefined) ? '' : Number(v).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
 function duracao(min){
   if (min === null || min === undefined) return 'Sem dados';
@@ -59,7 +64,7 @@ function cartaoPrazo(d){
   return caixa;
 }
 async function carregarPrazos(){
-  const res = await Promise.allSettled(CONTAS.map(conta => json('/api/perguntas/prazo', {conta})));
+  const res = await Promise.allSettled(CONTAS.map(conta => jsonLeitura('/api/perguntas/prazo', {conta})));
   $('pPrazos').replaceChildren(...res.map((r, i) => r.status === 'fulfilled' ? cartaoPrazo(r.value)
     : el('div', {class: 'pg-prazo'}, el('h2', null, 'Prazo de resposta ', el('span', {class: 'tag'}, CONTAS[i])), el('p', {class: 'erro pequeno'}, r.reason.message))));
 }
@@ -68,7 +73,7 @@ async function carregarPrazos(){
 async function carregar(){
   const pedido = ++BUSCA_ATUAL, dias = $('pDias').value ? Number($('pDias').value) : null, situacao = $('pSituacao').value;
   $('pAtualizar').disabled = true; $('pTotal').textContent = 'Buscando perguntas…'; mensagem('');
-  const res = await Promise.allSettled(CONTAS.map(conta => json('/api/perguntas/listar', {conta, situacao, dias})));
+  const res = await Promise.allSettled(CONTAS.map(conta => jsonLeitura('/api/perguntas/listar', {conta, situacao, dias})));
   if (pedido !== BUSCA_ATUAL) return;
   const avisos = []; PERGUNTAS = [];
   res.forEach((r, i) => {

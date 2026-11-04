@@ -9,8 +9,7 @@ const el = (tag, props, ...filhos) => {
 const CONTAS = ['ML19', 'ML44'], UMA_HORA = 60, ESCALA = 90;
 const CONFIRMACAO = $('pLista').dataset.confirmacao, MAX = Number($('pLista').dataset.max);
 let PERGUNTAS = [], BUSCA_ATUAL = 0, EXPANDIDA = false;
-const CONF_FICHA = $('pLista').dataset.confFicha, MAX_FICHA = Number($('pLista').dataset.maxFicha);
-const FICHAS = new Map(), FICHA_RASC = new Map(), FICHA_ABERTA = new Set(), FICHA_ESCOLHA = new Map(), FICHA_MSG = new Map(), FICHA_OCUPADA = new Set();
+const CONHEC = new Map(), CONHEC_ABERTO = new Set(), CONHEC_ESCOLHA = new Map(), CONHEC_LIGADO = $('pLista').dataset.conhecimento === '1';
 const IA_LIGADA = $('pLista').dataset.ia === '1';
 const SUGESTOES = new Map(), PEDINDO = new Set();
 const RASCUNHOS = new Map(), ABERTAS = new Set(), CONFIRMANDO = new Set(), ENVIANDO = new Set(), RETORNOS = new Map();
@@ -158,52 +157,41 @@ function caixaSugestao(q, texto, travado){
   } else caixa.append(el('p', {class: 'suave pequeno'}, 'Clique em "Ver resposta sugerida" para a IA escrever um rascunho a partir do anúncio.'));
   const usar = s && s.resposta && !pedindo ? el('button', {type: 'button', disabled: travado, onclick: () => { RASCUNHOS.set(q.id, s.resposta); SUGESTOES.delete(q.id); desenhar(); }}, 'Usar esta resposta') : null;
   caixa.append(el('div', {class: 'pg-chips'}, botao, usar));
-  return [caixa, painelFicha(q)];
+  return [caixa, painelConhecimento(q)];
 }
-// ---------- ficha do SKU: informações que você escreve e a IA usa (ficam na planilha) ----------
-async function carregarFicha(skus){
-  const faltam = skus.filter(s => !FICHAS.has(s));
+// ---------- dados do SKU na planilha de conhecimento (só leitura: para mudar, edite a planilha) ----------
+async function carregarConhecimento(skus){
+  const faltam = skus.filter(s => !CONHEC.has(s));
   if (!faltam.length) return;
   try {
-    const d = await json('/api/fichas/ler', {skus: faltam});
-    faltam.forEach(s => FICHAS.set(s, {texto: (d.fichas[s] && d.fichas[s].texto) || '', atualizado: (d.fichas[s] && d.fichas[s].atualizado) || ''}));
-  } catch (e) { faltam.forEach(s => FICHAS.set(s, {erro: e.message})); }
+    const d = await json('/api/conhecimento/ler', {skus: faltam});
+    faltam.forEach(s => CONHEC.set(s, d.skus[s] || {encontrado: false}));
+  } catch (e) { faltam.forEach(s => CONHEC.set(s, {erro: e.message})); }
   desenhar();
 }
-async function salvarFicha(sku){
-  if (FICHA_OCUPADA.has(sku)) return;
-  FICHA_OCUPADA.add(sku); desenhar();
-  try {
-    const r = await json('/api/fichas/salvar', {sku, texto: FICHA_RASC.has(sku) ? FICHA_RASC.get(sku) : (FICHAS.get(sku) || {}).texto || '', confirmacao: CONF_FICHA});
-    FICHAS.set(sku, {texto: r.texto}); FICHA_MSG.set(sku, r);
-    if (r.status === 'OK') FICHA_RASC.delete(sku);
-  } catch (e) { FICHA_MSG.set(sku, {status: 'ERRO', mensagem: e.message}); }
-  FICHA_OCUPADA.delete(sku); desenhar();
-}
-function painelFicha(q){
-  const skus = (q.item && q.item.skus) || [], aberto = FICHA_ABERTA.has(q.id);
+function painelConhecimento(q){
+  const skus = (q.item && q.item.skus) || [], aberto = CONHEC_ABERTO.has(q.id);
   const botao = el('button', {type: 'button', class: 'pg-chip', ariaExpanded: String(aberto), onclick: () => {
-    if (FICHA_ABERTA.has(q.id)) FICHA_ABERTA.delete(q.id); else { FICHA_ABERTA.add(q.id); carregarFicha(skus.slice(0, 1)); }
-    desenhar(); }}, (aberto ? '▾ ' : '▸ ') + 'Ficha do SKU (informações que a IA usa)');
+    if (CONHEC_ABERTO.has(q.id)) CONHEC_ABERTO.delete(q.id); else { CONHEC_ABERTO.add(q.id); carregarConhecimento(skus.slice(0, 1)); }
+    desenhar(); }}, (aberto ? '▾ ' : '▸ ') + 'O que a planilha diz deste SKU');
   const c = el('div', {class: 'pg-ficha'}, botao);
   if (!aberto) return c;
-  if (!skus.length) { c.append(el('p', {class: 'suave pequeno'}, 'Este anúncio não tem SKU cadastrado. A ficha é guardada por SKU.')); return c; }
-  const sku = FICHA_ESCOLHA.get(q.id) && skus.includes(FICHA_ESCOLHA.get(q.id)) ? FICHA_ESCOLHA.get(q.id) : skus[0];
+  if (!CONHEC_LIGADO) { c.append(el('p', {class: 'suave pequeno'}, 'A planilha de conhecimento ainda não está ligada (faltam EXP_CONHECIMENTO_URL e EXP_CONHECIMENTO_KEY no Render).')); return c; }
+  if (!skus.length) { c.append(el('p', {class: 'suave pequeno'}, 'Este anúncio não tem SKU cadastrado.')); return c; }
+  const sku = CONHEC_ESCOLHA.get(q.id) && skus.includes(CONHEC_ESCOLHA.get(q.id)) ? CONHEC_ESCOLHA.get(q.id) : skus[0];
   if (skus.length > 1) {
-    const sel = el('select', {ariaLabel: 'SKU da ficha', onchange: () => { FICHA_ESCOLHA.set(q.id, sel.value); carregarFicha([sel.value]); desenhar(); }}, ...skus.map(s => el('option', {value: s, selected: s === sku}, s)));
+    const sel = el('select', {ariaLabel: 'SKU', onchange: () => { CONHEC_ESCOLHA.set(q.id, sel.value); carregarConhecimento([sel.value]); desenhar(); }}, ...skus.map(s => el('option', {value: s, selected: s === sku}, s)));
     c.append(el('label', {class: 'inline-campo'}, 'SKU', sel));
   } else c.append(el('p', {class: 'suave pequeno'}, 'SKU ' + sku));
-  const f = FICHAS.get(sku), ocupada = FICHA_OCUPADA.has(sku);
-  if (!f) { c.append(el('p', {class: 'suave pequeno'}, 'Carregando a ficha…')); return c; }
-  if (f.erro) { c.append(el('p', {class: 'erro pequeno'}, f.erro), el('button', {type: 'button', onclick: () => { FICHAS.delete(sku); carregarFicha([sku]); desenhar(); }}, 'Tentar de novo')); return c; }
-  const texto = el('textarea', {class: 'pg-texto', rows: 4, maxLength: MAX_FICHA, disabled: ocupada, ariaLabel: 'Ficha do SKU ' + sku,
-    placeholder: 'Escreva o que você sabe deste produto: gramatura, medidas, o que acompanha, para que serve, cuidados… A IA usa isto para responder.',
-    value: FICHA_RASC.has(sku) ? FICHA_RASC.get(sku) : f.texto});
-  const conta = el('span', {class: 'suave pequeno'}, texto.value.length + ' / ' + MAX_FICHA + (f.atualizado ? ' · salva em ' + f.atualizado : ''));
-  texto.oninput = () => { FICHA_RASC.set(sku, texto.value); conta.textContent = texto.value.length + ' / ' + MAX_FICHA; };
-  c.append(texto, el('div', {class: 'pg-acoes'}, conta, el('button', {type: 'button', class: 'primario', disabled: ocupada, onclick: () => salvarFicha(sku)}, ocupada ? 'Salvando…' : 'Salvar ficha')));
-  const m = FICHA_MSG.get(sku);
-  if (m) c.append(el('p', {class: 'aviso' + (m.status === 'OK' ? ' ok' : m.status === 'ERRO' ? ' erro' : ''), role: 'status'}, m.mensagem));
+  const f = CONHEC.get(sku);
+  if (!f) { c.append(el('p', {class: 'suave pequeno'}, 'Lendo a planilha…')); return c; }
+  if (f.erro) { c.append(el('p', {class: 'erro pequeno'}, f.erro), el('button', {type: 'button', onclick: () => { CONHEC.delete(sku); carregarConhecimento([sku]); desenhar(); }}, 'Tentar de novo')); return c; }
+  if (!f.encontrado) { c.append(el('p', {class: 'aviso'}, 'Este SKU não está na aba "Informações por sku" da planilha. A IA vai usar só o anúncio e as regras gerais. Cadastre o SKU lá para melhorar as respostas.')); return c; }
+  c.append(el('p', {class: 'pequeno'}, el('b', null, 'Família: '), f.familia || '(sem família)'));
+  c.append(el('div', {class: 'pg-sugestao'}, el('b', {class: 'pg-ia-titulo'}, 'Regras especiais do SKU'), el('p', {class: 'pequeno'}, f.regras_especiais || '(vazio)')));
+  if (f.base_encontrada && f.base.length) c.append(el('div', {class: 'pg-sugestao'}, el('b', {class: 'pg-ia-titulo'}, 'Base de conhecimento da família'), ...f.base.map(b => el('p', {class: 'pequeno'}, el('b', null, b.topico + ': '), b.texto))));
+  else c.append(el('p', {class: 'aviso'}, 'Não achei a família "' + (f.familia || '') + '" na aba "Base de Conhecimento" (o título da coluna precisa ter o mesmo nome).'));
+  c.append(el('p', {class: 'suave pequeno'}, 'Para mudar estas informações, edite a planilha. O site não altera nada nela.'));
   return c;
 }
 async function sugerir(q){

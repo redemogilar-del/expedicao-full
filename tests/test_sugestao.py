@@ -7,7 +7,7 @@ from unittest import mock
 import test_perguntas
 from test_perguntas import Base
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-import fichas
+import conhecimento
 import fontes
 import sugestao
 
@@ -29,8 +29,9 @@ class BaseIA(Base):
             return original(tk, caminho, params)
         self.f.ml = ml
         p = mock.patch.object(fontes, '_ml', ml); p.start(); self.addCleanup(p.stop)
-        self.fichas = {}
-        p = mock.patch.object(fichas, 'ler', lambda skus: {k: {'texto': v, 'atualizado': ''} for k, v in self.fichas.items() if k in skus}); p.start(); self.addCleanup(p.stop)
+        self.planilha = {'geral': {'prompt': 'Você é um especialista técnico da Rede Mogilar.', 'regras': ['Nunca invente informações.'], 'respostas': ['FRETE\nO valor é calculado pelo Mercado Livre conforme o CEP.']},
+                         'skus': {'GEO2': {'encontrado': True, 'familia': 'GEO', 'regras_especiais': 'Este SKU possui 160 m².', 'base_encontrada': True, 'base': [{'topico': 'O QUE É', 'texto': 'Manta geotêxtil.'}]}}}
+        p = mock.patch.object(conhecimento, 'ler', lambda skus: {'geral': self.planilha['geral'], 'skus': {s: self.planilha['skus'].get(s, {'encontrado': False, 'familia': '', 'regras_especiais': '', 'base_encontrada': False, 'base': []}) for s in skus}}); p.start(); self.addCleanup(p.stop)
         p = mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': 'chave-de-teste'}); p.start(); self.addCleanup(p.stop)
 
     def ia(self, bruto):
@@ -55,25 +56,32 @@ class TestSugerir(BaseIA):
             self.assertIn(trecho, contexto)
         self.assertNotIn('Marca', contexto)                       # atributo vazio fica de fora
 
-    def test_ficha_do_sku_vai_para_a_ia(self):
-        self.fichas = {'GEO2': 'Gramatura real 160 g/m². Rolo 2 m x 50 m.'}
-        self.ia(json.dumps({'resposta': 'Olá! 160 g/m².', 'falta': ''}))
+    def test_conhecimento_da_planilha_vai_para_a_ia_na_ordem_certa(self):
+        self.ia(json.dumps({'resposta': 'Olá! 160 m².', 'falta': ''}))
         self.sugerir()
-        self.assertIn('FICHA DO VENDEDOR (SKU GEO2): Gramatura real 160 g/m²', self.chamadas[0][0])
+        c = self.chamadas[0][0]
+        for trecho in ('INSTRUÇÕES DO DONO DA LOJA:\nVocê é um especialista', '- Nunca invente informações.', 'RESPOSTAS PADRÃO', 'REGRAS ESPECIAIS DO SKU GEO2 (prioridade máxima):\nEste SKU possui 160 m²',
+                       'BASE DE CONHECIMENTO DA FAMÍLIA GEO (SKU GEO2):\nO QUE É: Manta geotêxtil.'):
+            self.assertIn(trecho, c)
+        self.assertLess(c.index('REGRAS ESPECIAIS DO SKU'), c.index('BASE DE CONHECIMENTO DA FAMÍLIA'))
 
-    def test_sem_ficha_nao_inventa_linha(self):
+    def test_sku_fora_da_planilha_avisa(self):
+        self.planilha['skus'] = {}
         self.ia(json.dumps({'resposta': 'Olá!', 'falta': ''}))
-        self.sugerir()
-        self.assertNotIn('FICHA DO VENDEDOR', self.chamadas[0][0])
+        d = self.sugerir().get_json()
+        self.assertIn('não está na aba "Informações por sku"', d['falta'])
+        self.assertNotIn('REGRAS ESPECIAIS', self.chamadas[0][0])
+        self.assertIn('INSTRUÇÕES DO DONO', self.chamadas[0][0])        # as regras gerais continuam valendo
 
-    def test_ficha_ilegivel_avisa_e_segue_so_com_o_anuncio(self):
+    def test_planilha_ilegivel_avisa_e_segue_so_com_o_anuncio(self):
         def quebra(skus):
-            raise fontes.FonteIndisponivel('x')
+            raise fontes.FonteIndisponivel('Não consegui falar com a planilha de conhecimento agora.')
         self.ia(json.dumps({'resposta': 'Olá!', 'falta': ''}))
-        with mock.patch.object(fichas, 'ler', quebra):
+        with mock.patch.object(conhecimento, 'ler', quebra):
             d = self.sugerir().get_json()
         self.assertEqual(d['resposta'], 'Olá!')
-        self.assertIn('ficha do SKU', d['falta'])
+        self.assertIn('planilha de conhecimento', d['falta'])
+        self.assertIn('usa só o anúncio', d['falta'])
 
     def test_aceita_json_dentro_de_bloco_de_codigo(self):
         self.ia('```json\n{"resposta": "Olá! Sim.", "falta": ""}\n```')

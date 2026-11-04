@@ -23,7 +23,7 @@
 </div>
 
 <p id="pMsg" class="aviso" hidden role="alert"></p>
-<div id="pLista" class="pg-lista" data-confirmacao="{{ confirmacao }}" data-max="{{ max_texto }}" data-conf-ficha="{{ conf_ficha }}" data-max-ficha="{{ max_ficha }}" data-ia="{{ '1' if ia_ligada else '0' }}"></div>
+<div id="pLista" class="pg-lista" data-confirmacao="{{ confirmacao }}" data-max="{{ max_texto }}" data-conhecimento="{{ '1' if conhecimento_ligado else '0' }}" data-ia="{{ '1' if ia_ligada else '0' }}"></div>
 <p id="pVazio" class="cartao suave centro" hidden></p>
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='perguntas.js') }}"></script>{% endblock %}

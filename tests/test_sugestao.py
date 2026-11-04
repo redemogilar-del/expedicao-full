@@ -7,10 +7,11 @@ from unittest import mock
 import test_perguntas
 from test_perguntas import Base
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import fichas
 import fontes
 import sugestao
 
-ITEM = {'id': 'MLB100000001', 'title': 'Manta Geotêxtil Drenante 160m2', 'status': 'active', 'price': 651.25, 'available_quantity': 999, 'condition': 'new',
+ITEM = {'id': 'MLB100000001', 'seller_custom_field': 'GEO2', 'title': 'Manta Geotêxtil Drenante 160m2', 'status': 'active', 'price': 651.25, 'available_quantity': 999, 'condition': 'new',
         'attributes': [{'name': 'Gramatura', 'value_name': '150 g/m²'}, {'name': 'Marca', 'value_name': ''}], 'shipping': {'free_shipping': True}}
 
 
@@ -28,6 +29,8 @@ class BaseIA(Base):
             return original(tk, caminho, params)
         self.f.ml = ml
         p = mock.patch.object(fontes, '_ml', ml); p.start(); self.addCleanup(p.stop)
+        self.fichas = {}
+        p = mock.patch.object(fichas, 'ler', lambda skus: {k: {'texto': v, 'atualizado': ''} for k, v in self.fichas.items() if k in skus}); p.start(); self.addCleanup(p.stop)
         p = mock.patch.dict(os.environ, {'EXP_ANTHROPIC_KEY': 'chave-de-teste'}); p.start(); self.addCleanup(p.stop)
 
     def ia(self, bruto):
@@ -51,6 +54,26 @@ class TestSugerir(BaseIA):
         for trecho in ('Gramatura: 150 g/m²', '651.25', '999 unidades', 'Manta de 160 m²', 'Frete grátis: sim'):
             self.assertIn(trecho, contexto)
         self.assertNotIn('Marca', contexto)                       # atributo vazio fica de fora
+
+    def test_ficha_do_sku_vai_para_a_ia(self):
+        self.fichas = {'GEO2': 'Gramatura real 160 g/m². Rolo 2 m x 50 m.'}
+        self.ia(json.dumps({'resposta': 'Olá! 160 g/m².', 'falta': ''}))
+        self.sugerir()
+        self.assertIn('FICHA DO VENDEDOR (SKU GEO2): Gramatura real 160 g/m²', self.chamadas[0][0])
+
+    def test_sem_ficha_nao_inventa_linha(self):
+        self.ia(json.dumps({'resposta': 'Olá!', 'falta': ''}))
+        self.sugerir()
+        self.assertNotIn('FICHA DO VENDEDOR', self.chamadas[0][0])
+
+    def test_ficha_ilegivel_avisa_e_segue_so_com_o_anuncio(self):
+        def quebra(skus):
+            raise fontes.FonteIndisponivel('x')
+        self.ia(json.dumps({'resposta': 'Olá!', 'falta': ''}))
+        with mock.patch.object(fichas, 'ler', quebra):
+            d = self.sugerir().get_json()
+        self.assertEqual(d['resposta'], 'Olá!')
+        self.assertIn('ficha do SKU', d['falta'])
 
     def test_aceita_json_dentro_de_bloco_de_codigo(self):
         self.ia('```json\n{"resposta": "Olá! Sim.", "falta": ""}\n```')

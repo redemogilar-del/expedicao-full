@@ -22,6 +22,7 @@ import precos
 import skus
 import anuncios
 import perguntas
+import sugestao
 import vendas
 
 log = logging.getLogger('expedicao')
@@ -131,7 +132,7 @@ def skus_pagina():
 
 @app.get('/perguntas')
 def perguntas_pagina():
-    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO)
+    return render_template('perguntas.html', abas=ABAS, ativa='perguntas', confirmacao=perguntas.CONFIRMACAO, max_texto=perguntas.MAX_TEXTO, ia_ligada=bool(sugestao.chave_ia()))
 
 
 @app.get('/vendas')
@@ -602,6 +603,16 @@ def api_perguntas_prazo():
     """Somente leitura."""
     try:
         return jsonify(ok=True, **perguntas.prazo(_conta_valida(request.get_json(silent=True) or {})))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/perguntas/sugerir')
+def api_perguntas_sugerir():
+    """SOMENTE LEITURA: a IA escreve um rascunho a partir do anúncio. Nada é enviado ao Mercado Livre."""
+    try:
+        conta, pid = sugestao.validar(request.get_json(silent=True) or {})
+        return jsonify(ok=True, somente_leitura=True, conta=conta, **sugestao.sugerir(conta, pid))
     except Exception as exc:
         return _erro_fonte(exc)
 

@@ -9,6 +9,8 @@ const el = (tag, props, ...filhos) => {
 const CONTAS = ['ML19', 'ML44'], UMA_HORA = 60, ESCALA = 90;
 const CONFIRMACAO = $('pLista').dataset.confirmacao, MAX = Number($('pLista').dataset.max);
 let PERGUNTAS = [], BUSCA_ATUAL = 0, EXPANDIDA = false;
+const IA_LIGADA = $('pLista').dataset.ia === '1';
+const SUGESTOES = new Map(), PEDINDO = new Set();
 const RASCUNHOS = new Map(), ABERTAS = new Set(), CONFIRMANDO = new Set(), ENVIANDO = new Set(), RETORNOS = new Map();
 
 function mensagem(texto){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; }
@@ -136,7 +138,33 @@ function formulario(q){
         el('button', {type: 'button', class: 'primario', disabled: envia, onclick: () => enviar(q)}, envia ? 'Enviando…' : 'Confirmar envio'),
         el('button', {type: 'button', disabled: envia, onclick: () => { CONFIRMANDO.delete(q.id); desenhar(); }}, 'Voltar'))
     : el('div', {class: 'pg-acoes'}, conta, botao);
-  return [texto, acoes];
+  return [texto, ...caixaSugestao(q, texto, envia || confirma), acoes];
+}
+// ---------- resposta sugerida pela IA (só preenche a caixa; quem envia é você) ----------
+function caixaSugestao(q, texto, travado){
+  const s = SUGESTOES.get(q.id), pedindo = PEDINDO.has(q.id);
+  const botao = el('button', {type: 'button', class: 'pg-chip', disabled: travado || pedindo || !IA_LIGADA,
+    title: IA_LIGADA ? 'A IA lê o anúncio e escreve um rascunho. Nada é enviado ao Mercado Livre.' : 'A IA ainda não foi ligada: falta a chave EXP_ANTHROPIC_KEY no Render.',
+    onclick: () => sugerir(q)}, pedindo ? 'Pensando…' : (s ? '✦ Sugerir de novo' : '✦ Ver resposta sugerida'));
+  const saida = [el('div', {class: 'pg-chips'}, botao, IA_LIGADA ? null : el('span', {class: 'suave pequeno'}, 'A IA ainda não foi ligada (falta a chave no Render).'))];
+  if (s && s.erro) saida.push(el('p', {class: 'aviso erro', role: 'status'}, s.erro));
+  else if (s) {
+    const caixa = el('div', {class: 'pg-sugestao', role: 'status'}, el('small', {class: 'suave'}, '✦ Rascunho da IA — leia e confira antes de enviar'));
+    if (s.resposta) {
+      caixa.append(el('p', null, s.resposta), el('div', {class: 'pg-acoes'}, el('span'), el('button', {type: 'button', disabled: travado, onclick: () => {
+        RASCUNHOS.set(q.id, s.resposta); SUGESTOES.delete(q.id); desenhar(); }}, 'Usar esta resposta')));
+    }
+    if (s.falta) caixa.append(el('p', {class: 'pg-falta pequeno'}, (s.resposta ? 'Confira: ' : 'A IA não tem esta informação no anúncio. ') + s.falta));
+    saida.push(caixa);
+  }
+  return saida;
+}
+async function sugerir(q){
+  if (PEDINDO.has(q.id)) return;
+  PEDINDO.add(q.id); SUGESTOES.delete(q.id); desenhar();
+  try { SUGESTOES.set(q.id, await json('/api/perguntas/sugerir', {conta: q.conta, pergunta: q.id})); }
+  catch (e) { SUGESTOES.set(q.id, {erro: e.message}); }
+  PEDINDO.delete(q.id); desenhar();
 }
 async function enviar(q){
   if (ENVIANDO.has(q.id)) return;

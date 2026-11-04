@@ -52,6 +52,17 @@ def _falha(conta, exc, oque):
     return fontes.FonteIndisponivel('Não consegui %s da conta %s agora (%s). Tente de novo.' % (oque, conta, texto[:80]))
 
 
+def _conta(conta):
+    """(token, id do vendedor). Falha do Mercado Livre nesta etapa vira aviso claro, não 'algo deu errado'."""
+    tk = fontes.token(conta)
+    try:
+        return tk, fontes._vendedor(conta, tk)
+    except (RuntimeError, ValueError) as exc:
+        if isinstance(exc, fontes.FonteIndisponivel):
+            raise
+        raise _falha(conta, exc, 'identificar a conta')
+
+
 def _data(v):
     try:
         d = datetime.fromisoformat(str(v).replace('Z', '+00:00'))
@@ -69,6 +80,7 @@ def _skus(corpo):
     vistos = []
     for lugar in skus.locais(corpo):
         s = lugar['scf'] or lugar['attr']
+        s = str(s).strip() if s not in (None, '') else ''
         if s and s not in vistos:
             vistos.append(s)
     return vistos
@@ -133,8 +145,7 @@ def listar(conta, situacao='a_responder', dias=None):
     """Perguntas da conta, das mais novas para as mais antigas (até 200). dias=None = todo o período."""
     if situacao not in SITUACOES:
         raise envios.ArquivoInvalido('Situação de pergunta inválida.')
-    tk = fontes.token(conta)
-    vendedor = fontes._vendedor(conta, tk)
+    tk, vendedor = _conta(conta)
     corte = datetime.now(timezone.utc) - timedelta(days=dias) if dias else None
     params = {'seller_id': vendedor, 'api_version': 4, 'sort_fields': 'date_created', 'sort_types': 'DESC', 'limit': POR_PAGINA}
     if SITUACOES[situacao]:
@@ -176,8 +187,7 @@ def _minutos(v):
 
 def prazo(conta):
     """Tempo médio de resposta dos últimos 14 dias, por período. O Mercado Livre atualiza uma vez por dia."""
-    tk = fontes.token(conta)
-    vendedor = fontes._vendedor(conta, tk)
+    tk, vendedor = _conta(conta)
     try:
         r = fontes._SESS.get(fontes.API + '/users/%s/questions/response_time' % vendedor, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 18))
         if r.status_code == 404:                     # conta sem perguntas no período

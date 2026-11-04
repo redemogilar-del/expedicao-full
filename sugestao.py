@@ -15,8 +15,8 @@ import fichas
 import fontes
 import perguntas
 
-URL_IA = 'https://api.anthropic.com/v1/messages'
-MODELO_PADRAO = 'claude-sonnet-5-5'
+URL_IA = 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent'
+MODELO_PADRAO = 'gemini-3.6-flash'
 MAX_DESCRICAO = 3000
 MAX_ATRIBUTOS = 40
 MAX_VARIACOES = 12
@@ -40,7 +40,7 @@ Responda APENAS com um JSON, sem texto antes ou depois: {"resposta": "texto para
 
 
 def chave_ia():
-    return os.environ.get('EXP_ANTHROPIC_KEY', '').strip()
+    return os.environ.get('EXP_GEMINI_KEY', '').strip()
 
 
 def _valor(a):
@@ -107,23 +107,34 @@ def _chamar_ia(contexto, pergunta):
     """Pede o rascunho à IA. Devolve o texto bruto. Erros viram FonteIndisponivel com instrução clara."""
     chave = chave_ia()
     if not chave:
-        raise fontes.FonteIndisponivel('A resposta sugerida ainda não foi ligada: falta cadastrar a chave da IA (EXP_ANTHROPIC_KEY) nas variáveis do Render.')
+        raise fontes.FonteIndisponivel('A resposta sugerida ainda não foi ligada: falta cadastrar a chave da IA (EXP_GEMINI_KEY) nas variáveis do Render.')
     usuario = 'DADOS DO ANÚNCIO:\n%s\n\n<pergunta_do_cliente>\n%s\n</pergunta_do_cliente>' % (contexto, pergunta)
+    modelo = os.environ.get('EXP_IA_MODELO', '').strip() or MODELO_PADRAO
+    if not re.match(r'^[\w.-]{1,60}$', modelo):
+        raise fontes.FonteIndisponivel('O nome do modelo da IA (EXP_IA_MODELO) está inválido.')
+    corpo = {'systemInstruction': {'parts': [{'text': SISTEMA}]}, 'contents': [{'role': 'user', 'parts': [{'text': usuario}]}],
+             'generationConfig': {'temperature': 0, 'maxOutputTokens': 1500, 'responseMimeType': 'application/json'}}
     try:
-        r = requests.post(URL_IA, headers={'x-api-key': chave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-                          json={'model': os.environ.get('EXP_IA_MODELO', '').strip() or MODELO_PADRAO, 'max_tokens': 700, 'temperature': 0,
-                                'system': SISTEMA, 'messages': [{'role': 'user', 'content': usuario}]}, timeout=(5, 40))
+        r = requests.post(URL_IA % modelo, headers={'x-goog-api-key': chave, 'content-type': 'application/json'}, json=corpo, timeout=(5, 40))
     except requests.RequestException:
         raise fontes.FonteIndisponivel('Não consegui falar com a IA agora. Tente de novo.')
-    if r.status_code in (401, 403):
-        raise fontes.FonteIndisponivel('A IA recusou a chave cadastrada (EXP_ANTHROPIC_KEY). Confira se ela está certa e tem saldo.')
+    if r.status_code in (400, 401, 403) and 'API key' in r.text:
+        raise fontes.FonteIndisponivel('A IA recusou a chave cadastrada (EXP_GEMINI_KEY). Confira se ela está certa e ativa.')
+    if r.status_code == 404:
+        raise fontes.FonteIndisponivel('A IA não achou o modelo "%s". Troque o nome em EXP_IA_MODELO no Render.' % modelo)
     if not r.ok:
         raise fontes.FonteIndisponivel('A IA não respondeu agora (HTTP %s). Tente de novo.' % r.status_code)
     try:
-        partes = r.json().get('content') or []
-        return ''.join(p.get('text', '') for p in partes if isinstance(p, dict) and p.get('type') == 'text')
-    except (ValueError, AttributeError):
+        d = r.json()
+        if (d.get('promptFeedback') or {}).get('blockReason'):
+            raise fontes.FonteIndisponivel('A IA não quis responder esta pergunta. Escreva a resposta à mão.')
+        partes = ((d.get('candidates') or [{}])[0].get('content') or {}).get('parts') or []
+        texto = ''.join(p.get('text', '') for p in partes if isinstance(p, dict))
+    except (ValueError, AttributeError, IndexError, TypeError):
         raise fontes.FonteIndisponivel('A resposta da IA veio num formato que não entendi. Tente de novo.')
+    if not texto.strip():
+        raise fontes.FonteIndisponivel('A IA não devolveu texto desta vez. Tente de novo.')
+    return texto
 
 
 def _tirar_json(texto):
@@ -174,7 +185,7 @@ def validar(c):
 def sugerir(conta, pid):
     """Rascunho para UMA pergunta ainda sem resposta. Não escreve nada no Mercado Livre."""
     if not chave_ia():
-        raise fontes.FonteIndisponivel('A resposta sugerida ainda não foi ligada: falta cadastrar a chave da IA (EXP_ANTHROPIC_KEY) nas variáveis do Render.')
+        raise fontes.FonteIndisponivel('A resposta sugerida ainda não foi ligada: falta cadastrar a chave da IA (EXP_GEMINI_KEY) nas variáveis do Render.')
     tk = fontes.token(conta)
     vendedor = fontes._vendedor(conta, tk)
     try:

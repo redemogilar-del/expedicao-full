@@ -31,7 +31,7 @@ class BaseIA(Base):
         p = mock.patch.object(fontes, '_ml', ml); p.start(); self.addCleanup(p.stop)
         self.fichas = {}
         p = mock.patch.object(fichas, 'ler', lambda skus: {k: {'texto': v, 'atualizado': ''} for k, v in self.fichas.items() if k in skus}); p.start(); self.addCleanup(p.stop)
-        p = mock.patch.dict(os.environ, {'EXP_ANTHROPIC_KEY': 'chave-de-teste'}); p.start(); self.addCleanup(p.stop)
+        p = mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': 'chave-de-teste'}); p.start(); self.addCleanup(p.stop)
 
     def ia(self, bruto):
         def falso(contexto, pergunta):
@@ -105,10 +105,10 @@ class TestSugerir(BaseIA):
         self.assertIn('formato', r.get_json()['error'])
 
     def test_sem_chave_explica_o_que_fazer(self):
-        with mock.patch.dict(os.environ, {'EXP_ANTHROPIC_KEY': ''}):
+        with mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': ''}):
             r = self.sugerir()
         self.assertEqual(r.status_code, 503)
-        self.assertIn('EXP_ANTHROPIC_KEY', r.get_json()['error'])
+        self.assertIn('EXP_GEMINI_KEY', r.get_json()['error'])
 
     def test_ja_respondida_e_de_outra_conta_nao_chamam_a_ia(self):
         self.ia(json.dumps({'resposta': 'x', 'falta': ''}))
@@ -137,25 +137,40 @@ class TestSugerir(BaseIA):
 
 
 class TestChamadaIA(unittest.TestCase):
-    def _chamar(self, status=200, corpo=None):
-        resp = mock.Mock(status_code=status, ok=status < 400, json=lambda: corpo or {})
-        with mock.patch.dict(os.environ, {'EXP_ANTHROPIC_KEY': 'k'}), mock.patch.object(sugestao.requests, 'post', return_value=resp) as p:
+    def _chamar(self, status=200, corpo=None, texto=''):
+        resp = mock.Mock(status_code=status, ok=status < 400, text=texto, json=lambda: corpo or {})
+        with mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': 'k'}), mock.patch.object(sugestao.requests, 'post', return_value=resp) as p:
             try:
                 return sugestao._chamar_ia('ctx', 'pergunta'), p
             except fontes.FonteIndisponivel as exc:
                 return str(exc), p
 
-    def test_envia_modelo_chave_e_pergunta_delimitada(self):
-        texto, p = self._chamar(corpo={'content': [{'type': 'text', 'text': '{"resposta":"a","falta":""}'}]})
+    def test_envia_chave_no_cabecalho_modelo_e_pergunta_delimitada(self):
+        texto, p = self._chamar(corpo={'candidates': [{'content': {'parts': [{'text': '{"resposta":"a","falta":""}'}]}}]})
         self.assertEqual(texto, '{"resposta":"a","falta":""}')
+        self.assertEqual(p.call_args.args[0], sugestao.URL_IA % sugestao.MODELO_PADRAO)
+        self.assertNotIn('key=', p.call_args.args[0])                       # a chave não vai no endereço
         kw = p.call_args.kwargs
-        self.assertEqual(kw['headers']['x-api-key'], 'k')
-        self.assertEqual(kw['json']['model'], sugestao.MODELO_PADRAO)
-        self.assertIn('<pergunta_do_cliente>\npergunta\n</pergunta_do_cliente>', kw['json']['messages'][0]['content'])
+        self.assertEqual(kw['headers']['x-goog-api-key'], 'k')
+        self.assertEqual(kw['json']['generationConfig']['responseMimeType'], 'application/json')
+        self.assertIn('<pergunta_do_cliente>\npergunta\n</pergunta_do_cliente>', kw['json']['contents'][0]['parts'][0]['text'])
+        self.assertIn('RASCUNHOS', kw['json']['systemInstruction']['parts'][0]['text'])
 
-    def test_chave_recusada_e_falha_da_ia(self):
-        self.assertIn('recusou a chave', self._chamar(status=401)[0])
-        self.assertIn('HTTP 529', self._chamar(status=529)[0])
+    def test_modelo_pode_ser_trocado_pelo_ambiente(self):
+        resp = mock.Mock(status_code=200, ok=True, json=lambda: {'candidates': [{'content': {'parts': [{'text': 'x'}]}}]})
+        with mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': 'k', 'EXP_IA_MODELO': 'gemini-novo'}), mock.patch.object(sugestao.requests, 'post', return_value=resp) as p:
+            sugestao._chamar_ia('c', 'p')
+        self.assertTrue(p.call_args.args[0].endswith('/gemini-novo:generateContent'))
+        with mock.patch.dict(os.environ, {'EXP_GEMINI_KEY': 'k', 'EXP_IA_MODELO': 'a/b?x'}):
+            with self.assertRaises(fontes.FonteIndisponivel):
+                sugestao._chamar_ia('c', 'p')
+
+    def test_erros_explicam_o_que_fazer(self):
+        self.assertIn('recusou a chave', self._chamar(status=400, texto='API key not valid')[0])
+        self.assertIn('EXP_IA_MODELO', self._chamar(status=404)[0])
+        self.assertIn('HTTP 503', self._chamar(status=503)[0])
+        self.assertIn('à mão', self._chamar(corpo={'promptFeedback': {'blockReason': 'SAFETY'}})[0])
+        self.assertIn('não devolveu texto', self._chamar(corpo={'candidates': []})[0])
 
 
 if __name__ == '__main__':

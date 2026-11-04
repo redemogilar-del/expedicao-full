@@ -146,7 +146,7 @@ function formulario(q){
 function caixaSugestao(q, texto, travado){
   const s = SUGESTOES.get(q.id), pedindo = PEDINDO.has(q.id);
   const botao = el('button', {type: 'button', class: 'pg-chip', disabled: travado || pedindo || !IA_LIGADA,
-    title: IA_LIGADA ? 'A IA lê o anúncio e escreve um rascunho. Nada é enviado ao Mercado Livre.' : 'A IA ainda não foi ligada: falta a chave EXP_ANTHROPIC_KEY no Render.',
+    title: IA_LIGADA ? 'A IA lê o anúncio e escreve um rascunho. Nada é enviado ao Mercado Livre.' : 'A IA ainda não foi ligada: falta a chave EXP_GEMINI_KEY no Render.',
     onclick: () => sugerir(q)}, pedindo ? 'Pensando…' : (s ? '✦ Sugerir de novo' : '✦ Ver resposta sugerida'));
   const caixa = el('div', {class: 'pg-sugestao', role: 'status'}, el('b', {class: 'pg-ia-titulo'}, 'Resposta IA'));
   if (!IA_LIGADA) caixa.append(el('p', {class: 'suave pequeno'}, 'A IA ainda não foi ligada (falta a chave no Render).'));

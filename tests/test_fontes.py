@@ -210,3 +210,14 @@ class TestPedidos(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Frete403Test(unittest.TestCase):
+    def test_403_de_anuncio_de_outra_conta_explica(self):
+        def ml(tk, caminho, params=None):
+            raise RuntimeError('403 Client Error: Forbidden for url: x')
+        pub = mock.Mock(ok=True); pub.json.return_value = {'id': 'MLB123456', 'seller_id': 555}
+        with mock.patch.object(fontes, '_ml', ml), mock.patch.object(fontes._SESS, 'get', return_value=pub):
+            valor, motivo = fontes.frete_mlb('tk', '999', 'MLB123456')
+        self.assertIsNone(valor)
+        self.assertIn('OUTRA conta', motivo)

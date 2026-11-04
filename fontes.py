@@ -7,6 +7,7 @@ Variáveis de ambiente:
   EXP_TOKEN_URL_ML19, EXP_TOKEN_URL_ML44 -> Apps Scripts que devolvem o access_token de cada conta
 """
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -169,6 +170,9 @@ def aptos_full():
 
 
 # ---------------------------------------------------------------- frete
+_TOKEN_OK = re.compile(r'^[A-Za-z0-9._~+/=-]{10,600}$')
+
+
 def token(conta):
     if conta not in CONTAS:
         raise FonteIndisponivel('Conta inválida.')
@@ -179,18 +183,29 @@ def token(conta):
     url = os.getenv('EXP_TOKEN_URL_' + conta, '').strip()
     if not url.startswith('https://script.google.com/'):
         raise FonteIndisponivel('O acesso ao Mercado Livre da conta %s não está configurado (EXP_TOKEN_URL_%s no Render).' % (conta, conta))
-    try:
-        r = _SESS.get(url, timeout=(5, 30), allow_redirects=True)
-        r.raise_for_status()
+    valor = ''
+    for tentativa in range(2):      # o Apps Script às vezes devolve uma página de erro uma vez e acerta na seguinte
         try:
-            dados = r.json()
-        except ValueError:
-            dados = r.text.strip()
-    except requests.RequestException as exc:
-        raise FonteIndisponivel('Não consegui o acesso ao Mercado Livre agora (%s).' % str(exc)[:80])
-    valor = (dados.get('access_token') or dados.get('accessToken') or dados.get('token')) if isinstance(dados, dict) else str(dados).strip().strip('"')
+            r = _SESS.get(url, timeout=(5, 30), allow_redirects=True)
+            r.raise_for_status()
+            try:
+                dados = r.json()
+            except ValueError:
+                dados = r.text.strip()
+        except requests.RequestException as exc:
+            if tentativa == 0:
+                time.sleep(1.5)
+                continue
+            raise FonteIndisponivel('Não consegui o acesso ao Mercado Livre agora (%s).' % str(exc)[:80])
+        valor = (dados.get('access_token') or dados.get('accessToken') or dados.get('token')) if isinstance(dados, dict) else str(dados).strip().strip('"')
+        valor = str(valor or '').strip()
+        if _TOKEN_OK.match(valor):
+            break
+        valor = ''
+        if tentativa == 0:
+            time.sleep(1.5)
     if not valor:
-        raise FonteIndisponivel('O Mercado Livre não devolveu o acesso da conta %s.' % conta)
+        raise FonteIndisponivel('O Google (Apps Script) não devolveu o acesso da conta %s: veio uma página de erro em vez do código. Tente de novo em instantes; se repetir, abra a implantação do Apps Script dessa conta e confira se está como "Qualquer pessoa" e sem erro.' % conta)
     with _LOCK:
         _TOKENS[conta] = (str(valor).strip(), time.monotonic())
     return _TOKENS[conta][0]

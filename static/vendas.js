@@ -448,14 +448,16 @@ function vendasDeEtiqueta(){
 }
 async function marcarEtiqueta(situacao){
   const regs = vendasDeEtiqueta(); if (!regs.length) return;
-  const rot = situacao === 'GERADA' ? 'gerada' : 'cancelada';
-  mensagem('Anotando na planilha (' + regs.length + ' vendas)…', 'ok');
+  const rot = situacao === 'GERADA' ? 'gerada' : 'cancelada', aviso = (t, tipo) => { mensagem(t, tipo); const q = $('vEtqStatus'); q.textContent = t; q.className = 'aviso ' + (tipo || ''); q.hidden = !t; };
+  aviso('Anotando na planilha (' + regs.length + ' vendas)…', 'ok');
+  for (const id of ['vEtqMarcar', 'vEtqGerada', 'vEtqCancelada']) $(id).disabled = true;
   try {
     for (let i = 0; i < regs.length; i += 200) await json('/api/vendas/etiquetas-marcar', {situacao, registros: regs.slice(i, i + 200)});
     const agora = new Date(), data = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
     for (const g of regs) { ETQ[g.conta + '|' + g.pedido] = {situacao, data}; ETQ_VISTOS.add(g.conta + '|' + g.pedido); }
-    ETQ_ERRO = ''; mensagem('Etiqueta ' + rot + ' anotada na planilha para ' + regs.length + ' venda(s).', 'ok'); desenhar();
-  } catch (e) { mensagem('Não anotei na planilha: ' + e.message, 'erro'); }
+    ETQ_ERRO = ''; SEL.clear(); $('vPainelEtq').hidden = true;       // anotou: fecha o painel e desmarca, para não gerar a mesma etiqueta de novo sem querer
+    desenhar(); mensagem('Etiqueta ' + rot + ' anotada na planilha para ' + regs.length + ' venda(s). A coluna “OK etiqueta” já mostra.', 'ok'); $('vMsg').scrollIntoView({behavior: 'smooth', block: 'center'});
+  } catch (e) { aviso('Não anotei na planilha: ' + e.message, 'erro'); desenhar(); }
 }
 $('vEtqGerada').onclick = () => marcarEtiqueta('GERADA');
 $('vEtqCancelada').onclick = () => marcarEtiqueta('CANCELADA');
@@ -531,7 +533,7 @@ function desenharEtiquetas(){
     return c;
   }));
 }
-$('vEtqGerar').onclick = () => { if (!SEL.size) return; $('vPainelEtq').hidden = false; desenharEtiquetas(); $('vPainelEtq').scrollIntoView({behavior: 'smooth', block: 'center'}); };
+$('vEtqGerar').onclick = () => { if (!SEL.size) return; $('vEtqStatus').hidden = true; $('vPainelEtq').hidden = false; desenharEtiquetas(); $('vPainelEtq').scrollIntoView({behavior: 'smooth', block: 'center'}); };
 $('vEtqDpi').onchange = desenharEtiquetas;
 $('vEtqFechar').onclick = () => { $('vPainelEtq').hidden = true; };
 $('vEtqBaixar').onclick = () => {

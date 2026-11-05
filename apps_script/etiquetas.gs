@@ -80,7 +80,7 @@ function etiquetasRegistrar_(b) {
     }
 
     SpreadsheetApp.flush();
-    return { gravados: gravados, atualizados: atualizados };
+    return { ok: true, gravados: gravados, atualizados: atualizados };
   } finally {
     lock.releaseLock();
   }
@@ -106,5 +106,5 @@ function etiquetasLer_(b) {
     });
   }
 
-  return { etiquetas: saida };
+  return { ok: true, etiquetas: saida };
 }

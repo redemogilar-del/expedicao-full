@@ -57,6 +57,13 @@ class EtiquetasTest(unittest.TestCase):
         self.assertEqual((l['sku'], l['sku_orig']), ('NOVO', 'ANTIGO'))
         self.assertEqual(l['custo_unit'], 50)
 
+    def test_calcular_usa_frete_digitado_e_guarda_o_original(self):
+        linha = {'conta': 'ML19', 'pedido': '1', 'mlb': 'MLB1', 'sku': 'A', 'quantidade': 1, 'venda': 100, 'tarifa': 10, 'frete': 20, 'frete_orig': 5, 'frete_editado': '1', 'grupo': 'a_enviar'}
+        r = self.c.post('/api/vendas/calcular', json={'linhas': [linha], 'cadastro': {'A': {'custo': 50, 'margem': 10, 'margem_full': 10}}, 'parametros': {'imposto_pct': '5', 'margem_padrao': '20'}})
+        l = r.get_json()['linhas'][0]
+        self.assertEqual((l['frete'], l['frete_orig'], l['frete_editado']), (20, 5, '1'))
+        self.assertEqual(l['lucro'], 100 - 10 - 20 - 5 - 50)
+
 
 if __name__ == '__main__':
     unittest.main()

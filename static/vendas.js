@@ -346,7 +346,7 @@ function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
   const cols = [];
   cols.push(el('th', {class:'chk', title:'Marcar as vendas: vale para baixar em Excel, atualizar o preço (só as que podem) e a lista “Não enviar” (só as que ainda serão enviadas)'}, Object.assign(el('input', {type:'checkbox', id:'vTodosSel', title:'Marcar/desmarcar tudo que está na tela'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r._i); else SEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('OK etiqueta', '', 'Gerada = você já marcou que a etiqueta deste pedido foi gerada (não precisa gerar de novo). Cancelada = a etiqueta foi cancelada. Vem da aba Etiquetas da planilha.'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('Nº do envio', '', 'Número do envio (o #4841… do Mercado Livre) e número da venda no Mercado Livre. Qualquer um deles funciona na busca.'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
-    t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
+    t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n', 'Digite para corrigir o frete desta venda (só nesta tela)'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
     t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
     t('Envio'));
   $('vCab').replaceChildren(...cols);
@@ -386,6 +386,27 @@ function campoSku(r){
       if (novo && !CAD[novo]) Object.assign(CAD, (await comTentativas(() => json('/api/vendas/cadastro', {skus: [novo]}))).cadastro);
       await recalcular(); INFO = {}; mensagem(''); desenhar();
     } catch (e) { mensagem(e.message, 'erro'); desenhar(); }
+  };
+  return i;
+}
+
+// ---------- frete editável na própria linha (só nesta tela: vale para esta venda; o lucro é recalculado) ----------
+const freteEditado = r => r.frete_editado === '1';
+function campoFrete(r){
+  const ed = freteEditado(r);
+  const i = el('input', {type:'number', min:0, step:'0.01', value: r.frete === null || r.frete === undefined ? '' : r.frete, placeholder: '—', class: ed ? 'editado' : '',
+    title: ed ? 'Frete digitado por você (no Mercado Livre era ' + (r.frete_orig === null || r.frete_orig === undefined ? 'desconhecido' : brl(r.frete_orig)) + '). Vale só para esta venda, nesta tela.' : 'Frete do vendedor lido do Mercado Livre. Digite para corrigir (vale só para esta venda, nesta tela)'});
+  i.onchange = () => {
+    const txt = String(i.value).replace(',', '.').trim(), v = Number(txt);
+    const alvo = RAW.filter(x => x.conta === r.conta && x.pedido === r.pedido && x.mlb === r.mlb && (x.sku || '') === (r.sku || ''));
+    if (!alvo.length) { desenhar(); return; }
+    if (txt !== '' && !(Number.isFinite(v) && v >= 0)) { mensagem('Digite um frete válido (zero ou mais).', 'erro'); desenhar(); return; }
+    for (const x of alvo) {
+      if (txt === '' || (x.frete_editado === '1' && v === x.frete_orig)) { if (x.frete_editado === '1') { x.frete = x.frete_orig; } delete x.frete_orig; delete x.frete_editado; continue; }   // vazio = volta ao frete do ML
+      if (x.frete_editado !== '1') { x.frete_orig = x.frete === undefined ? null : x.frete; x.frete_editado = '1'; }
+      x.frete = v;
+    }
+    mensagem(''); recalcular().then(() => { INFO = {}; desenhar(); }).catch(e => mensagem(e.message, 'erro'));
   };
   return i;
 }
@@ -545,7 +566,7 @@ function linha(r){
     el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
     el('td', {}, r.mlb),
     el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),
-    el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, brl(r.frete)), el('td', {class:'n'}, brl(r.imposto)),
+    el('td', {class:'n'}, num(r.quantidade)), el('td', {class:'n'}, brl(r.venda)), el('td', {class:'n'}, brl(r.tarifa)), el('td', {class:'n'}, campoFrete(r)), el('td', {class:'n'}, brl(r.imposto)),
     el('td', {class:'n'}, campoEditavel(r, 'custo')), el('td', {class: sinal(r.lucro)}, brl(r.lucro)), el('td', {class: sinal(r.margem)}, pct(r.margem)),
     el('td', {class:'n'}, campoEditavel(r, 'meta')), el('td', {class:'n'}, precoAtual), el('td', {class:'n'}, precoNovo), el('td', {}, ENV[r.grupo] || r.grupo));
   return el('tr', {class: SEL.has(r._i) ? 'marcada' : ''}, ...cels);

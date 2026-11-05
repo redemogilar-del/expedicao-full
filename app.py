@@ -652,7 +652,7 @@ if __name__ == '__main__':
 
 
 # ------------------------------------------------------------------ Vendas do dia (lucro por venda)
-_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'envio_id', 'pedido_upseller', 'limite_envio', 'limite_dt', 'sku_orig')
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'envio_id', 'pedido_upseller', 'limite_envio', 'limite_dt', 'sku_orig', 'frete_editado')
 
 
 def _params_vendas(c):
@@ -880,7 +880,7 @@ def api_vendas_calcular():
         bruto, cad = c.get('linhas'), c.get('cadastro')
         if not isinstance(bruto, list) or len(bruto) > 20000 or not isinstance(cad, dict):
             raise envios.ArquivoInvalido('Dados inválidos.')
-        linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete', 'preco_ml')} for r in bruto if isinstance(r, dict)]
+        linhas = [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete', 'preco_ml', 'frete_orig')} for r in bruto if isinstance(r, dict)]
         cadastro = {str(k): {'custo': _num(v.get('custo')), 'margem': _num(v.get('margem')), 'margem_full': _num(v.get('margem_full'))} for k, v in cad.items() if isinstance(v, dict)}
         analisadas, resumo = vendas.calcular(linhas, cadastro, params)
         return jsonify(ok=True, linhas=analisadas, resumo=resumo)
@@ -898,7 +898,7 @@ def _linhas_vendas(c):
     for r in bruto:
         if not isinstance(r, dict):
             raise envios.ArquivoInvalido('Dados inválidos.')
-        base = {k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete')}
+        base = {k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT else _num(r.get(k))) for k in _CAMPOS_TXT + ('quantidade', 'venda', 'tarifa', 'frete', 'frete_orig')}
         meta = _num(r.get('meta'))
         cad = {'custo': _num(r.get('custo_unit')), 'margem': meta, 'margem_full': meta}
         a = vendas.analisar(base, cad, params)

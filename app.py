@@ -652,7 +652,7 @@ if __name__ == '__main__':
 
 
 # ------------------------------------------------------------------ Vendas do dia (lucro por venda)
-_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'envio_id', 'pedido_upseller', 'limite_envio', 'limite_dt')
+_CAMPOS_TXT = ('conta', 'pedido', 'data', 'mlb', 'sku', 'titulo', 'grupo', 'logistica', 'status_envio', 'substatus', 'status_rotulo', 'obs', 'meta_origem', 'pack_id', 'envio_id', 'pedido_upseller', 'limite_envio', 'limite_dt', 'sku_orig')
 
 
 def _params_vendas(c):
@@ -1059,6 +1059,43 @@ def api_vendas_salvar():
         return jsonify(ok=True, **fontes.salvar_relatorio(payload))
     except Exception as exc:
         return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/etiquetas-marcar')
+def api_vendas_etiquetas_marcar():
+    """Anota na planilha que a etiqueta do pedido foi GERADA ou CANCELADA. Escreve só na planilha (nada muda no Mercado Livre)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        situacao = c.get('situacao')
+        if situacao not in ('GERADA', 'CANCELADA'):
+            raise envios.ArquivoInvalido('Situação da etiqueta inválida.')
+        bruto = c.get('registros')
+        if not isinstance(bruto, list) or not 1 <= len(bruto) <= 200:
+            raise envios.ArquivoInvalido('Marque de 1 a 200 vendas por vez.')
+        regs = []
+        for r in bruto:
+            if not isinstance(r, dict) or r.get('conta') not in fontes.CONTAS or not str(r.get('pedido') or '').strip():
+                raise envios.ArquivoInvalido('Venda inválida na lista.')
+            regs.append({'conta': r['conta'], 'pedido': str(r['pedido']).strip()[:30], 'envio_id': str(r.get('envio_id') or '')[:30], 'sku': str(r.get('sku') or '')[:200],
+                         'quantidade': _num(r.get('quantidade')), 'situacao': situacao})
+        return jsonify(ok=True, **fontes.etiquetas_registrar(regs))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/vendas/etiquetas-ler')
+def api_vendas_etiquetas_ler():
+    """Lê da planilha quais pedidos já tiveram etiqueta gerada/cancelada. Somente leitura."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('conta') not in fontes.CONTAS:
+            raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
+        ped = c.get('pedidos')
+        if not isinstance(ped, list) or len(ped) > 600:
+            raise envios.ArquivoInvalido('Lista de pedidos inválida.')
+        return jsonify(ok=True, etiquetas=fontes.etiquetas_ler(c['conta'], [str(p)[:30] for p in ped if str(p).strip()]))
+    except Exception as exc:
+        return _erro_leitura(exc)
 
 
 # ------------------------------------------------------------------ Preço necessário e atualização de preço no ML

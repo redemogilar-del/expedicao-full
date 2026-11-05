@@ -741,6 +741,37 @@ def registrar_precos(conta, itens):
         return 'não anotado na planilha: ' + str(exc)[:60]
 
 
+def _sheets_post(corpo, espera=35):
+    url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
+    if not url.startswith('https://script.google.com/') or not chave:
+        raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
+    try:
+        r = _SESS.post(url, json=dict(corpo, chave=chave), timeout=(5, espera), allow_redirects=True)
+        r.raise_for_status()
+        dados = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise FonteIndisponivel('Não consegui falar com a planilha agora (%s). Tente de novo.' % str(exc)[:80])
+    if not isinstance(dados, dict) or dados.get('ok') is not True:
+        raise FonteIndisponivel('A planilha ainda não tem o trecho das etiquetas (arquivo apps_script/etiquetas.gs). Falta colocar no Apps Script.')
+    return dados
+
+
+def etiquetas_registrar(registros):
+    """Grava na aba 'Etiquetas' da planilha a situação (GERADA/CANCELADA) de cada pedido. Quem repete é atualizado, nunca duplicado."""
+    dados = _sheets_post({'acao': 'etiquetas_registrar', 'registros': registros})
+    return {'gravados': int(dados.get('gravados') or 0), 'atualizados': int(dados.get('atualizados') or 0)}
+
+
+def etiquetas_ler(conta, pedidos):
+    """{pedido: {'situacao', 'data'}} do que já foi marcado na aba 'Etiquetas'. Pedido que não está na aba simplesmente não aparece."""
+    dados = _sheets_post({'acao': 'etiquetas_ler', 'conta': conta, 'pedidos': pedidos}, espera=45)
+    saida = {}
+    for k, v in (dados.get('etiquetas') or {}).items():
+        if isinstance(v, dict) and v.get('situacao') in ('GERADA', 'CANCELADA'):
+            saida[str(k)] = {'situacao': v['situacao'], 'data': str(v.get('data') or '')[:20]}
+    return saida
+
+
 def impostos_conta(conta):
     """Imposto/embalagem (% do valor da venda) da aba TaxasML da conta: {'normal': %, 'full': %}. Sempre lido na hora (sem cache): mudou na planilha, vale na próxima busca. Falha vira erro explicativo, nunca zero."""
     if conta not in CONTAS:

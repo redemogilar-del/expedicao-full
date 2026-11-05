@@ -89,7 +89,8 @@ async function buscar(modo){
     await recalcular();
     aba = 'mogilar'; sub = 'a_enviar'; CLASSES.clear(); UPF.clear(); busca = ''; $('vBusca').value = ''; $('vExpira').value = '';
     if (!LINHAS.some(r => r.grupo !== 'full' && r.grupo === 'a_enviar')) sub = 'todos';
-    $('vResultado').hidden = false; desenhar(); progresso(null);
+    ETQ = {}; ETQ_VISTOS = new Set(); ETQ_ERRO = '';
+    $('vResultado').hidden = false; desenhar(); progresso(null); carregarEtiquetas();
     if (falhas.length && !$('vImposto').value) mensagem('Não consegui ler o imposto da planilha (' + falhas.join(' · ') + '). As vendas dessa conta ficam "Sem dados" até você digitar o imposto no campo.', 'erro');
     $('vResultado').scrollIntoView({behavior: 'smooth'});
   } catch (err) { progresso(null); mensagem(err.message, 'erro'); }
@@ -323,6 +324,9 @@ function desenhar(){
   $('vMarcarRuins').disabled = !lista.some(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); $('vLimpar').disabled = !SEL.size;
   const sel = LINHAS.filter(r => SEL.has(r._i) && selecionavel(r));
   { const n = new Set(LINHAS.filter(r => SEL.has(r._i)).map(r => r.conta + '|' + r.mlb)).size; $('vSku').disabled = !n; $('vPausar').disabled = !n; $('vSku').textContent = 'Trocar SKU dos marcados (' + n + ')'; $('vPausar').textContent = 'Pausar anúncios marcados (' + n + ')'; }
+  { const nE = LINHAS.filter(r => SEL.has(r._i)).length, nS = new Set(LINHAS.filter(r => SEL.has(r._i) && skuEditado(r)).map(r => r.conta + '|' + r.mlb)).size;
+    $('vEtqGerar').disabled = !nE; $('vEtqGerada').disabled = !nE; $('vEtqCancelada').disabled = !nE; $('vSkuGravar').disabled = !nS;
+    $('vEtqGerar').textContent = 'Gerar etiqueta 40×40 (' + nE + ')'; $('vEtqGerada').textContent = 'Marcar etiqueta gerada (' + nE + ')'; $('vEtqCancelada').textContent = 'Marcar etiqueta cancelada (' + nE + ')'; $('vSkuGravar').textContent = 'Gravar SKU alterado no ML (' + nS + ')'; }
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
   { // explica por que marcadas não entram no preço (nada some em silêncio)
     const m = LINHAS.filter(r => SEL.has(r._i)); let ja = 0, calc = 0, bloq = 0, sem = 0;
@@ -341,7 +345,7 @@ function desenhar(){
 function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
   const cols = [];
-  cols.push(el('th', {class:'chk', title:'Marcar as vendas: vale para baixar em Excel, atualizar o preço (só as que podem) e a lista “Não enviar” (só as que ainda serão enviadas)'}, Object.assign(el('input', {type:'checkbox', id:'vTodosSel', title:'Marcar/desmarcar tudo que está na tela'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r._i); else SEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('Nº do envio', '', 'Número do envio (o #4841… do Mercado Livre) e número da venda no Mercado Livre. Qualquer um deles funciona na busca.'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
+  cols.push(el('th', {class:'chk', title:'Marcar as vendas: vale para baixar em Excel, atualizar o preço (só as que podem) e a lista “Não enviar” (só as que ainda serão enviadas)'}, Object.assign(el('input', {type:'checkbox', id:'vTodosSel', title:'Marcar/desmarcar tudo que está na tela'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r._i); else SEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('OK etiqueta', '', 'Gerada = você já marcou que a etiqueta deste pedido foi gerada (não precisa gerar de novo). Cancelada = a etiqueta foi cancelada. Vem da aba Etiquetas da planilha.'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('Nº do envio', '', 'Número do envio (o #4841… do Mercado Livre) e número da venda no Mercado Livre. Qualquer um deles funciona na busca.'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
     t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
     t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
     t('Envio'));
@@ -360,6 +364,161 @@ function campoEditavel(r, campo){
   };
   return i;
 }
+
+// ---------- SKU editável na própria linha (só nesta tela; gravar no Mercado Livre é um botão à parte, com confirmação) ----------
+const SEM_SKU = '(sem SKU)';
+const skuEditado = r => !!r.sku_orig && r.sku_orig !== r.sku;
+function campoSku(r){
+  const editado = skuEditado(r);
+  const i = el('input', {type:'text', maxLength:100, value: r.sku || '', placeholder: 'sem SKU', class: editado ? 'editado' : '', title: editado ? 'SKU alterado só nesta tela (no Mercado Livre era: ' + (r.sku_orig === SEM_SKU ? 'sem SKU' : r.sku_orig) + '). Marque a venda e use “Gravar SKU alterado no ML”.' : 'Clique para trocar o SKU desta venda: o custo é buscado na planilha e o lucro recalculado'});
+  i.onchange = async () => {
+    const novo = String(i.value).trim().slice(0, 100), atual = r.sku || '';
+    if (novo === atual) return;
+    const alvo = RAW.filter(x => x.conta === r.conta && x.pedido === r.pedido && x.mlb === r.mlb && (x.sku || '') === atual);
+    if (!alvo.length) { desenhar(); return; }
+    try {
+      mensagem('Buscando o custo do SKU ' + (novo || '(vazio)') + '…', 'ok');
+      for (const x of alvo) {
+        if (!x.sku_orig) x.sku_orig = atual || SEM_SKU;
+        x.sku = novo;
+        if (x.sku_orig === (novo || SEM_SKU)) delete x.sku_orig;      // voltou ao SKU original
+      }
+      if (novo && !CAD[novo]) Object.assign(CAD, (await comTentativas(() => json('/api/vendas/cadastro', {skus: [novo]}))).cadastro);
+      await recalcular(); INFO = {}; mensagem(''); desenhar();
+    } catch (e) { mensagem(e.message, 'erro'); desenhar(); }
+  };
+  return i;
+}
+
+// ---------- controle das etiquetas (aba "Etiquetas" da planilha) ----------
+let ETQ = {}, ETQ_VISTOS = new Set(), ETQ_ERRO = '';
+const chaveEtq = r => r.conta + '|' + r.pedido;
+function celulaEtiqueta(r){
+  const e = ETQ[chaveEtq(r)];
+  if (e) return el('span', {title: e.data ? 'Marcado em ' + e.data : ''}, el('span', {class: 'tag ' + (e.situacao === 'GERADA' ? 'v-dentro' : 'v-abaixo')}, e.situacao === 'GERADA' ? 'Gerada' : 'Cancelada'), e.data ? el('div', {class:'mlbs'}, e.data) : '');
+  return el('span', {class:'mlbs', title: ETQ_ERRO || 'Ainda não marcada como gerada'}, ETQ_ERRO ? '?' : '—');
+}
+async function carregarEtiquetas(){
+  const por = {};
+  for (const r of RAW) { const k = chaveEtq(r); if (!ETQ_VISTOS.has(k)) (por[r.conta] = por[r.conta] || new Set()).add(r.pedido); }
+  const versao = VERSAO;
+  try {
+    for (const [conta, set] of Object.entries(por)) {
+      const lista = [...set];
+      for (let i = 0; i < lista.length; i += 500) {
+        const lote = lista.slice(i, i + 500);
+        const d = await comTentativas(() => json('/api/vendas/etiquetas-ler', {conta, pedidos: lote}));
+        if (versao !== VERSAO) return;
+        for (const p of lote) ETQ_VISTOS.add(conta + '|' + p);
+        for (const [p, v] of Object.entries(d.etiquetas || {})) ETQ[conta + '|' + p] = v;
+      }
+    }
+    ETQ_ERRO = '';
+  } catch (e) { ETQ_ERRO = 'Controle de etiquetas indisponível: ' + e.message; }
+  if (versao === VERSAO) desenhar();
+}
+function vendasDeEtiqueta(){
+  const por = new Map();
+  for (const r of LINHAS) if (SEL.has(r._i)) {
+    const k = chaveEtq(r), x = por.get(k) || {conta: r.conta, pedido: r.pedido, envio_id: r.envio_id || '', skus: [], quantidade: 0};
+    x.skus.push(r.sku || SEM_SKU); x.quantidade += Number(r.quantidade) || 0; por.set(k, x);
+  }
+  return [...por.values()].map(x => ({conta: x.conta, pedido: x.pedido, envio_id: x.envio_id, sku: [...new Set(x.skus)].join(' + '), quantidade: x.quantidade}));
+}
+async function marcarEtiqueta(situacao){
+  const regs = vendasDeEtiqueta(); if (!regs.length) return;
+  const rot = situacao === 'GERADA' ? 'gerada' : 'cancelada';
+  mensagem('Anotando na planilha (' + regs.length + ' vendas)…', 'ok');
+  try {
+    for (let i = 0; i < regs.length; i += 200) await json('/api/vendas/etiquetas-marcar', {situacao, registros: regs.slice(i, i + 200)});
+    const agora = new Date(), data = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+    for (const g of regs) { ETQ[g.conta + '|' + g.pedido] = {situacao, data}; ETQ_VISTOS.add(g.conta + '|' + g.pedido); }
+    ETQ_ERRO = ''; mensagem('Etiqueta ' + rot + ' anotada na planilha para ' + regs.length + ' venda(s).', 'ok'); desenhar();
+  } catch (e) { mensagem('Não anotei na planilha: ' + e.message, 'erro'); }
+}
+$('vEtqGerada').onclick = () => marcarEtiqueta('GERADA');
+$('vEtqCancelada').onclick = () => marcarEtiqueta('CANCELADA');
+
+// ---------- etiqueta 40 x 40 mm para impressora térmica Zebra (ZPL) ----------
+const MAX_ITENS_ETQ = 6, FATOR_LARG = 0.55;     // largura de um caractere ≈ 0,55 × altura (a fonte da Zebra é estreita; o cálculo é conservador para o SKU nunca passar da borda)
+function quebraSku(t){
+  const meio = Math.floor(t.length / 2); let melhor = meio;
+  for (let d = 0; d < Math.min(6, meio); d++) for (const p of [meio - d, meio + d]) if (p > 0 && p < t.length && /[_\- .]/.test(t[p - 1])) return [t.slice(0, p), t.slice(p)];
+  return [t.slice(0, melhor), t.slice(melhor)];
+}
+function layoutEtiqueta(itens, dpi){
+  const dpmm = dpi / 25.4, W = Math.round(40 * dpmm), m = Math.round(2 * dpmm), n = itens.length, uso = W - 2 * m, ops = [];
+  const ajusta = (txt, larg, hMax) => {            // maior altura de letra em que o SKU cabe em 1 linha; se ficar pequeno, tenta 2 linhas
+    const h1 = Math.min(hMax, larg / (txt.length * FATOR_LARG));
+    if (h1 >= hMax * 0.5 || txt.length <= 6) return {partes: [txt], h: Math.max(10, h1)};
+    const duas = quebraSku(txt), h2 = Math.min(hMax / 2 * 0.95, larg / (Math.max(duas[0].length, duas[1].length) * FATOR_LARG));
+    return h2 > h1 ? {partes: duas, h: Math.max(10, h2)} : {partes: [txt], h: Math.max(10, h1)};
+  };
+  const limpa = t => String(t).replace(/[\^~]/g, ' ');
+  if (n === 1) {                                    // um produto: SKU em cima (1 ou 2 linhas, largura toda) e a quantidade enorme embaixo
+    const it = itens[0], hSku = uso * 0.5, a = ajusta(limpa(it.sku), uso, hSku), qt = 'x' + it.qtd, hq = uso * 0.42;
+    a.partes.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: m + (hSku - a.h * a.partes.length) / 2 + k * a.h, h: a.h, w: a.h * 0.5, larg: uso}));
+    ops.push({t: 'qtd', txt: qt, x: m, y: m + uso * 0.56, h: hq, w: hq * 0.5, larg: uso, alinha: 'C'});
+  } else {
+    const bh = uso / n;
+    itens.forEach((it, i) => {
+      const y0 = m + i * bh, qt = 'x' + it.qtd;
+      let hq = bh * 0.82; while (qt.length * hq * FATOR_LARG > uso * 0.32) hq *= 0.92;
+      const qW = Math.ceil(qt.length * hq * FATOR_LARG), disp = uso - qW - m, a = ajusta(limpa(it.sku), disp, bh * 0.82);
+      a.partes.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: y0 + (bh - a.h * a.partes.length) / 2 + k * a.h, h: a.h, w: a.h * 0.5, larg: disp}));
+      ops.push({t: 'qtd', txt: qt, x: W - m - qW, y: y0 + (bh - hq) / 2, h: hq, w: hq * 0.5, larg: qW, alinha: 'R'});
+      if (i > 0) ops.push({t: 'linha', x: m, y: y0, larg: uso});
+    });
+  }
+  return {W, ops: ops.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : v])))};
+}
+function zplEtiqueta(itens, dpi){
+  const {W, ops} = layoutEtiqueta(itens, dpi);
+  let z = '^XA^CI28^PW' + W + '^LL' + W + '^LH0,0\n';
+  for (const o of ops) {
+    if (o.t === 'linha') z += '^FO' + o.x + ',' + o.y + '^GB' + o.larg + ',2,2^FS\n';
+    else if (o.t === 'qtd') z += '^FO' + o.x + ',' + o.y + '^A0N,' + o.h + ',' + o.w + '^FB' + o.larg + ',1,0,' + (o.alinha || 'R') + ',0^FD' + o.txt + '^FS\n';
+    else z += '^FO' + o.x + ',' + o.y + '^A0N,' + o.h + ',' + o.w + '^FD' + o.txt + '^FS\n';
+  }
+  return z + '^PQ1,0,1,N\n^XZ\n';
+}
+function etiquetasDosMarcados(){
+  const por = new Map();
+  for (const r of LINHAS) if (SEL.has(r._i)) {
+    const k = r.conta + '|' + (r.envio_id || r.pack_id || r.pedido), g = por.get(k) || new Map();
+    const sku = r.sku || SEM_SKU; g.set(sku, (g.get(sku) || 0) + (Number(r.quantidade) || 0)); por.set(k, g);
+  }
+  const etqs = [];
+  for (const g of por.values()) {
+    const itens = [...g].map(([sku, qtd]) => ({sku, qtd}));
+    for (let i = 0; i < itens.length; i += MAX_ITENS_ETQ) etqs.push(itens.slice(i, i + MAX_ITENS_ETQ));
+  }
+  return etqs;
+}
+let ZPL_ATUAL = '';
+function desenharEtiquetas(){
+  const dpi = Number($('vEtqDpi').value), etqs = etiquetasDosMarcados();
+  ZPL_ATUAL = etqs.map(e => zplEtiqueta(e, dpi)).join('');
+  $('vEtqRes').textContent = etqs.length + ' etiqueta(s) de 40 × 40 mm para ' + SEL.size + ' venda(s) marcada(s).' + (etqs.some(e => e.length > 1) ? ' Vendas com mais de um produto saem numa etiqueta só, com o tamanho adaptado.' : '');
+  $('vEtqPrev').replaceChildren(...etqs.map(e => {
+    const {W, ops} = layoutEtiqueta(e, dpi), c = el('canvas', {width: W, height: W, class: 'etq-prev'}), x = c.getContext('2d');
+    x.fillStyle = '#fff'; x.fillRect(0, 0, W, W); x.fillStyle = '#000'; x.textBaseline = 'top';
+    for (const o of ops) {
+      if (o.t === 'linha') x.fillRect(o.x, o.y, o.larg, 2);
+      else { x.font = 'bold ' + o.h + 'px Arial Narrow, Arial'; const ali = o.t === 'qtd' ? (o.alinha || 'R') : 'L'; x.textAlign = ali === 'R' ? 'right' : (ali === 'C' ? 'center' : 'left'); x.fillText(o.txt, ali === 'R' ? o.x + o.larg : (ali === 'C' ? o.x + o.larg / 2 : o.x), o.y, o.larg); }
+    }
+    return c;
+  }));
+}
+$('vEtqGerar').onclick = () => { if (!SEL.size) return; $('vPainelEtq').hidden = false; desenharEtiquetas(); $('vPainelEtq').scrollIntoView({behavior: 'smooth', block: 'center'}); };
+$('vEtqDpi').onchange = desenharEtiquetas;
+$('vEtqFechar').onclick = () => { $('vPainelEtq').hidden = true; };
+$('vEtqBaixar').onclick = () => {
+  const a = el('a', {href: URL.createObjectURL(new Blob([ZPL_ATUAL], {type: 'text/plain'})), download: 'etiquetas-40x40-' + dataIso(new Date()) + '.zpl'});
+  document.body.append(a); a.click(); a.remove();
+};
+$('vEtqCopiar').onclick = async () => { try { await navigator.clipboard.writeText(ZPL_ATUAL); mensagem('Código ZPL copiado. Cole no programa da Zebra ou no visualizador de ZPL.', 'ok'); } catch (e) { mensagem('Não consegui copiar. Use “Baixar arquivo .zpl”.', 'erro'); } };
+$('vEtqMarcar').onclick = () => marcarEtiqueta('GERADA');
 function linha(r){
   const cels = [];
   const sinal = v => v === null || v === undefined ? '' : (v < 0 ? 'n neg' : 'n pos');
@@ -379,9 +538,10 @@ function linha(r){
     el('td', {class:'chk'}, cb),
     el('td', {}, el('span', {class:'tag v-' + r.classe, title: r.pendencias ? 'Falta: ' + r.pendencias : (r.meta_origem === 'padrão' ? 'Usou a margem mínima padrão (produto sem margem na planilha)' : '')}, ROT[r.classe])),
     el('td', {}, ups),
+    el('td', {}, celulaEtiqueta(r)),
     el('td', {class: 'n ' + (r.perda_tipo === 'prejuizo' ? 'neg' : '')}, r.perda ? el('span', {}, brl(r.perda), el('div', {class:'mlbs'}, r.perda_tipo === 'prejuizo' ? 'prejuízo' : 'deixou de ganhar')) : '—'),
     el('td', {}, r.conta), el('td', {}, el('span', {class:'pedido-n'}, r.pedido, botaoCopiar(r.pedido)), el('div', {class:'mlbs'}, r.data), soUps(r) ? el('div', {}, el('span', {class:'tag v-abaixo', title:'Este pedido está no UpSeller e a busca não o tinha trazido; foi buscado no Mercado Livre pelo número'}, 'só no UpSeller')) : ''),
-    el('td', {}, r.envio_id ? el('span', {class:'pedido-n', title:'Número do envio'}, r.envio_id, botaoCopiar(r.envio_id)) : '—', r.pack_id && r.pack_id !== r.pedido ? el('div', {class:'mlbs', title:'Número da venda no Mercado Livre (carrinho)'}, 'venda ML ' + r.pack_id, botaoCopiar(r.pack_id)) : ''), el('td', {}, r.sku || '—'),
+    el('td', {}, r.envio_id ? el('span', {class:'pedido-n', title:'Número do envio'}, r.envio_id, botaoCopiar(r.envio_id)) : '—', r.pack_id && r.pack_id !== r.pedido ? el('div', {class:'mlbs', title:'Número da venda no Mercado Livre (carrinho)'}, 'venda ML ' + r.pack_id, botaoCopiar(r.pack_id)) : ''), el('td', {}, campoSku(r)),
     el('td', {}, el('span', {class:'tag e-' + r.grupo, title: r.status_envio ? r.status_envio + (r.substatus ? ' / ' + r.substatus : '') : ''}, r.status_rotulo || '—')),
     el('td', {}, r.mlb),
     el('td', {}, r.titulo.slice(0, 70), r.obs ? el('div', {class:'mlbs'}, r.obs) : ''),
@@ -484,8 +644,18 @@ const anunciosMarcados = () => {
 };
 let ALVOS_SKU = [], ALVOS_PAUSAR = [];
 const emLotes = (lista, fn) => { const por = {}; for (const a of lista) (por[a.conta] = por[a.conta] || []).push(a); return Promise.all(Object.entries(por).map(async ([conta, l]) => { for (let i = 0; i < l.length; i += 10) await fn(conta, l.slice(i, i + 10)); })); };
-$('vSku').onclick = async () => {
-  const marcados = anunciosMarcados(); if (!marcados.length) return;
+let PREENCHE_SKU = {};
+$('vSku').onclick = () => abrirTrocaSku(anunciosMarcados(), {});
+$('vSkuGravar').onclick = () => {
+  const por = new Map(), pre = {};
+  for (const r of LINHAS) if (SEL.has(r._i) && skuEditado(r)) {
+    const k = r.conta + '|' + r.mlb; if (!por.has(k)) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku || '', titulo: r.titulo || ''});
+    pre[k + '|' + (r.sku_orig === SEM_SKU ? '' : r.sku_orig)] = r.sku;
+  }
+  if (por.size) abrirTrocaSku([...por.values()], pre);
+};
+async function abrirTrocaSku(marcados, pre){
+  if (!marcados.length) return; PREENCHE_SKU = pre;
   $('vPainelPausar').hidden = true; $('vSkuEntendi').checked = false; $('vSkuOk').disabled = true; $('vSkuCancela').textContent = 'Cancelar';
   const res = $('vSkuRes'); res.hidden = false; res.className = 'aviso'; res.textContent = 'Lendo no Mercado Livre o SKU de cada variação…';
   $('vSkuLista').replaceChildren(); $('vPainelSku').hidden = false; $('vPainelSku').scrollIntoView({behavior: 'smooth', block: 'center'});
@@ -496,7 +666,7 @@ $('vSku').onclick = async () => {
       for (const a of d.anuncios) {
         const m = lote.find(x => x.mlb === a.mlb);
         if (a.erro) { ALVOS_SKU.push({conta, mlb: a.mlb, titulo: m.titulo, erro: a.erro}); continue; }
-        for (const l of a.locais) ALVOS_SKU.push({conta, mlb: a.mlb, titulo: a.titulo || m.titulo, variacao: l.variacao, nome: l.nome, sku: l.sku, campo: el('input', {type: 'text', maxLength: 100, placeholder: l.sku ? 'deixe vazio para não trocar' : 'digite o SKU'})});
+        for (const l of a.locais) { const campo = el('input', {type: 'text', maxLength: 100, placeholder: l.sku ? 'deixe vazio para não trocar' : 'digite o SKU'}); const p = PREENCHE_SKU[conta + '|' + a.mlb + '|' + (l.sku || '')]; if (p) campo.value = p; ALVOS_SKU.push({conta, mlb: a.mlb, titulo: a.titulo || m.titulo, variacao: l.variacao, nome: l.nome, sku: l.sku, campo}); }
       }
     });
     ALVOS_SKU.sort((x, y) => (x.conta + x.mlb).localeCompare(y.conta + y.mlb));
@@ -505,7 +675,7 @@ $('vSku').onclick = async () => {
       : el('tr', {}, el('td', {}, a.conta), el('td', {}, a.mlb), el('td', {}, a.titulo.slice(0, 40) + (a.nome ? ' — ' + a.nome : '')), el('td', {}, a.sku || '(sem SKU)'), el('td', {}, a.campo))));
     res.hidden = true;
   } catch (e) { res.className = 'aviso erro'; res.textContent = 'Não consegui ler os anúncios: ' + e.message; }
-};
+}
 $('vSkuEntendi').onchange = () => { $('vSkuOk').disabled = !$('vSkuEntendi').checked; };
 $('vSkuCancela').onclick = () => { $('vPainelSku').hidden = true; };
 $('vSkuOk').onclick = async () => {
@@ -524,7 +694,7 @@ $('vSkuOk').onclick = async () => {
         if (r.status === 'OK') { ok++; for (const t of lote.find(a => a.mlb === r.mlb).trocas) novos[conta + '|' + r.mlb + '|' + t.sku_atual] = t.sku_novo; }
       }
     });
-    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb + '|' + (x.sku || '')]; if (n) x.sku = n; }      // as vendas que usavam o SKU antigo passam a usar o novo
+    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb + '|' + (x.sku || '')]; if (n) x.sku = n; if (x.sku_orig && novos[x.conta + '|' + x.mlb + '|' + (x.sku_orig === SEM_SKU ? '' : x.sku_orig)] === x.sku) delete x.sku_orig; }      // as vendas que usavam o SKU antigo passam a usar o novo
     const faltam = [...new Set(Object.values(novos))].filter(k => !CAD[k]);
     for (let i = 0; i < faltam.length; i += 100) Object.assign(CAD, (await json('/api/vendas/cadastro', {skus: faltam.slice(i, i + 100)})).cadastro);
     if (ok) { await recalcular(); INFO = {}; }

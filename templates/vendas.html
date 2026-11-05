@@ -60,6 +60,10 @@
     <button class="secundario" id="vLimpar">Desmarcar tudo</button>
     <button class="primario" id="vPreco" disabled>Atualizar preço no Mercado Livre</button>
     <button class="secundario" id="vSku" disabled>Trocar SKU dos marcados</button>
+    <button class="secundario" id="vSkuGravar" disabled title="Depois de editar o SKU na linha, marque a venda e clique aqui para gravar o SKU novo no Mercado Livre (com confirmação)">Gravar SKU alterado no ML</button>
+    <button class="secundario" id="vEtqGerar" disabled>Gerar etiqueta 40×40</button>
+    <button class="secundario" id="vEtqGerada" disabled title="Anota na planilha que a etiqueta destas vendas já foi gerada">Marcar etiqueta gerada</button>
+    <button class="secundario" id="vEtqCancelada" disabled title="Anota na planilha que a etiqueta destas vendas foi cancelada">Marcar etiqueta cancelada</button>
     <button class="secundario" id="vPausar" disabled>Pausar anúncios marcados</button>
     <div id="vPrecoDica" class="mlbs"></div>
   </div>
@@ -72,6 +76,15 @@
     <label class="inline-campo"><input type="checkbox" id="vSkuEntendi"> Entendo que isso muda o SKU de verdade no Mercado Livre</label>
     <p id="vSkuRes" class="aviso" hidden></p>
     <div class="acoes"><button class="primario" id="vSkuOk" disabled>Confirmar e trocar SKU</button><button class="secundario" id="vSkuCancela">Cancelar</button></div>
+  </div>
+
+  <div id="vPainelEtq" class="cartao painel-preco" hidden>
+    <h2>Etiqueta 40 × 40 mm (Zebra, rolo)</h2>
+    <p class="suave pequeno">Cada etiqueta traz o SKU e a quantidade em letras grandes. Venda com mais de um produto sai numa etiqueta só, com o tamanho adaptado para caber tudo. Baixe o arquivo e envie para a Zebra, ou copie o código e cole no programa da impressora. A imagem abaixo é só uma prévia aproximada.</p>
+    <label class="inline-campo">Resolução da impressora: <select id="vEtqDpi"><option value="203">203 dpi (padrão)</option><option value="300">300 dpi</option></select></label>
+    <p class="pequeno" id="vEtqRes"></p>
+    <div class="etq-lista" id="vEtqPrev"></div>
+    <div class="acoes"><button class="primario" id="vEtqBaixar">Baixar arquivo .zpl</button><button class="secundario" id="vEtqCopiar">Copiar código ZPL</button><button class="secundario" id="vEtqMarcar">Marcar estas vendas como etiqueta gerada</button><button class="secundario" id="vEtqFechar">Fechar</button></div>
   </div>
 
   <div id="vPainelPausar" class="cartao painel-preco" hidden>

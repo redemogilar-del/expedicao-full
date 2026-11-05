@@ -62,3 +62,18 @@ assert.strictEqual(vendasPrecos_({ conta: 'ML19', itens: it }).repetidos, 1);
 assert.strictEqual(abas['Preços atualizados ML19'].linhas().length, 2);
 assert.throws(() => vendasPrecos_({ conta: 'XX', itens: it }));
 console.log('apps script OK');
+
+// ---- etiquetas (apps_script/etiquetas.gs): uma linha por pedido, marcar de novo atualiza
+global.SpreadsheetApp = { flush() {} };
+eval(fs.readFileSync(__dirname + '/../apps_script/etiquetas.gs', 'utf8') + '\nglobalThis.etiquetasRegistrar_ = etiquetasRegistrar_; globalThis.etiquetasLer_ = etiquetasLer_;');
+let e1 = etiquetasRegistrar_({ registros: [{ conta: 'ML19', pedido: '111', envio_id: '9', sku: 'A_1', quantidade: 2, situacao: 'GERADA' }, { conta: 'ML44', pedido: '111', sku: 'B', quantidade: 1, situacao: 'GERADA' }, { conta: 'XX', pedido: '5', situacao: 'GERADA' }] });
+assert.deepStrictEqual(e1, { gravados: 2, atualizados: 0 });
+e1 = etiquetasRegistrar_({ registros: [{ conta: 'ML19', pedido: '111', sku: 'A_1', quantidade: 2, situacao: 'CANCELADA' }, { conta: 'ML19', pedido: '222', sku: 'C', quantidade: 3, situacao: 'GERADA' }] });
+assert.deepStrictEqual(e1, { gravados: 1, atualizados: 1 });
+assert.strictEqual(abas['Etiquetas'].linhas().length, 4);              // cabeçalho + 3 (sem repetir o 111 do ML19)
+const lido = etiquetasLer_({ conta: 'ML19', pedidos: ['111', '222', '333'] }).etiquetas;
+assert.deepStrictEqual(Object.keys(lido).sort(), ['111', '222']);
+assert.strictEqual(lido['111'].situacao, 'CANCELADA');
+assert.strictEqual(lido['222'].situacao, 'GERADA');
+assert.deepStrictEqual(Object.keys(etiquetasLer_({ conta: 'ML44', pedidos: ['111'] }).etiquetas), ['111']);
+

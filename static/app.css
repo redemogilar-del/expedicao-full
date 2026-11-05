@@ -99,7 +99,8 @@ tr.marcada td{background:var(--ambar-fundo)}
 
 .e-full{background:var(--cinza-fundo);color:var(--suave)}.e-enviado{background:var(--verde-fundo);color:var(--verde)}.e-a_enviar{background:var(--ambar-fundo)}
 .abas-lista{margin:6px 0 10px}.abas-lista button{font-size:15px;padding:9px 16px}
-td input.editado{border-color:var(--amarelo-esc);background:var(--ambar-fundo);color:#14213d}
+td input.editado,td input[type=text].editado,td input[type=number].editado{border-color:var(--amarelo-esc);background:var(--ambar-fundo);color:var(--texto);font-weight:700}
+.etq-lista{display:flex;flex-wrap:wrap;gap:12px;margin:10px 0}.etq-prev{width:170px;height:170px;border:1px solid var(--linha);background:#fff;border-radius:4px}
 td input[type=number]{width:84px}
 .neg-claro{color:var(--verm);font-weight:700}
 .painel-preco{border-color:var(--amarelo-esc);margin:12px 0}.painel-preco .mini{max-height:240px;margin:8px 0}.painel-preco label{margin:6px 0}

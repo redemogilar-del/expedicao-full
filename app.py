@@ -1300,6 +1300,8 @@ def api_skus_aplicar():
             regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
         except skus.Bloqueio as exc:
             raise envios.ArquivoInvalido(str(exc))
+        if regra[0] == skus.MODO_PAUSAR:
+            raise envios.ArquivoInvalido('Esta busca serve só para pausar anúncios.')
         itens = c.get('itens')
         if not isinstance(itens, list) or not 1 <= len(itens) <= skus.MAX_APLICAR * 20:
             raise envios.ArquivoInvalido('Envie de 1 a %d locais por vez.' % (skus.MAX_APLICAR * 20))
@@ -1367,7 +1369,7 @@ def api_vendas_pausar():
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         with ThreadPoolExecutor(max_workers=len(lista)) as ex:
-            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0]), lista))
+            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
         for r in resultados:
             log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, pausados=sum(r['status'] == 'OK' for r in resultados))

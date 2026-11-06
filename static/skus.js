@@ -257,3 +257,82 @@ async function baixarExcel(){
   $('sExcel').disabled = false;
 }
 $('sExcel').addEventListener('click', baixarExcel);
+
+// ---------- pausar os anúncios ativos de um SKU (a busca só lê; pausar exige digitar PAUSAR) ----------
+let P_LINHAS = [], P_BUSCANDO = false, P_PARAR = false, P_PAUSANDO = false;
+const P_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
+function pMensagem(texto, tipo){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
+function pResumo(){
+  const n = P_LINHAS.filter(l => l.marcado && !P_FEITO(l)).length, digitou = $('pConfirma').value.trim() === 'PAUSAR';
+  $('pPausar').textContent = 'Pausar todos os ativos encontrados (' + n + ')';
+  $('pPausar').disabled = P_BUSCANDO || P_PAUSANDO || !n || !digitou;
+  $('pDica').textContent = P_PAUSANDO ? 'Pausando no Mercado Livre… aguarde.' : P_BUSCANDO ? 'Aguarde a busca terminar para pausar.' : !n ? 'Nenhum anúncio marcado para pausar.' : !digitou ? 'Digite PAUSAR (só a palavra, em maiúsculas) para ligar o botão.' : 'Tudo certo: clique no botão para pausar no Mercado Livre.';
+}
+function pDesenhar(){
+  $('pCorpo').replaceChildren(...P_LINHAS.map(l => {
+    const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: P_PAUSANDO || P_FEITO(l)});
+    cx.addEventListener('change', () => { l.marcado = cx.checked; pResumo(); });
+    const sit = el('td', null, P_FEITO(l) ? 'Pausado' : 'Ativo');
+    if (l.aviso) sit.append(el('div', {class: 'aviso-linha'}, l.aviso));
+    if (l.resultado) sit.append(el('div', {class: P_FEITO(l) ? 'ok-linha' : 'aviso-linha'}, P_FEITO(l) ? 'Pausado e conferido ✔' : l.resultado.mensagem));
+    return el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb), el('td', null, l.titulo), el('td', null, l.variacao_nome || '—'), el('td', null, l.sku_atual), sit);
+  }));
+  $('pResultado').hidden = !P_LINHAS.length;
+  pResumo();
+}
+function pProgresso(texto, pct){
+  $('pProg').hidden = texto === null; if (texto === null) return;
+  $('pBarra').style.width = Math.max(2, Math.min(100, pct || 0)) + '%'; $('pTxt').textContent = texto;
+}
+async function pBuscar(){
+  if (P_BUSCANDO || P_PAUSANDO) return;
+  const termo = $('pSku').value.trim();
+  if (!termo) { pMensagem('Digite o SKU dos anúncios que serão pausados.', 'erro'); return; }
+  const contas = $('pConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('pConta').value], andamento = {};
+  P_BUSCANDO = true; P_PARAR = false; P_LINHAS = []; $('pConfirma').value = ''; $('pBuscar').disabled = true; $('pParar').hidden = false; pMensagem(''); pDesenhar();
+  let falhou = null, parou = false;
+  await Promise.all(contas.map(async conta => {
+    let scroll = null; andamento[conta] = {lidos: 0, total: 0};
+    try {
+      for (;;) {
+        if (P_PARAR) { parou = true; break; }
+        const d = await comTentativas(() => json('/api/skus/buscar', {conta, scroll_id: scroll, modo: 'pausar_sku', termo}));
+        scroll = d.scroll_id; andamento[conta].lidos += d.lidos; andamento[conta].total = d.total || andamento[conta].total;
+        for (const a of d.achados) P_LINHAS.push(Object.assign({}, a, {conta, marcado: true, resultado: null}));
+        const lidos = Object.values(andamento).reduce((t, x) => t + x.lidos, 0), total = Object.values(andamento).reduce((t, x) => t + x.total, 0);
+        pProgresso(lidos.toLocaleString('pt-BR') + (total ? ' de ' + total.toLocaleString('pt-BR') : '') + ' anúncios ativos lidos · ' + P_LINHAS.length + ' com este SKU', total ? lidos / total * 100 : 5);
+        pDesenhar();
+        if (d.concluido) break;
+      }
+    } catch (e) { falhou = falhou || e; P_PARAR = true; }
+  }));
+  P_BUSCANDO = false; $('pBuscar').disabled = false; $('pParar').hidden = true; pProgresso(null); pDesenhar();
+  if (falhou) pMensagem('A busca parou: ' + falhou.message + ' A lista pode estar incompleta.', 'erro');
+  else if (parou) pMensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
+  else pMensagem(P_LINHAS.length ? P_LINHAS.length + ' anúncio(s) ativo(s) com o SKU ' + termo + '. Confira a lista antes de pausar.' : 'Nenhum anúncio ativo com o SKU ' + termo + '.', P_LINHAS.length ? 'ok' : '');
+}
+async function pPausar(){
+  const sel = P_LINHAS.filter(l => l.marcado && !P_FEITO(l));
+  if (P_PAUSANDO || !sel.length || $('pConfirma').value.trim() !== 'PAUSAR') return;
+  P_PAUSANDO = true; pMensagem(''); pDesenhar();
+  const porConta = {}; for (const l of sel) (porConta[l.conta] = porConta[l.conta] || []).push(l);
+  let falhou = null, parar = false;
+  await Promise.all(Object.entries(porConta).map(async ([conta, ls]) => {
+    try {
+      for (let i = 0; i < ls.length && !parar; i += 10) {
+        const lote = ls.slice(i, i + 10);                 // sem repetir automaticamente: se der erro, a pessoa busca de novo e confere
+        const d = await json('/api/vendas/pausar', {conta, confirmacao: 'PAUSAR_ANUNCIOS', itens: lote.map(l => ({mlb: l.mlb, sku_visto: l.sku_atual}))});
+        for (const r of d.resultados) { const l = lote.find(x => x.mlb === r.mlb); if (l) { l.resultado = r; if (r.status === 'OK') l.marcado = false; } }
+        pDesenhar();
+      }
+    } catch (e) { falhou = falhou || e; parar = true; }
+  }));
+  P_PAUSANDO = false; $('pConfirma').value = ''; pDesenhar();
+  const ok = sel.filter(P_FEITO).length;
+  if (falhou) pMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) pausado(s) até aqui. Busque de novo antes de repetir.', 'erro');
+  else pMensagem(ok + ' de ' + sel.length + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre.', ok === sel.length ? 'ok' : 'erro');
+}
+$('pBuscar').addEventListener('click', pBuscar);
+$('pParar').addEventListener('click', () => { P_PARAR = true; });
+$('pConfirma').addEventListener('input', pResumo);
+$('pPausar').addEventListener('click', pPausar);

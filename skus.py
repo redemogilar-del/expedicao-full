@@ -20,7 +20,8 @@ CONFIRMACAO = 'TROCAR_SKU'
 MODOS_TITULO = ('tit_contem', 'tit_exato', 'tit_comeca')      # todos os anúncios (com ou sem SKU); o termo é buscado no TÍTULO
 MODOS_SEM_SKU = ('sem_contem', 'sem_exato', 'sem_comeca', 'sem_todos')     # anúncios que estão SEM SKU; o termo é buscado no TÍTULO
 MODOS_INDIVIDUAL = MODOS_TITULO + MODOS_SEM_SKU               # o SKU novo é digitado por linha na tela, não na regra
-MODOS = ('igual', 'contem', 'comeca') + MODOS_INDIVIDUAL
+MODO_PAUSAR = 'pausar_sku'                                    # só leitura: anúncios ATIVOS com este SKU, para a tela pausar
+MODOS = ('igual', 'contem', 'comeca') + MODOS_INDIVIDUAL + (MODO_PAUSAR,)
 ESCOPOS = ('inteiro', 'trecho')
 MAX_APLICAR = 10                # anúncios por chamada (trocados ao mesmo tempo)
 MAX_SKU = 100
@@ -43,6 +44,10 @@ def validar_regra(modo, termo, novo, escopo):
     termo, novo = str(termo or '').strip(), str(novo or '').strip()
     if len(termo) > MAX_SKU or _CTRL.search(termo) or len(novo) > MAX_SKU or _CTRL.search(novo):
         raise Bloqueio('Texto inválido (máximo %d caracteres, sem caracteres especiais de controle).' % MAX_SKU)
+    if modo == MODO_PAUSAR:
+        if not termo:
+            raise Bloqueio('Digite o SKU dos anúncios que serão pausados.')
+        return modo, termo, '', 'inteiro'
     if modo == 'sem_todos':                    # só olhar a lista: não troca nada
         return modo, termo, novo, 'inteiro'
     if not termo:
@@ -191,8 +196,34 @@ def _achados_por_titulo(item, regra):
     return saida
 
 
+def tem_sku(item, sku):
+    """Valor do SKU igual a `sku` no anúncio ou em alguma variação (maiúsculas não importam), ou ''."""
+    t = str(sku or '').strip().casefold()
+    for loc in locais(item):
+        for campo in ('scf', 'attr'):
+            if loc[campo] and loc[campo].casefold() == t:
+                return loc[campo]
+    return ''
+
+
+def _achados_pausar(item, termo):
+    """Uma linha por anúncio ATIVO com o SKU. Pausar vale para o anúncio inteiro, então avisa se há variações com outro SKU."""
+    achado = tem_sku(item, termo) if item.get('status') == 'active' else ''
+    if not achado:
+        return []
+    t, variacoes = termo.casefold(), _ids_variacoes(item)
+    casam = [l['variacao'] for l in locais(item) if l['variacao'] is not None and t in (l['scf'].casefold(), l['attr'].casefold())]
+    outras = len(variacoes) - len(casam)
+    aviso = '%d de %d variações têm outro SKU ou estão sem SKU e também vão parar de vender: a pausa vale para o anúncio inteiro.' % (outras, len(variacoes)) if variacoes and outras else ''
+    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': 'active', 'variacao': None, 'variacao_nome': ' | '.join(n for n in (nome_variacao(item, v) for v in casam) if n)[:200],
+             'sku_atual': achado, 'sku_novo': '', 'aviso': aviso, 'permitido': True,
+             'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''}]
+
+
 def achados(item, regra):
     """Linhas de pré-visualização para um anúncio (uma por local que casa com a regra)."""
+    if regra[0] == MODO_PAUSAR:
+        return _achados_pausar(item, regra[1])
     if item.get('status') not in ATIVOS:
         return []            # só entram na lista anúncios que dá para alterar (ativos e pausados)
     if regra[0] in MODOS_INDIVIDUAL:
@@ -231,11 +262,11 @@ def _total(busca, **filtros):
     return int(((busca(dict(filtros, limit=1)) or {}).get('paging') or {}).get('total') or 0)
 
 
-def _plano(busca):
+def _plano(busca, estados=ESTADOS):
     """(total, fatias). Cada fatia é uma busca independente (status [+ tipo de anúncio]) que anda ao mesmo tempo que as outras.
     Só divide por tipo se Clássico + Premium somam exatamente o total do status; senão varre o status inteiro (nada fica de fora)."""
     total, fatias = 0, []
-    for st in ESTADOS:
+    for st in estados:
         n = _total(busca, status=st)
         total += n
         if not n:
@@ -276,7 +307,7 @@ def varrer(conta, regra, scroll_id=None):
     total, fatias = _ler_fatias(scroll_id)
     if fatias is None:                               # primeiro passo
         try:
-            total, fatias = _plano(busca)
+            total, fatias = _plano(busca, ('active',) if regra[0] == MODO_PAUSAR else ESTADOS)
         except fontes.FonteIndisponivel:
             total, fatias = 0, [{'st': None, 'tp': None, 's': None, 'f': False}]     # o ML não aceitou o filtro: lê tudo, como antes
 

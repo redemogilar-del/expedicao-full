@@ -10,6 +10,7 @@ from werkzeug.security import generate_password_hash
 os.environ['EXP_LOGIN_PASSWORD_HASH'] = generate_password_hash('senha-de-teste')
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import anuncios
 import app as app_mod
 import fontes
 import skus
@@ -49,6 +50,8 @@ class FakeML:
         if self.recusa or self.ignora:
             return r
         it = self.itens[url.split('/')[-1]]
+        if 'status' in json:
+            it['status'] = json['status']
         if 'seller_custom_field' in json:
             it['seller_custom_field'] = json['seller_custom_field']
         if 'attributes' in json:
@@ -430,6 +433,56 @@ class TestBuscaPorTitulo(unittest.TestCase):
             r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'tit_contem', 'termo': 'manta', 'itens': [{'mlb': 'MLB300000001', 'variacao': None, 'sku_visto': 'MANTA_10'}]})
             self.assertEqual(r.status_code, 400)
             self.assertEqual(self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': 'tit_contem', 'termo': 'm'}).status_code, 400)
+        self.assertEqual(self.fake.puts, [])
+
+
+class TestPausarPorSku(unittest.TestCase):
+    def setUp(self):
+        app_mod.app.config['TESTING'] = True
+        self.c = app_mod.app.test_client()
+        self.assertEqual(self.c.post('/login', data={'usuario': 'admin', 'senha': 'senha-de-teste'}).status_code, 302)
+        anuncios._RECENTES.clear()
+        self.fake = FakeML()
+        self.fake.itens['MLB100000007'] = {'id': 'MLB100000007', 'seller_id': 99, 'title': 'Pausado', 'status': 'paused', 'seller_custom_field': 'GR_25KG', 'attributes': []}
+
+    def com(self):
+        from contextlib import ExitStack
+        pilha = ExitStack()
+        for p in self.fake.patches():
+            pilha.enter_context(p)
+        return pilha
+
+    def buscar(self, termo):
+        with self.com():
+            return self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': 'pausar_sku', 'termo': termo})
+
+    def pausar(self, itens):
+        with self.com():
+            return self.c.post('/api/vendas/pausar', json={'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'itens': itens}).get_json()['resultados']
+
+    def test_acha_so_ativos_com_o_sku_exato_e_nao_altera(self):
+        d = self.buscar('gr_25KG').get_json()
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000001'])            # pausado, encerrado e de outra conta ficam de fora; "GR_25kg_x" não casaria
+        self.assertEqual(self.fake.puts, [])
+        self.assertEqual(self.buscar('').status_code, 400)
+        self.assertEqual(self.buscar('GR_25').get_json()['achados'], [])
+
+    def test_avisa_que_a_pausa_vale_para_as_outras_variacoes(self):
+        a = self.buscar('GR_P').get_json()['achados'][0]
+        self.assertEqual((a['mlb'], a['variacao_nome']), ('MLB100000004', 'Tamanho: P / Cor: Branco'))
+        self.assertIn('2 de 3 variações', a['aviso'])
+
+    def test_pausa_so_se_ainda_tem_o_sku(self):
+        r = self.pausar([{'mlb': 'MLB100000001', 'sku_visto': 'GR_25KG'}, {'mlb': 'MLB100000003', 'sku_visto': 'GR_25KG'}])
+        por = {x['mlb']: x['status'] for x in r}
+        self.assertEqual(por, {'MLB100000001': 'OK', 'MLB100000003': 'PULADO'})
+        self.assertEqual(self.fake.itens['MLB100000001']['status'], 'paused')
+        self.assertEqual(self.fake.itens['MLB100000003']['status'], 'active')
+
+    def test_modo_de_pausar_nao_troca_sku(self):
+        with self.com():
+            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'pausar_sku', 'termo': 'GR_25kg', 'itens': [{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': 'GR_25kg', 'sku_novo': 'X'}]})
+        self.assertEqual(r.status_code, 400)
         self.assertEqual(self.fake.puts, [])
 
 

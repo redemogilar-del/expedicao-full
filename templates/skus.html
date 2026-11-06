@@ -26,6 +26,23 @@
   <div class="acoes"><button class="primario" id="sBuscar">Buscar anúncios</button><button id="sSemSku">Ver anúncios sem SKU e preencher</button><button id="sParar" hidden>Parar busca</button></div>
 </section>
 
+<section class="cartao" id="pCaixa">
+  <h2>Pausar anúncios ativos por SKU</h2>
+  <p class="suave pequeno">Digite o SKU e clique em buscar: aparecem os anúncios <b>ativos</b> com exatamente esse SKU (maiúsculas não importam). Nada é pausado nesse passo. A pausa vale para o anúncio inteiro, inclusive variações com outro SKU; a linha avisa quando for o caso.</p>
+  <div class="regras">
+    <label>Conta<select id="pConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
+    <label>SKU<input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+  </div>
+  <div class="acoes"><button class="primario" id="pBuscar">Buscar ativos com este SKU</button><button id="pParar" hidden>Parar busca</button></div>
+  <p id="pMsg" class="aviso" hidden role="status"></p>
+  <div id="pProg" class="progresso" hidden><div id="pBarra"></div><span id="pTxt"></span></div>
+  <div id="pResultado" hidden>
+    <div class="tabela-caixa"><table><thead><tr><th>Pausar</th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação com o SKU</th><th>SKU</th><th>Situação</th></tr></thead><tbody id="pCorpo"></tbody></table></div>
+    <div class="barra"><input type="text" id="pConfirma" autocomplete="off" placeholder="Digite PAUSAR" maxlength="10"><button class="primario" id="pPausar" disabled>Pausar todos os ativos encontrados</button></div>
+    <p class="dica" id="pDica" role="status"></p>
+  </div>
+</section>
+
 <p id="sMsg" class="aviso" hidden role="status"></p>
 <div id="sProg" class="progresso" hidden><div id="sBarra"></div><span id="sTxt"></span></div>
 

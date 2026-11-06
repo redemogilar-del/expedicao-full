@@ -39,8 +39,8 @@ def _ler(tk, vendedor, mlb):
     return item
 
 
-def pausar_item(conta, tk, vendedor, mlb):
-    """Pausa um anúncio ATIVO. Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
+def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
+    """Pausa um anúncio ATIVO. Com `sku_visto`, só pausa se o anúncio ainda tiver esse SKU. Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
     try:
         item = _ler(tk, vendedor, mlb)
@@ -50,6 +50,8 @@ def pausar_item(conta, tk, vendedor, mlb):
             return r
         if st != 'active':
             raise Bloqueio('Só dá para pausar anúncio ativo (este está: %s).' % (st or 'sem status'))
+        if sku_visto and not skus.tem_sku(item, sku_visto):
+            raise Bloqueio('Este anúncio não tem mais o SKU %s. Busque de novo.' % sku_visto)
         if not _reservar((conta, mlb)):
             raise Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
         resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json={'status': 'paused'}, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))

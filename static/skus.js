@@ -29,15 +29,19 @@ async function comTentativas(fn, n = 3){
   for (let i = 0; i < n; i++) { try { return await fn(); } catch (e) { ultimo = e; if (/Sessão expirada/.test(e.message) || /^(Digite|Escolha|Para )/.test(e.message)) throw e; await new Promise(r => setTimeout(r, 1500 * (i + 1))); } }
   throw ultimo;
 }
-const lerRegra = () => ({modo: $('sModo').value, termo: $('sTermo').value.trim(), novo: $('sNovo').value.trim(), escopo: $('sModo').value === 'igual' ? 'inteiro' : $('sEscopo').value});
-
 const SEM_SKU = m => m.startsWith('sem_');
+const POR_TITULO = m => SEM_SKU(m) || m.startsWith('tit_');   // nesses modos o SKU novo é digitado na linha (ou preenchido em massa), não na regra
+const INDIVIDUAL = () => !!REGRA && POR_TITULO(REGRA.modo);
+const OK_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
+const PRONTA = l => { const n = (l.novo || '').trim(); return !!n && n !== (l.sku_atual || ''); };   // tem SKU digitado e ele é diferente do atual
+const lerRegra = () => { const m = $('sModo').value; return {modo: m, termo: $('sTermo').value.trim(), novo: POR_TITULO(m) ? '' : $('sNovo').value.trim(), escopo: m === 'igual' || POR_TITULO(m) ? 'inteiro' : $('sEscopo').value}; };
+
 function atualizarForm(){
-  const m = $('sModo').value, sem = SEM_SKU(m);
-  $('sEscopoCaixa').hidden = sem || m === 'igual';
-  $('sTermoRot').hidden = m === 'sem_todos'; $('sNovoCaixa').hidden = m === 'sem_todos';
-  $('sTermoTxt').textContent = sem ? 'Palavra do título' : 'SKU procurado';
-  $('sTermo').placeholder = sem ? 'ex.: granito' : (m === 'igual' ? 'ex.: GRANITO_25kg' : (m === 'contem' ? 'ex.: _25kg' : 'ex.: GRANITO'));
+  const m = $('sModo').value, tit = POR_TITULO(m);
+  $('sEscopoCaixa').hidden = tit || m === 'igual';
+  $('sTermoRot').hidden = m === 'sem_todos'; $('sNovoCaixa').hidden = tit;
+  $('sTermoTxt').textContent = !tit ? 'SKU procurado' : m.endsWith('_exato') ? 'Título exato do anúncio' : m.endsWith('_comeca') ? 'Começo do título' : 'Palavras do título';
+  $('sTermo').placeholder = tit ? (m.endsWith('_exato') ? 'ex.: Granito Grafiato Branco 25kg' : m.endsWith('_comeca') ? 'ex.: Granito' : 'ex.: granito 25kg') : (m === 'igual' ? 'ex.: GRANITO_25kg' : (m === 'contem' ? 'ex.: _25kg' : 'ex.: GRANITO'));
   $('sBuscar').textContent = m === 'sem_todos' ? 'Ver todos sem SKU' : 'Buscar anúncios';
 }
 
@@ -45,9 +49,9 @@ async function buscar(){
   if (BUSCANDO || TROCANDO) return;
   const regra = lerRegra();
   if (regra.modo !== 'sem_todos') {
-    if (!regra.termo) { mensagem(SEM_SKU(regra.modo) ? 'Digite a palavra que está no título do produto.' : 'Digite o SKU que será procurado.', 'erro'); return; }
-    if (!regra.novo) { mensagem('Digite o SKU novo.', 'erro'); return; }
-    if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Digite pelo menos 2 caracteres para buscar por "contém" ou "começa com".', 'erro'); return; }
+    if (!regra.termo) { mensagem(POR_TITULO(regra.modo) ? 'Digite o que está no título do anúncio.' : 'Digite o SKU que será procurado.', 'erro'); return; }
+    if (!POR_TITULO(regra.modo) && !regra.novo) { mensagem('Digite o SKU novo.', 'erro'); return; }
+    if (regra.modo !== 'igual' && regra.termo.length < 2) { mensagem('Digite pelo menos 2 caracteres para buscar.', 'erro'); return; }
   }
   const contas = $('sConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('sConta').value];
   BUSCANDO = true; PARAR = false; REGRA = regra; LINHAS = []; ABA = 1; mensagem(''); $('sFeitos').hidden = true; $('sFeitosCorpo').replaceChildren();
@@ -66,7 +70,7 @@ async function buscar(){
         if (PARAR) { parou = true; break; }
         const d = await comTentativas(() => json('/api/skus/buscar', Object.assign({conta, scroll_id: scroll}, regra)));
         scroll = d.scroll_id; andamento[conta].lidos += d.lidos; andamento[conta].total = d.total || andamento[conta].total;
-        for (const a of d.achados) LINHAS.push(Object.assign({}, a, {id: LINHAS.length, conta, marcado: false, resultado: null}));
+        for (const a of d.achados) LINHAS.push(Object.assign({}, a, {id: LINHAS.length, conta, marcado: false, resultado: null, novo: POR_TITULO(regra.modo) ? (a.sku_atual || '') : undefined}));
         textoProgresso();
         if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sCorpo')) resumo(); else desenhar();   // não tira o cursor de quem está digitando um SKU
         if (d.concluido) break;
@@ -77,7 +81,7 @@ async function buscar(){
   BUSCANDO = false; $('sBuscar').disabled = TROCANDO; $('sParar').hidden = true; progresso(null); desenhar();
   if (falhou) mensagem('A busca parou: ' + falhou.message + ' O que já apareceu continua na tela.', 'erro');
   else if (parou) mensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
-  else mensagem(LINHAS.length ? 'Busca concluída. Marque os anúncios que quer trocar.' : 'Busca concluída: nenhum anúncio com esse SKU.', LINHAS.length ? 'ok' : '');
+  else mensagem(LINHAS.length ? 'Busca concluída. Marque os anúncios que quer trocar.' : 'Busca concluída: nenhum anúncio encontrado.', LINHAS.length ? 'ok' : '');
 }
 
 // filtro da lista (só sobre o que já foi encontrado): ignora maiúsculas e acentos; várias palavras separadas por espaço
@@ -121,9 +125,9 @@ function desenhar(){
     if (l.aviso) celSit.append(el('div', {class: 'aviso-linha'}, l.aviso));
     if (l.resultado) celSit.append(el('div', {class: l.resultado.status === 'OK' ? 'ok-linha' : 'aviso-linha'}, l.resultado.status === 'OK' ? 'Trocado e conferido ✔' : l.resultado.mensagem));
     let celNovo;
-    if (REGRA && REGRA.modo === 'sem_todos' && l.permitido && !(l.resultado && l.resultado.status === 'OK')) {
-      const campo = el('input', {type: 'text', value: l.novo || '', maxLength: 100, placeholder: 'SKU deste anúncio', disabled: TROCANDO});
-      campo.addEventListener('input', () => { l.novo = campo.value; if (campo.value.trim() && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou: marca a linha sozinha
+    if (INDIVIDUAL() && l.permitido && !OK_FEITO(l)) {
+      const campo = el('input', {type: 'text', value: l.novo || '', maxLength: 100, placeholder: 'SKU deste anúncio', disabled: TROCANDO, class: PRONTA(l) ? 'editado' : ''});
+      campo.addEventListener('input', () => { l.novo = campo.value; campo.classList.toggle('editado', PRONTA(l)); if (PRONTA(l) && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou um SKU diferente: marca a linha sozinha
       celNovo = el('td', null, campo);
     } else celNovo = el('td', null, (l.resultado && l.resultado.status === 'OK' && l.novo) ? l.novo : (l.sku_novo || '—'));
     corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)), el('td', null, l.variacao_nome || (l.variacao === null ? '(anúncio sem variação)' : '—')),
@@ -133,35 +137,36 @@ function desenhar(){
   desenharAbas(visiveis, abas);
   const marcaveis = daAba.filter(l => l.permitido && !(l.resultado && l.resultado.status === 'OK'));
   $('sCabTodos').checked = marcaveis.length > 0 && marcaveis.every(l => l.marcado);
-  $('sColNovo').textContent = REGRA && REGRA.modo === 'sem_todos' ? 'SKU novo (digite aqui)' : 'SKU novo';
+  $('sColNovo').textContent = INDIVIDUAL() ? 'SKU (edite aqui)' : 'SKU novo';
   $('sVazio').hidden = visiveis > 0 || BUSCANDO;
-  $('sVazio').textContent = LINHAS.length ? 'Nenhum anúncio da lista tem essas palavras no título.' : 'Nenhum anúncio encontrado com esse SKU.';
+  $('sVazio').textContent = LINHAS.length ? 'Nenhum anúncio da lista tem essas palavras no título.' : 'Nenhum anúncio encontrado.';
   $('sTabela').hidden = !visiveis;
   resumo();
 }
 
 function resumo(){
-  const indiv = !!REGRA && REGRA.modo === 'sem_todos';
+  const indiv = INDIVIDUAL();
   $('sMassaCaixa').hidden = !(indiv && LINHAS.length);
-  const marcados = LINHAS.filter(l => l.marcado && (!indiv || (l.novo || '').trim())).length, liberados = LINHAS.filter(l => l.permitido).length;
+  const marcados = LINHAS.filter(l => l.marcado && (!indiv || PRONTA(l))).length, liberados = LINHAS.filter(l => l.permitido).length;
   const vis = LINHAS.filter(aparece), filtrando = vis.length !== LINHAS.length;
   $('sFiltroRes').textContent = filtrando ? 'Aparecem ' + vis.length.toLocaleString('pt-BR') + ' de ' + LINHAS.length.toLocaleString('pt-BR') + ' anúncios encontrados.' : (LINHAS.length ? LINHAS.length.toLocaleString('pt-BR') + ' anúncios encontrados (sem filtro).' : '');
   $('sResumo').textContent = LINHAS.length + ' encontrado(s)' + (filtrando ? ' · ' + vis.length + ' aparecendo no filtro' : '') + ' · ' + liberados + ' liberado(s) para trocar';
-  const semSku = indiv ? LINHAS.filter(l => l.marcado && !(l.novo || '').trim()).length : 0;
-  $('sMarcados').textContent = String(marcados) + (semSku ? ' (' + semSku + ' marcado(s) sem SKU digitado ficam de fora)' : '');
+  const semSku = indiv ? LINHAS.filter(l => l.marcado && !PRONTA(l)).length : 0;
+  const substitui = indiv ? LINHAS.filter(l => l.marcado && PRONTA(l) && l.sku_atual).length : 0;
+  $('sMarcados').textContent = String(marcados) + (substitui ? ' (' + substitui + ' vão substituir um SKU que já existe)' : '') + (semSku ? ' (' + semSku + ' marcado(s) sem SKU novo ficam de fora)' : '');
   $('sAplicar').hidden = !LINHAS.length;
   const digitou = $('sConfirma').value.trim() === 'TROCAR';
   $('sTrocar').disabled = TROCANDO || marcados === 0 || !digitou;
   // diz por que o botão ainda não liga
   $('sDica').textContent = TROCANDO ? (TXT_TROCA || 'Gravando no Mercado Livre… aguarde.')
-    : marcados === 0 ? 'Marque pelo menos um anúncio' + (indiv ? ' e preencha o SKU dele' : '') + ' para ligar o botão.'
+    : marcados === 0 ? 'Marque pelo menos um anúncio' + (indiv ? ' e digite o SKU novo dele' : '') + ' para ligar o botão.'
     : !digitou ? 'Digite TROCAR (só a palavra, em maiúsculas) no campo ao lado para ligar o botão.' : 'Tudo certo: clique no botão para gravar no Mercado Livre.';
 }
 
 async function trocar(){
   if (TROCANDO) return;
-  const indiv = REGRA && REGRA.modo === 'sem_todos';
-  const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK') && (!indiv || (l.novo || '').trim()));
+  const indiv = INDIVIDUAL();
+  const sel = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !OK_FEITO(l) && (!indiv || PRONTA(l)));
   if (!sel.length || $('sConfirma').value.trim() !== 'TROCAR') return;
   TROCANDO = true; TXT_TROCA = ''; $('sTrocar').disabled = true; $('sBuscar').disabled = true; mensagem('');
   $('sFeitos').hidden = false;
@@ -180,7 +185,7 @@ async function trocar(){
         const d = await json('/api/skus/aplicar', Object.assign({conta, confirmacao: CONFIRMACAO, itens}, REGRA));
         for (const r of d.resultados) {
           for (const l of grupo.flat().filter(x => x.mlb === r.mlb)) { l.resultado = r; if (r.status === 'OK') l.marcado = false; }
-          $('sFeitosCorpo').append(el('tr', null, el('td', null, conta), el('td', null, r.mlb), el('td', null, r.status === 'OK' ? 'Trocado ✔' : (r.status === 'PULADO' ? 'Não alterado' : (r.status === 'NAO_CONFIRMADO' ? 'Confira no Mercado Livre' : 'Erro'))), el('td', null, r.mensagem)));
+          $('sFeitosCorpo').append(el('tr', null, el('td', null, conta), el('td', null, r.mlb), el('td', null, r.status === 'OK' ? 'Trocado ✔' : (r.status === 'PULADO' ? 'Não alterado' : (r.status === 'NAO_CONFIRMADO' ? 'Confira no Mercado Livre' : 'Erro'))), el('td', null, r.mensagem + (r.trocas || []).map(t => ' ' + t.sku_antes + ' → ' + (t.sku_depois || '(vazio)') + '.').join(''))));
         }
         feitos += grupo.length; desenhar();
       }
@@ -195,7 +200,7 @@ async function trocar(){
 
 $('sModo').addEventListener('change', atualizarForm);
 $('sBuscar').addEventListener('click', buscar);
-$('sSemSku').addEventListener('click', () => { if (BUSCANDO || TROCANDO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos') buscar(); else { $('sTermo').focus(); mensagem('Digite a palavra do título e o SKU novo e clique em Buscar anúncios.'); } });
+$('sSemSku').addEventListener('click', () => { if (BUSCANDO || TROCANDO) return; if (!SEM_SKU($('sModo').value)) $('sModo').value = 'sem_todos'; atualizarForm(); if ($('sModo').value === 'sem_todos' || $('sTermo').value.trim()) buscar(); else { $('sTermo').focus(); mensagem('Digite o que está no título e clique em Buscar anúncios.'); } });
 $('sParar').addEventListener('click', () => { PARAR = true; });
 $('sTodos').addEventListener('click', () => { LINHAS.filter(aparece).forEach(l => { if (l.permitido && !(l.resultado && l.resultado.status === 'OK')) l.marcado = true; }); desenhar(); });
 $('sFiltroLimpa').addEventListener('click', () => { $('sFiltro').value = ''; $('sFiltroNao').value = ''; filtrar(); $('sFiltro').focus(); });
@@ -210,7 +215,7 @@ $('sPreencher').addEventListener('click', () => {
   const alvo = LINHAS.filter(l => l.marcado && aparece(l) && l.permitido && !(l.resultado && l.resultado.status === 'OK'));
   if (!alvo.length) { mensagem('Marque primeiro os anúncios que vão receber esse SKU (ou use "Marcar todos (todas as abas)").', 'erro'); return; }
   alvo.forEach(l => { l.novo = v; });
-  mensagem('SKU "' + v + '" preenchido em ' + alvo.length + ' anúncio(s). Confira, corrija o que precisar, digite TROCAR e grave.', 'ok'); desenhar();
+  mensagem('SKU "' + v + '" preenchido em ' + alvo.length + ' anúncio(s). Confira, corrija o que precisar, digite TROCAR e clique em atualizar.', 'ok'); desenhar();
 });
 $('sTrocar').addEventListener('click', trocar);
 $('sDiagBtn').addEventListener('click', async () => {
@@ -236,16 +241,16 @@ atualizarForm();
 
 // baixar em Excel o que está na tela (já com o filtro de título); só leitura
 async function baixarExcel(){
-  const itens = LINHAS.filter(aparece).map(l => ({conta: l.conta, mlb: l.mlb, titulo: l.titulo, variacao: l.variacao, variacao_nome: l.variacao_nome || '', status: STATUS[l.status] || l.status || '', sku_atual: l.sku_atual, sku_novo: (l.novo || l.sku_novo || ''), link: l.link || ''}));
+  const itens = LINHAS.filter(aparece).map(l => ({conta: l.conta, mlb: l.mlb, titulo: l.titulo, variacao: l.variacao, variacao_nome: l.variacao_nome || '', status: STATUS[l.status] || l.status || '', sku_atual: l.sku_atual, sku_novo: INDIVIDUAL() ? (PRONTA(l) ? l.novo.trim() : '') : (l.sku_novo || ''), link: l.link || ''}));
   if (!itens.length) { mensagem('Não há anúncios na lista para baixar.', 'erro'); return; }
   $('sExcel').disabled = true;
   try {
-    const busca = REGRA ? ({igual: 'SKU igual a ', contem: 'SKU contém ', comeca: 'SKU começa com ', sem_contem: 'Sem SKU, título contém ', sem_comeca: 'Sem SKU, título começa com ', sem_todos: 'Todos sem SKU'}[REGRA.modo] || '') + (REGRA.modo === 'sem_todos' ? '' : REGRA.termo) : '';
+    const busca = REGRA ? ({igual: 'SKU igual a ', contem: 'SKU contém ', comeca: 'SKU começa com ', tit_contem: 'Título contém ', tit_exato: 'Título exato ', tit_comeca: 'Título começa com ', sem_contem: 'Sem SKU, título contém ', sem_exato: 'Sem SKU, título exato ', sem_comeca: 'Sem SKU, título começa com ', sem_todos: 'Todos sem SKU'}[REGRA.modo] || '') + (REGRA.modo === 'sem_todos' ? '' : REGRA.termo) : '';
     const filtro = $('sFiltro').value.trim(), semPal = $('sFiltroNao').value.trim();
     const r = await fetch('/api/skus/exportar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, busca: busca + (filtro ? ' | filtro do título/variação: ' + filtro : '') + (semPal ? ' | sem as palavras: ' + semPal : '')})});
     if (r.status === 401) { location.href = '/login'; return; }
     if (!r.ok) { let d = null; try { d = await r.json(); } catch (e) {} throw new Error((d && d.error) || ('Erro ' + r.status)); }
-    const blob = await r.blob(), a = el('a', {href: URL.createObjectURL(blob), download: 'anuncios_sem_sku.xlsx'});
+    const blob = await r.blob(), a = el('a', {href: URL.createObjectURL(blob), download: 'anuncios.xlsx'});
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     mensagem(itens.length + ' anúncio(s) na planilha baixada.', 'ok');
   } catch (e) { mensagem('Não consegui baixar: ' + e.message, 'erro'); }

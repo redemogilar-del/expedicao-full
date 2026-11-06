@@ -53,6 +53,9 @@ class FakeML:
             it['seller_custom_field'] = json['seller_custom_field']
         if 'attributes' in json:
             it['attributes'] = json['attributes']
+        if 'variations' in json:                                   # como diz a documentação do ML: a variação que não vai no PUT é apagada
+            enviados = {v['id'] for v in json['variations']}
+            it['variations'] = [x for x in it['variations'] if x['id'] in enviados]
         for v in json.get('variations', []):
             alvo = next(x for x in it['variations'] if x['id'] == v['id'])
             if 'seller_custom_field' in v:
@@ -282,10 +285,21 @@ class TestSemSku(unittest.TestCase):
         for corpo in ({'itens': []}, {'itens': [{'conta': 'XX', 'mlb': 'MLB200000001'}]}, {'itens': [{'conta': 'ML19', 'mlb': 'abc'}]}):
             self.assertEqual(self.c.post('/api/skus/exportar', json=corpo).status_code, 400)
 
-    def test_exige_palavra_e_sku_novo(self):
+    def test_exige_palavra_mas_nao_o_sku_novo_na_busca(self):
         with self.com():
-            for corpo in ({'modo': 'sem_contem', 'termo': '', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'g', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'granito', 'novo': ''}):
+            for corpo in ({'modo': 'sem_contem', 'termo': '', 'novo': 'X'}, {'modo': 'sem_contem', 'termo': 'g', 'novo': 'X'}, {'modo': 'sem_exato', 'termo': ''}):
                 self.assertEqual(self.c.post('/api/skus/buscar', json=dict({'conta': 'ML19'}, **corpo)).status_code, 400)
+            self.assertEqual(self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': 'sem_contem', 'termo': 'granito', 'novo': ''}).status_code, 200)
+
+    def test_sem_sku_busca_por_titulo_grava_o_sku_de_cada_linha(self):
+        d = self.buscar('sem_exato', 'GRANITO  grafiato 5KG', '')
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB200000001'])
+        d = self.aplicar([{'mlb': 'MLB200000001', 'variacao': None, 'sku_visto': '', 'sku_novo': 'DA_LINHA'}], novo='')
+        self.assertEqual(d['resultados'][0]['status'], 'OK')
+        self.assertEqual(self.fake.itens['MLB200000001']['seller_custom_field'], 'DA_LINHA')
+        with self.com():
+            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'sem_contem', 'termo': 'manta', 'novo': '', 'itens': [{'mlb': 'MLB200000002', 'variacao': None, 'sku_visto': ''}]})
+        self.assertEqual(r.status_code, 400)                                            # sem SKU na linha nem na regra: nada é gravado
 
     def aplicar(self, itens, termo='granito', novo='GR_5KG', modo='sem_contem'):
         with self.com():
@@ -328,6 +342,95 @@ class TestSemSku(unittest.TestCase):
         with self.com():
             r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'igual', 'termo': 'GR_25kg', 'novo': 'X', 'itens': [{'mlb': 'MLB100000001', 'variacao': None, 'sku_visto': ''}]})
         self.assertEqual(r.status_code, 400)
+
+
+class TestBuscaPorTitulo(unittest.TestCase):
+    def setUp(self):
+        app_mod.app.config['TESTING'] = True
+        self.c = app_mod.app.test_client()
+        self.assertEqual(self.c.post('/login', data={'usuario': 'admin', 'senha': 'senha-de-teste'}).status_code, 302)
+        skus._RECENTES.clear()
+        self.fake = FakeML()
+        self.fake.itens = {
+            'MLB300000001': {'id': 'MLB300000001', 'seller_id': 99, 'title': 'Manta Asfáltica Aluminizada 10m', 'status': 'active', 'seller_custom_field': 'MANTA_10', 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'MANTA_10'}]},
+            'MLB300000002': {'id': 'MLB300000002', 'seller_id': 99, 'title': 'Aluminizada manta asfaltica 5m', 'status': 'paused', 'seller_custom_field': None, 'attributes': []},
+            'MLB300000003': {'id': 'MLB300000003', 'seller_id': 99, 'title': 'Manta com variações', 'status': 'active', 'seller_custom_field': None, 'attributes': [],
+                             'variations': [{'id': 31, 'seller_custom_field': 'VAR_A', 'attributes': []}, {'id': 32, 'seller_custom_field': None, 'attributes': []}, {'id': 33, 'seller_custom_field': 'VAR_C', 'attributes': []}]},
+            'MLB300000004': {'id': 'MLB300000004', 'seller_id': 99, 'title': 'Manta encerrada', 'status': 'closed', 'seller_custom_field': 'X', 'attributes': []},
+        }
+
+    def com(self):
+        from contextlib import ExitStack
+        pilha = ExitStack()
+        for p in self.fake.patches():
+            pilha.enter_context(p)
+        return pilha
+
+    def buscar(self, modo, termo):
+        with self.com():
+            return self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': modo, 'termo': termo}).get_json()
+
+    def aplicar(self, itens, modo='tit_contem', termo='manta'):
+        with self.com():
+            return self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': modo, 'termo': termo, 'itens': itens}).get_json()
+
+    def test_regra_do_titulo(self):
+        c = skus.titulo_casa
+        t = 'Manta Asfáltica  Aluminizada 10m'
+        self.assertTrue(c(t, 'tit_contem', 'aluminizada ASFALTICA'))                    # todas as palavras, em qualquer ordem, sem ligar para acento
+        self.assertFalse(c(t, 'tit_contem', 'aluminizada granito'))
+        self.assertTrue(c(t, 'tit_comeca', 'manta asf'))
+        self.assertFalse(c(t, 'tit_comeca', 'asfaltica'))
+        self.assertTrue(c(t, 'tit_exato', 'manta asfaltica aluminizada 10M'))
+        self.assertFalse(c(t, 'tit_exato', 'manta asfaltica aluminizada'))
+
+    def test_busca_traz_com_e_sem_sku_e_cada_variacao(self):
+        d = self.buscar('tit_contem', 'manta')
+        linhas = sorted((a['mlb'], str(a['variacao']), a['sku_atual']) for a in d['achados'])
+        self.assertEqual(linhas, [('MLB300000001', 'None', 'MANTA_10'), ('MLB300000002', 'None', ''), ('MLB300000003', '31', 'VAR_A'), ('MLB300000003', '32', ''), ('MLB300000003', '33', 'VAR_C')])
+        self.assertEqual(self.fake.puts, [])
+        self.assertEqual([a['mlb'] for a in self.buscar('tit_comeca', 'aluminizada')['achados']], ['MLB300000002'])
+        self.assertEqual([a['mlb'] for a in self.buscar('tit_exato', 'manta asfaltica aluminizada 10m')['achados']], ['MLB300000001'])
+
+    def test_grava_sku_digitado_em_quem_tem_e_em_quem_nao_tem(self):
+        d = self.aplicar([{'mlb': 'MLB300000001', 'variacao': None, 'sku_visto': 'MANTA_10', 'sku_novo': 'MANTA_NOVA'}, {'mlb': 'MLB300000002', 'variacao': None, 'sku_visto': '', 'sku_novo': 'MANTA_5'}])
+        self.assertEqual([r['status'] for r in d['resultados']], ['OK', 'OK'])
+        self.assertEqual(self.fake.itens['MLB300000001']['seller_custom_field'], 'MANTA_NOVA')
+        self.assertEqual(self.fake.itens['MLB300000001']['attributes'][0]['value_name'], 'MANTA_NOVA')
+        self.assertEqual(self.fake.itens['MLB300000002']['seller_custom_field'], 'MANTA_5')
+
+    def test_variacao_marcada_muda_e_as_outras_continuam_no_anuncio(self):
+        d = self.aplicar([{'mlb': 'MLB300000003', 'variacao': 32, 'sku_visto': '', 'sku_novo': 'VAR_B'}])
+        self.assertEqual(d['resultados'][0]['status'], 'OK')
+        self.assertEqual([(v['id'], v['seller_custom_field']) for v in self.fake.itens['MLB300000003']['variations']], [(31, 'VAR_A'), (32, 'VAR_B'), (33, 'VAR_C')])
+
+    def test_se_o_ml_apagar_variacao_nunca_diz_ok(self):
+        original = self.fake.put
+        def put(url, json=None, **kw):
+            r = original(url, json=json, **kw)
+            self.fake.itens[url.split('/')[-1]]['variations'].pop()
+            return r
+        self.fake.put = put
+        r = self.aplicar([{'mlb': 'MLB300000003', 'variacao': 32, 'sku_visto': '', 'sku_novo': 'VAR_B'}])['resultados'][0]
+        self.assertEqual(r['status'], 'NAO_CONFIRMADO')
+        self.assertIn('33', r['mensagem'])
+
+    def test_nao_grava_se_mudou_desde_que_viu(self):
+        for visto, mlb in (('', 'MLB300000001'), ('OUTRO', 'MLB300000001'), ('VAR_A', 'MLB300000002')):      # visto vazio não passa em quem já tem SKU
+            r = self.aplicar([{'mlb': mlb, 'variacao': None, 'sku_visto': visto, 'sku_novo': 'N'}])['resultados'][0]
+            self.assertEqual(r['status'], 'PULADO', (visto, mlb))
+        r = self.aplicar([{'mlb': 'MLB300000001', 'variacao': None, 'sku_visto': 'MANTA_10', 'sku_novo': 'N'}], termo='granito')['resultados'][0]
+        self.assertEqual(r['status'], 'PULADO')
+        r = self.aplicar([{'mlb': 'MLB300000001', 'variacao': None, 'sku_visto': 'MANTA_10', 'sku_novo': 'MANTA_10'}])['resultados'][0]
+        self.assertEqual(r['status'], 'PULADO')
+        self.assertEqual(self.fake.puts, [])
+
+    def test_exige_sku_em_cada_linha_e_termo(self):
+        with self.com():
+            r = self.c.post('/api/skus/aplicar', json={'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'tit_contem', 'termo': 'manta', 'itens': [{'mlb': 'MLB300000001', 'variacao': None, 'sku_visto': 'MANTA_10'}]})
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(self.c.post('/api/skus/buscar', json={'conta': 'ML19', 'modo': 'tit_contem', 'termo': 'm'}).status_code, 400)
+        self.assertEqual(self.fake.puts, [])
 
 
 class TestEndpoints(unittest.TestCase):
@@ -435,7 +538,8 @@ class TestEndpoints(unittest.TestCase):
         v = {x['id']: x for x in fake.itens['MLB100000004']['variations']}
         self.assertEqual(v[11]['seller_custom_field'], 'GR_P')                                   # não marcada: intacta
         self.assertEqual(v[12]['attributes'][0]['value_name'], 'NV_G')
-        self.assertEqual(fake.puts[0][1], {'variations': [{'id': 12, 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'NV_G'}]}]})
+        self.assertEqual(fake.puts[0][1], {'variations': [{'id': 11}, {'id': 12, 'attributes': [{'id': 'SELLER_SKU', 'value_name': 'NV_G'}]}, {'id': 13}]})   # as outras vão só com o id, senão o ML as apaga
+        self.assertEqual([x['id'] for x in fake.itens['MLB100000004']['variations']], [11, 12, 13])
 
     def test_sku_mudou_desde_que_viu_nao_altera(self):
         fake = FakeML()

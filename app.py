@@ -1310,10 +1310,11 @@ def api_skus_aplicar():
             mlb = str(x.get('mlb') or '').strip().upper()
             var = x.get('variacao')
             visto = str(x.get('sku_visto') or '').strip()
-            if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_SEM_SKU) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
+            if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_INDIVIDUAL) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
                 raise envios.ArquivoInvalido('Item inválido.')
             individual = str(x.get('sku_novo') or '').strip()
-            if regra[0] == 'sem_todos' and (not individual or len(individual) > skus.MAX_SKU or skus._CTRL.search(individual)):
+            sku_linha = individual or regra[2]
+            if regra[0] in skus.MODOS_INDIVIDUAL and (not sku_linha or len(sku_linha) > skus.MAX_SKU or skus._CTRL.search(sku_linha)):
                 raise envios.ArquivoInvalido('Digite um SKU válido (até %d caracteres) em cada anúncio marcado.' % skus.MAX_SKU)
             alvos = grupos.setdefault(mlb, [])
             if any(a[0] == var for a in alvos):

@@ -1300,6 +1300,8 @@ def api_skus_aplicar():
             regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
         except skus.Bloqueio as exc:
             raise envios.ArquivoInvalido(str(exc))
+        if regra[0] == skus.MODO_PAUSAR:
+            raise envios.ArquivoInvalido('Esta busca serve só para pausar anúncios.')
         itens = c.get('itens')
         if not isinstance(itens, list) or not 1 <= len(itens) <= skus.MAX_APLICAR * 20:
             raise envios.ArquivoInvalido('Envie de 1 a %d locais por vez.' % (skus.MAX_APLICAR * 20))
@@ -1310,10 +1312,11 @@ def api_skus_aplicar():
             mlb = str(x.get('mlb') or '').strip().upper()
             var = x.get('variacao')
             visto = str(x.get('sku_visto') or '').strip()
-            if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_SEM_SKU) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
+            if not fontes._MLB.match(mlb) or (not visto and regra[0] not in skus.MODOS_INDIVIDUAL) or not (var is None or (isinstance(var, int) and not isinstance(var, bool))):
                 raise envios.ArquivoInvalido('Item inválido.')
             individual = str(x.get('sku_novo') or '').strip()
-            if regra[0] == 'sem_todos' and (not individual or len(individual) > skus.MAX_SKU or skus._CTRL.search(individual)):
+            sku_linha = individual or regra[2]
+            if regra[0] in skus.MODOS_INDIVIDUAL and (not sku_linha or len(sku_linha) > skus.MAX_SKU or skus._CTRL.search(sku_linha)):
                 raise envios.ArquivoInvalido('Digite um SKU válido (até %d caracteres) em cada anúncio marcado.' % skus.MAX_SKU)
             alvos = grupos.setdefault(mlb, [])
             if any(a[0] == var for a in alvos):
@@ -1366,7 +1369,7 @@ def api_vendas_pausar():
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         with ThreadPoolExecutor(max_workers=len(lista)) as ex:
-            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0]), lista))
+            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
         for r in resultados:
             log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, pausados=sum(r['status'] == 'OK' for r in resultados))

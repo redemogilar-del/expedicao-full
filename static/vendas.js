@@ -41,15 +41,14 @@ const chaveSku = r => r.sku || r.mlb;
 // ---------- busca ----------
 const DIAS_A_ENVIAR = 30;   // o UpSeller não tem filtro de data; o Mercado Livre só deixa ler até 31 dias por vez, então olhamos os últimos 30 dias de pedidos pagos (pedido a enviar mais antigo que isso quase não existe)
 const dataIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-// modo 'periodo': vendas feitas entre "De" e "Até". modo 'enviar': pedidos pagos que AINDA NÃO FORAM ENVIADOS (como a lista "Para enviar" do UpSeller), mesmo de dias anteriores
-async function buscar(modo){
-  const enviar = modo === 'enviar';
+// pedidos pagos que AINDA NÃO FORAM ENVIADOS (como a lista "Para enviar" do UpSeller), mesmo de dias anteriores
+async function buscar(){
+  const enviar = true;
   MODO_ENVIAR = enviar;
-  const escolhida = $(enviar ? 'vEConta' : 'vConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
-  let de = $('vDe').value, ate = $('vAte').value;
-  if (enviar) { const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - DIAS_A_ENVIAR); de = dataIso(ini); ate = dataIso(hoje); }
-  if (!de || !ate || ate < de) { mensagem('Confira as datas: "Até" não pode ser antes de "De".', 'erro'); return; }
-  $('vBuscar').disabled = true; $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
+  const escolhida = $('vEConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
+  const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - DIAS_A_ENVIAR);
+  const de = dataIso(ini), ate = dataIso(hoje);
+  $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
   try {
     UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; $('vUpsRes').textContent = '';
     RAW = []; SEL.clear(); OVR = {}; INFO = {}; PEND = new Set(); RES = {}; IMPOSTOS = {}; VERSAO++;
@@ -71,7 +70,7 @@ async function buscar(modo){
         }
       }));
     }));
-    if (!RAW.length) { progresso(null); mensagem(enviar ? 'Nenhum pedido pago esperando envio nessa etapa.' : 'Nenhuma venda paga neste período.', ''); $('vBuscar').disabled = false; $('vEnviar').disabled = false; return; }
+    if (!RAW.length) { progresso(null); mensagem('Nenhum pedido pago esperando envio nessa etapa.', ''); $('vEnviar').disabled = false; return; }
     const skus = [...new Set(RAW.map(r => r.sku).filter(Boolean))]; CAD = {};
     for (let i = 0; i < skus.length; i += 100) {
       progresso('Lendo custos e margens na planilha (' + Math.min(i + 100, skus.length) + ' de ' + skus.length + ' SKUs)…', 60 + 30 * i / skus.length);
@@ -94,7 +93,7 @@ async function buscar(modo){
     if (falhas.length && !$('vImposto').value) mensagem('Não consegui ler o imposto da planilha (' + falhas.join(' · ') + '). As vendas dessa conta ficam "Sem dados" até você digitar o imposto no campo.', 'erro');
     $('vResultado').scrollIntoView({behavior: 'smooth'});
   } catch (err) { progresso(null); mensagem(err.message, 'erro'); }
-  $('vBuscar').disabled = false; $('vEnviar').disabled = false;
+  $('vEnviar').disabled = false;
 }
 // cadastro da planilha + o que foi digitado na tela (custo e margem mínima valem para o SKU inteiro)
 function cadastroEfetivo(){
@@ -323,10 +322,10 @@ function desenhar(){
   $('vBaixarNao').disabled = !marcados.length; $('vBaixarNao').textContent = 'Baixar lista “Não enviar” (' + marcados.length + ')';
   $('vMarcarRuins').disabled = !lista.some(r => r.classe === 'abaixo' || r.classe === 'prejuizo'); $('vLimpar').disabled = !SEL.size;
   const sel = LINHAS.filter(r => SEL.has(r._i) && selecionavel(r));
-  { const n = new Set(LINHAS.filter(r => SEL.has(r._i)).map(r => r.conta + '|' + r.mlb)).size; $('vSku').disabled = !n; $('vPausar').disabled = !n; $('vSku').textContent = 'Trocar SKU dos marcados (' + n + ')'; $('vPausar').textContent = 'Pausar anúncios marcados (' + n + ')'; }
-  { const nE = LINHAS.filter(r => SEL.has(r._i)).length, nS = new Set(LINHAS.filter(r => SEL.has(r._i) && skuEditado(r)).map(r => r.conta + '|' + r.mlb)).size;
-    $('vEtqGerar').disabled = !nE; $('vEtqGerada').disabled = !nE; $('vEtqCancelada').disabled = !nE; $('vSkuGravar').disabled = !nS;
-    $('vEtqGerar').textContent = 'Gerar etiqueta 40×40 (' + nE + ')'; $('vEtqGerada').textContent = 'Marcar etiqueta gerada (' + nE + ')'; $('vEtqCancelada').textContent = 'Marcar etiqueta cancelada (' + nE + ')'; $('vSkuGravar').textContent = 'Gravar SKU alterado no ML (' + nS + ')'; }
+  { const n = new Set(LINHAS.filter(r => SEL.has(r._i)).map(r => r.conta + '|' + r.mlb)).size; $('vSku').disabled = !n; $('vPausar').disabled = !n; $('vSku').textContent = 'Trocar pelo SKU novo (' + n + ')'; $('vPausar').textContent = 'Pausar anúncios selecionados (' + n + ')'; }
+  { const nE = LINHAS.filter(r => SEL.has(r._i)).length;
+    $('vEtqGerar').disabled = !nE; $('vEtqGerada').disabled = !nE; $('vEtqCancelada').disabled = !nE;
+    $('vEtqGerar').textContent = 'Gerar etiqueta 40×40 (' + nE + ')'; $('vEtqGerada').textContent = 'Marcar etiqueta gerada (' + nE + ')'; $('vEtqCancelada').textContent = 'Marcar etiqueta cancelada (' + nE + ')'; }
   $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
   { // explica por que marcadas não entram no preço (nada some em silêncio)
     const m = LINHAS.filter(r => SEL.has(r._i)); let ja = 0, calc = 0, bloq = 0, sem = 0;
@@ -370,7 +369,7 @@ const SEM_SKU = '(sem SKU)';
 const skuEditado = r => !!r.sku_orig && r.sku_orig !== r.sku;
 function campoSku(r){
   const editado = skuEditado(r);
-  const i = el('input', {type:'text', maxLength:100, value: r.sku || '', placeholder: 'sem SKU', class: editado ? 'editado' : '', title: editado ? 'SKU alterado só nesta tela (no Mercado Livre era: ' + (r.sku_orig === SEM_SKU ? 'sem SKU' : r.sku_orig) + '). Marque a venda e use “Gravar SKU alterado no ML”.' : 'Clique para trocar o SKU desta venda: o custo é buscado na planilha e o lucro recalculado'});
+  const i = el('input', {type:'text', maxLength:100, value: r.sku || '', placeholder: 'sem SKU', class: editado ? 'editado' : '', title: editado ? 'SKU alterado só nesta tela (no Mercado Livre era: ' + (r.sku_orig === SEM_SKU ? 'sem SKU' : r.sku_orig) + '). Marque a venda e use “Trocar pelo SKU novo”.' : 'Clique para trocar o SKU desta venda: o custo é buscado na planilha e o lucro recalculado'});
   i.onchange = async () => {
     const novo = String(i.value).trim().slice(0, 100), atual = r.sku || '';
     if (novo === atual) return;
@@ -666,14 +665,10 @@ const anunciosMarcados = () => {
 let ALVOS_SKU = [], ALVOS_PAUSAR = [];
 const emLotes = (lista, fn) => { const por = {}; for (const a of lista) (por[a.conta] = por[a.conta] || []).push(a); return Promise.all(Object.entries(por).map(async ([conta, l]) => { for (let i = 0; i < l.length; i += 10) await fn(conta, l.slice(i, i + 10)); })); };
 let PREENCHE_SKU = {};
-$('vSku').onclick = () => abrirTrocaSku(anunciosMarcados(), {});
-$('vSkuGravar').onclick = () => {
-  const por = new Map(), pre = {};
-  for (const r of LINHAS) if (SEL.has(r._i) && skuEditado(r)) {
-    const k = r.conta + '|' + r.mlb; if (!por.has(k)) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku || '', titulo: r.titulo || ''});
-    pre[k + '|' + (r.sku_orig === SEM_SKU ? '' : r.sku_orig)] = r.sku;
-  }
-  if (por.size) abrirTrocaSku([...por.values()], pre);
+$('vSku').onclick = () => {                 // abre o painel com todos os anúncios marcados, já com o SKU que foi editado na linha
+  const pre = {};
+  for (const r of LINHAS) if (SEL.has(r._i) && skuEditado(r)) pre[r.conta + '|' + r.mlb + '|' + (r.sku_orig === SEM_SKU ? '' : r.sku_orig)] = r.sku;
+  abrirTrocaSku(anunciosMarcados(), pre);
 };
 async function abrirTrocaSku(marcados, pre){
   if (!marcados.length) return; PREENCHE_SKU = pre;
@@ -774,8 +769,7 @@ $('vSalvar').onclick = async () => {
   } catch (err) { mensagem(err.message, 'erro'); }
   b.disabled = false;
 };
-$('vBuscar').onclick = () => buscar('periodo');
-$('vEnviar').onclick = () => buscar('enviar');
+$('vEnviar').onclick = () => buscar();
 
 // ---------- resumo do que ficou para fazer na mão ----------
 function pendenciasManuais(){

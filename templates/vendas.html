@@ -2,18 +2,14 @@
 {% block titulo %}Vendas do dia — Expedição Mogilar{% endblock %}
 {% block corpo %}
 <h1>Vendas do dia</h1>
-<p class="suave">Puxa as vendas do Mercado Livre (ML19 e ML44), calcula o lucro de cada uma e mostra quais estão <b>dentro</b> ou <b>fora</b> da margem. Você marca o que <b>não deve ser enviado</b>, baixa a lista e salva o relatório do dia na planilha do Google. Nada é alterado no Mercado Livre.</p>
+<p class="suave">Puxa as vendas do Mercado Livre (ML19 e ML44), calcula o lucro de cada uma e mostra quais estão <b>dentro</b> ou <b>fora</b> da margem. Você marca o que <b>não deve ser enviado</b>, baixa a lista e salva o relatório do dia na planilha do Google. Nada é alterado no Mercado Livre sem você marcar e confirmar.</p>
 
 <section class="cartao">
   <div class="regras">
-    <label>Conta<select id="vConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
-    <label>De<input type="date" id="vDe" value="{{ hoje }}"></label>
-    <label>Até<input type="date" id="vAte" value="{{ hoje }}"></label>
     <label>Imposto (% do valor da venda)<input type="number" id="vImposto" min="0" max="60" step="0.1" value="" placeholder="vazio = da planilha"></label>
     <label>Margem mínima padrão (%)<input type="number" id="vMargem" min="0" max="1000" step="0.1" value="{{ padrao.margem_padrao }}"></label>
   </div>
   <p class="suave pequeno">Lucro = o que sobrou da venda (valor − tarifa do ML − frete) − imposto − custo. Margem = lucro ÷ custo. O imposto vem da aba TaxasML da planilha (por CNPJ/conta, Full ou normal), lido de novo a cada busca; se você digitar um valor aqui, ele vale para tudo. A margem mínima de cada produto vem da planilha (aba MargensML); a padrão só vale para quem não tem margem lá. Mudar imposto ou margem recalcula na hora.</p>
-  <button class="primario" id="vBuscar">Buscar vendas e calcular</button>
 </section>
 
 <section class="cartao" id="vEnviarCaixa">
@@ -58,16 +54,15 @@
   <div class="barra">
     <button class="secundario" id="vMarcarRuins">Marcar: abaixo da margem e prejuízo (que estão na tela)</button>
     <button class="secundario" id="vLimpar">Desmarcar tudo</button>
+    <button class="primario" id="vSku" disabled title="Edite o SKU na linha (ou digite no painel que abre), marque a venda e clique aqui. O Mercado Livre só muda depois da confirmação.">Trocar pelo SKU novo</button>
+    <button class="primario" id="vPausar" disabled title="Pausa os anúncios das vendas marcadas. O Mercado Livre só muda depois da confirmação.">Pausar anúncios selecionados</button>
     <button class="primario" id="vPreco" disabled>Atualizar preço no Mercado Livre</button>
-    <button class="secundario" id="vSku" disabled>Trocar SKU dos marcados</button>
-    <button class="secundario" id="vSkuGravar" disabled title="Depois de editar o SKU na linha, marque a venda e clique aqui para gravar o SKU novo no Mercado Livre (com confirmação)">Gravar SKU alterado no ML</button>
     <button class="secundario" id="vEtqGerar" disabled>Gerar etiqueta 40×40</button>
     <button class="secundario" id="vEtqGerada" disabled title="Anota na planilha que a etiqueta destas vendas já foi gerada">Marcar etiqueta gerada</button>
     <button class="secundario" id="vEtqCancelada" disabled title="Anota na planilha que a etiqueta destas vendas foi cancelada">Marcar etiqueta cancelada</button>
-    <button class="secundario" id="vPausar" disabled>Pausar anúncios marcados</button>
     <div id="vPrecoDica" class="mlbs"></div>
   </div>
-  <p class="suave pequeno" id="vDica">Custo e margem mínima podem ser digitados na própria linha (vale para todas as vendas do mesmo SKU; só nesta tela, a planilha não muda). O preço necessário é calculado com a tarifa e o frete reais do Mercado Livre naquele preço.</p>
+  <p class="suave pequeno" id="vDica">Para trocar o SKU: edite o SKU na linha, marque a venda e clique em "Trocar pelo SKU novo". Custo e margem mínima podem ser digitados na própria linha (vale para todas as vendas do mesmo SKU; só nesta tela, a planilha não muda). O preço necessário é calculado com a tarifa e o frete reais do Mercado Livre naquele preço.</p>
 
   <div id="vPainelSku" class="cartao painel-preco" hidden>
     <h2>Trocar SKU no Mercado Livre</h2>
@@ -75,7 +70,7 @@
     <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>Produto / variação</th><th>SKU atual</th><th>SKU novo</th></tr></thead><tbody id="vSkuLista"></tbody></table></div>
     <label class="inline-campo"><input type="checkbox" id="vSkuEntendi"> Entendo que isso muda o SKU de verdade no Mercado Livre</label>
     <p id="vSkuRes" class="aviso" hidden></p>
-    <div class="acoes"><button class="primario" id="vSkuOk" disabled>Confirmar e trocar SKU</button><button class="secundario" id="vSkuCancela">Cancelar</button></div>
+    <div class="acoes"><button class="primario" id="vSkuOk" disabled>Confirmar e trocar pelo SKU novo</button><button class="secundario" id="vSkuCancela">Cancelar</button></div>
   </div>
 
   <div id="vPainelEtq" class="cartao painel-preco" hidden>

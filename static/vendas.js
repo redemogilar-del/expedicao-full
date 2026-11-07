@@ -761,14 +761,6 @@ $('vBaixarNao').onclick = () => baixar('nao_enviar', $('vBaixarNao'));
 $('vBaixarDia').onclick = () => baixar('dia', $('vBaixarDia'));
 $('vBaixarSel').onclick = () => baixar('selecionadas', $('vBaixarSel'));
 $('vBaixarNeg').onclick = () => baixar('prejuizo', $('vBaixarNeg'));
-$('vSalvar').onclick = async () => {
-  const b = $('vSalvar'); b.disabled = true; mensagem('Salvando na planilha do Google…');
-  try {
-    const d = await json('/api/vendas/salvar', corpoRelatorio('salvar'));
-    mensagem('Relatório salvo na planilha: ' + d.abas.join(', ') + '.', 'ok');
-  } catch (err) { mensagem(err.message, 'erro'); }
-  b.disabled = false;
-};
 $('vEnviar').onclick = () => buscar();
 
 // ---------- resumo do que ficou para fazer na mão ----------

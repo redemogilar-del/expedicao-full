@@ -273,7 +273,7 @@ class TestEndpointsVendas(unittest.TestCase):
 
     def test_exige_login(self):
         c = app_mod.app.test_client()
-        for rota in ('/api/vendas/pedidos', '/api/vendas/cadastro', '/api/vendas/calcular', '/api/vendas/exportar', '/api/vendas/salvar'):
+        for rota in ('/api/vendas/pedidos', '/api/vendas/cadastro', '/api/vendas/calcular', '/api/vendas/exportar'):
             self.assertEqual(c.post(rota).status_code, 401)
 
     def test_pagina_e_pedidos(self):
@@ -466,25 +466,6 @@ class TestEndpointsVendas(unittest.TestCase):
             self.assertIn('Não encontrei', fontes.diagnosticar_pedido('ML44', '2000000000000001')['motivo'])
         r = self.c.post('/api/vendas/diagnostico-pedidos', json={'pedidos': [{'pedido': 'abc'}]})
         self.assertEqual(r.status_code, 400)
-
-    def test_salvar(self):
-        enviado = {}
-        def falso(p): enviado.update(p); return {'abas': ['Vendas 2026-10-29']}
-        with mock.patch.object(fontes, 'salvar_relatorio', falso):
-            d = self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'periodo': '29/10/2026', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).get_json()
-        self.assertTrue(d['ok'])
-        self.assertEqual((enviado['dia'], enviado['resumo']['itens'], enviado['resumo']['nao_enviar'], len(enviado['nao_enviar']), enviado['resumo']['sem_dados']), ('2026-10-29', 3, 1, 1, 1))
-        chaves = [l[0] for l in enviado['base']]
-        self.assertEqual(len(chaves), 3); self.assertEqual(len(set(chaves)), 3)               # cada venda tem chave própria
-        self.assertEqual(enviado['base'][0][:7], ['ML19|1|MLB1|A', '2026-10-29', enviado['base'][0][2], 'ML19', '1', 'A', 'MLB1'])
-        self.assertEqual(len(enviado['cab_base']), len(enviado['base'][0]))
-        dup = self.linhas()[:1] * 2                                                              # mesmo item duas vezes no mesmo pedido
-        with mock.patch.object(fontes, 'salvar_relatorio', falso):
-            self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'linhas': dup, 'parametros': {'imposto_pct': 8}})
-        self.assertEqual([l[0] for l in enviado['base']], ['ML19|1|MLB1|A', 'ML19|1|MLB1|A#2'])
-        with mock.patch.object(fontes, 'salvar_relatorio', side_effect=fontes.FonteIndisponivel('sem planilha')):
-            self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': '2026-10-29', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).status_code, 503)
-        self.assertEqual(self.c.post('/api/vendas/salvar', json={'dia': 'ontem', 'linhas': self.linhas(), 'parametros': {'imposto_pct': 8}}).status_code, 400)
 
 
 if __name__ == '__main__':

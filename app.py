@@ -933,26 +933,6 @@ def _linha_dia(l):
             ENVIO_ROTULO.get(l['grupo'], l['grupo']), _seguro(l['pendencias'] or l['obs'])]
 
 
-CAB_BASE = ['Chave', 'Data', 'Classe', 'Conta', 'Pedido', 'SKU', 'MLB', 'Status do envio', 'Produto', 'Qtd', 'Venda (R$)', 'Tarifa ML (R$)', 'Frete vendedor (R$)', 'Imposto (R$)',
-            'Custo total (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Prejuízo / deixou de ganhar (R$)', 'Tipo de envio', 'Atualizado em']
-
-
-def _linhas_base(linhas):
-    """Linhas da base por conta na planilha. A chave (conta|pedido|MLB|SKU) faz a planilha reconhecer a venda e nunca repeti-la."""
-    agora = datetime.now(FUSO).strftime('%d/%m/%Y %H:%M')
-    ordenadas = sorted(linhas, key=lambda l: (str(l['conta']), str(l['pedido']), str(l['mlb']), str(l['sku']), str(l['data']), l['quantidade'], str(l['venda'])))
-    vistas, saida = {}, []
-    for l in ordenadas:
-        k = '%s|%s|%s|%s' % (l['conta'], l['pedido'], l['mlb'], str(l['sku'] or '').strip().upper())
-        vistas[k] = vistas.get(k, 0) + 1
-        if vistas[k] > 1:
-            k += '#%d' % vistas[k]            # mesmo item repetido no mesmo pedido: continua sendo vendas diferentes
-        saida.append([k, str(l['data'])[:10], vendas.ROTULOS[l['classe']], l['conta'], str(l['pedido']), _seguro(l['sku']), l['mlb'], _seguro(l['status_rotulo']), _seguro(l['titulo']),
-                      l['quantidade'], l['venda'], l['tarifa'], l['frete'], l['imposto'], l['custo_total'], l['lucro'], l['margem'], l['meta'], l['perda'] or 0,
-                      ENVIO_ROTULO.get(l['grupo'], l['grupo']), agora])
-    return saida
-
-
 CAB_NAO = ['Pedido', 'Conta', 'Data', 'SKU', 'Status do envio', 'MLB', 'Produto', 'Qtd', 'Venda (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Prejuízo / deixou de ganhar (R$)', 'Motivo']
 
 
@@ -1042,23 +1022,6 @@ def _gerar_xlsx_vendas(titulo, cab, linhas, larguras, colunas_num, resumo):
     return buf
 
 
-@app.post('/api/vendas/salvar')
-def api_vendas_salvar():
-    try:
-        c = request.get_json(silent=True) or {}
-        linhas, params = _linhas_vendas(c)
-        dia = _data(c.get('dia')).strftime('%Y-%m-%d')
-        r = vendas.resumo(linhas)
-        marcadas = [l for l in linhas if l['nao_enviar']]
-        payload = {'dia': dia, 'periodo': _periodo(c), 'parametros': {'imposto_pct': None if params['imposto_pct'] is None else float(params['imposto_pct']), 'margem_padrao': float(params['margem_padrao'])},
-                   'resumo': {'itens': r['linhas'], 'unidades': r['unidades'], 'dentro': r['dentro'], 'abaixo': r['abaixo'], 'prejuizo': r['prejuizo'], 'sem_dados': r['sem_dados'],
-                              'venda': r['venda'], 'lucro': r['lucro'], 'prejuizo_rs': r['prejuizo_rs'], 'deixou_rs': r['deixou_rs'], 'nao_enviar': len(marcadas)},
-                   'cab': CAB_DIA, 'linhas': [_linha_dia(l) for l in linhas],
-                   'cab_nao_enviar': CAB_NAO, 'nao_enviar': [_linha_nao(l) for l in marcadas],
-                   'cab_base': CAB_BASE, 'base': _linhas_base(linhas)}
-        return jsonify(ok=True, **fontes.salvar_relatorio(payload))
-    except Exception as exc:
-        return _erro_fonte(exc)
 
 
 @app.post('/api/vendas/etiquetas-marcar')
@@ -1168,7 +1131,7 @@ def api_vendas_preco_aplicar():
             raise envios.ArquivoInvalido('Envie de 1 a %d anúncios por vez.' % precos.MAX_APLICAR)
         params = _params_vendas(c)
         liberar = c.get('liberar_acima_limite') is True
-        pedidos, vistos, extra = [], set(), {}
+        pedidos, vistos = [], set()
         for x in itens:
             if not isinstance(x, dict):
                 raise envios.ArquivoInvalido('Item inválido.')
@@ -1178,12 +1141,11 @@ def api_vendas_preco_aplicar():
             if not fontes._MLB.match(mlb) or mlb in vistos or None in (custo, meta, visto_atual, visto_novo) or visto_atual <= 0 or visto_novo <= 0:
                 raise envios.ArquivoInvalido('Item inválido ou repetido.')
             vistos.add(mlb)
-            extra[mlb] = {'sku': str(x.get('sku') or '')[:60], 'pedidos': [str(p)[:30] for p in (x.get('pedidos') if isinstance(x.get('pedidos'), list) else [])[:40]]}
             pedidos.append((mlb, custo, meta, visto_atual, visto_novo, _imposto_item(x, params)))
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
-        resultados, aplicados, historico = [], [], []
+        resultados = []
         for mlb, custo, meta, visto_atual, visto_novo, imposto in pedidos:
             r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
             try:
@@ -1204,25 +1166,12 @@ def api_vendas_preco_aplicar():
                 r.update(status='OK' if ok else 'PENDENTE', preco_anterior=a['preco_atual'], preco_novo=a['preco_novo'], verificado=lido,
                          mensagem='Preço alterado e confirmado no Mercado Livre.' if ok else 'Enviado, mas o Mercado Livre ainda não confirmou. Confira no anúncio.')
                 log.info('PREÇO %s %s: %s -> %s (lido %s) %s', conta, mlb, atual, novo, lido, r['status'])
-                if ok:
-                    aplicados.append({'mlb': mlb, 'preco_referencia_anterior': float(atual), 'preco_atual_ml': float(novo)})
-                    historico.append({'mlb': mlb, 'sku': extra[mlb]['sku'], 'produto': str(item.get('title') or '')[:120], 'preco_anterior': float(atual), 'preco_novo': float(novo),
-                                      'variacao_pct': round(float((novo / atual - 1) * 100), 2), 'pedidos': extra[mlb]['pedidos']})
             except precos.Bloqueio as exc:
                 r['mensagem'] = str(exc)
             except Exception as exc:
                 log.exception('Falha ao alterar o preço de %s', mlb)
                 r.update(status='ERRO', mensagem=str(exc)[:200])
             resultados.append(r)
-        if aplicados:
-            plan = fontes.atualizar_referencia(conta, aplicados)
-            for r in resultados:
-                if r['mlb'] in plan:
-                    r['planilha'] = plan[r['mlb']]
-            aviso_hist = fontes.registrar_precos(conta, historico)      # aba "Preços atualizados ML19/ML44" (não repete)
-            for r in resultados:
-                if r['status'] == 'OK':
-                    r['historico'] = aviso_hist
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, atualizados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)

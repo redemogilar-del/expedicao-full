@@ -1,4 +1,4 @@
-// Teste do Apps Script (apps_script/relatorio_vendas.gs) com uma planilha simulada: nada de Google de verdade.
+// Teste do Apps Script das etiquetas (apps_script/etiquetas.gs) com uma planilha simulada: nada de Google de verdade.
 const fs = require('fs'), assert = require('assert');
 class Faixa {
   constructor(sh, r, c, nr, nc) { this.sh = sh; this.r = r; this.c = c; this.nr = nr; this.nc = nc; }
@@ -23,46 +23,6 @@ global.wb_ = () => ({ getSheetByName: n => abas[n] || null, insertSheet: n => (a
 global.aba_ = (n, cab) => { if (!abas[n]) { abas[n] = new Aba(n); abas[n].getRange(1, 1, 1, cab.length).setValues([cab]); } return abas[n]; };
 global.Utilities = { formatDate: (d, tz, f) => f.startsWith('yyyy') ? '2026-10-29' : '29/10/2026 16:00' };
 global.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
-global.Charts = { ChartType: { LINE: 'LINE' } };
-eval(fs.readFileSync(__dirname + '/../apps_script/relatorio_vendas.gs', 'utf8') + '\nglobalThis.vendasRelatorio_ = vendasRelatorio_; globalThis.vendasPrecos_ = vendasPrecos_;');
-
-const cab = ['Chave', 'Data', 'Classe', 'Conta', 'Pedido', 'SKU', 'MLB', 'Status do envio', 'Produto', 'Qtd', 'Venda (R$)', 'Tarifa ML (R$)', 'Frete vendedor (R$)', 'Imposto (R$)', 'Custo total (R$)', 'Lucro (R$)', 'Margem real (%)', 'Margem mínima (%)', 'Prejuízo / deixou de ganhar (R$)', 'Tipo de envio', 'Atualizado em'];
-const lin = (conta, pedido, data, classe, valor) => [conta + '|' + pedido + '|MLB1|A', data, classe, conta, pedido, 'A', 'MLB1', 'Enviado', 'Prod', 1, 100, 10, 5, 8, 50, 20, 10, 20, valor, 'A enviar', '29/10/2026 16:00'];
-const pedido = (base) => ({ dia: '2026-10-29', periodo: 'x', cab: ['a'], linhas: [['1']], nao_enviar: [], resumo: {}, parametros: {}, cab_base: cab, base });
-
-// 1ª vez: 2 vendas ML19 (uma prejuízo, uma abaixo) e 1 do ML44
-let r = vendasRelatorio_(pedido([lin('ML19', '1', '2026-10-28', 'Prejuízo', 30), lin('ML19', '2', '2026-10-29', 'Abaixo da margem', 12), lin('ML44', '9', '2026-10-29', 'Dentro da margem', 0)]));
-assert(r.ok);
-assert.strictEqual(abas['Base ML19'].linhas().length, 3);            // cabeçalho + 2
-assert.strictEqual(abas['Base ML44'].linhas().length, 2);
-// 2ª vez: a venda 1 volta (já existia) com valor corrigido, e entra a 3
-vendasRelatorio_(pedido([lin('ML19', '1', '2026-10-28', 'Prejuízo', 35), lin('ML19', '3', '2026-10-28', 'Prejuízo', 5)]));
-let base = abas['Base ML19'].linhas();
-assert.strictEqual(base.length, 4, 'não pode repetir a venda 1');
-assert.strictEqual(base.filter(l => l[0] === 'ML19|1|MLB1|A').length, 1);
-assert.strictEqual(base.find(l => l[0] === 'ML19|1|MLB1|A')[18], 35);   // atualizou
-// salvar a mesma coisa de novo não muda nada
-vendasRelatorio_(pedido([lin('ML19', '1', '2026-10-28', 'Prejuízo', 35)]));
-assert.strictEqual(abas['Base ML19'].linhas().length, 4);
-// derivadas
-const prej = abas['Prejuízos ML19'].linhas(), abx = abas['Abaixo da margem ML19'].linhas();
-assert.deepStrictEqual(prej.slice(1).map(l => l[3]), ['1', '3']);      // pedido (sem a coluna Chave), maior prejuízo primeiro
-assert.deepStrictEqual(abx.slice(1).map(l => l[3]), ['2']);
-assert(!abas['Prejuízos ML44'].linhas().slice(1).length);
-// desempenho + gráficos
-const d = abas['Desempenho ML19'].linhas();
-assert.deepStrictEqual(d[1], ['2026-10-28', 40, 0, 2, 2, 0, 0]);
-assert.deepStrictEqual(d[2], ['2026-10-29', 0, 12, 1, 0, 1, 0]);
-assert.strictEqual(abas['Desempenho ML19'].charts.length, 2);
-assert(abas['Desempenho ML19'].charts[0].opts.title.includes('ML19'));
-// preços atualizados: não repete
-const it = [{ mlb: 'MLB1', sku: 'A', produto: 'P', preco_anterior: 100, preco_novo: 110, variacao_pct: 10, pedidos: ['1', '2'] }];
-assert.deepStrictEqual(Object.assign({}, vendasPrecos_({ conta: 'ML19', itens: it })), { ok: true, aba: 'Preços atualizados ML19', novos: 1, repetidos: 0 });
-assert.strictEqual(vendasPrecos_({ conta: 'ML19', itens: it }).repetidos, 1);
-assert.strictEqual(abas['Preços atualizados ML19'].linhas().length, 2);
-assert.throws(() => vendasPrecos_({ conta: 'XX', itens: it }));
-console.log('apps script OK');
-
 // ---- etiquetas (apps_script/etiquetas.gs): uma linha por pedido, marcar de novo atualiza
 global.SpreadsheetApp = { flush() {} };
 eval(fs.readFileSync(__dirname + '/../apps_script/etiquetas.gs', 'utf8') + '\nglobalThis.etiquetasRegistrar_ = etiquetasRegistrar_; globalThis.etiquetasLer_ = etiquetasLer_;');
@@ -77,3 +37,4 @@ assert.strictEqual(lido['111'].situacao, 'CANCELADA');
 assert.strictEqual(lido['222'].situacao, 'GERADA');
 assert.deepStrictEqual(Object.keys(etiquetasLer_({ conta: 'ML44', pedidos: ['111'] }).etiquetas), ['111']);
 
+console.log('apps script OK');

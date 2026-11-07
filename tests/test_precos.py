@@ -16,7 +16,6 @@ import precos
 D = precos.D
 
 
-HISTORICO = []
 
 
 class FakeML:
@@ -51,8 +50,8 @@ class FakeML:
 
     def patches(self):
         return [mock.patch.object(fontes, '_ml', self.ml), mock.patch.object(fontes._SESS, 'put', self.put), mock.patch.object(fontes, 'token', lambda c: 't'),
-                mock.patch.object(fontes, '_vendedor', lambda c, t: '99'), mock.patch.object(fontes, 'atualizar_referencia', lambda conta, itens: {i['mlb']: 'ok' for i in itens}),
-                mock.patch.object(fontes, 'registrar_precos', lambda conta, itens: (HISTORICO.append((conta, itens)), 'anotado')[1])]
+                mock.patch.object(fontes, '_vendedor', lambda c, t: '99'),
+                mock.patch.object(fontes._SESS, 'post', side_effect=AssertionError('alterar preço não grava mais na planilha'))]
 
 
 class TestCalculoPreco(unittest.TestCase):
@@ -162,20 +161,12 @@ class TestEndpointsPreco(unittest.TestCase):
         d = r.get_json()
         self.assertEqual(d['atualizados'], 0); self.assertIn('pediu para esperar', d['resultados'][0]['mensagem']); self.assertEqual(fake.preco, 70.0)
 
-    def test_aplicar_altera_confere_e_atualiza_planilha(self):
+    def test_aplicar_altera_e_confere(self):
         fake = FakeML(preco=70.0)
         a, r = self.aplicar(fake)
         d = r.get_json()
-        self.assertEqual((d['atualizados'], d['resultados'][0]['status'], d['resultados'][0]['planilha']), (1, 'OK', 'ok'))
+        self.assertEqual((d['atualizados'], d['resultados'][0]['status']), (1, 'OK'))
         self.assertEqual(fake.puts[0][1], {'price': a['preco_novo']}); self.assertEqual(fake.preco, a['preco_novo'])
-        self.assertEqual(d['resultados'][0]['historico'], 'anotado')
-
-    def test_aplicar_anota_historico_com_pedidos(self):
-        HISTORICO.clear()
-        a, r = self.aplicar(FakeML(preco=70.0), sku='K1', pedidos=['10', '11'])
-        self.assertEqual(r.get_json()['atualizados'], 1)
-        conta, itens = HISTORICO[-1]
-        self.assertEqual((conta, itens[0]['mlb'], itens[0]['sku'], itens[0]['pedidos'], itens[0]['preco_anterior'], itens[0]['preco_novo']), ('ML19', 'MLB123456789', 'K1', ['10', '11'], 70.0, a['preco_novo']))
 
     def test_aplicar_exige_confirmacao_e_limites(self):
         fake = FakeML(preco=70.0)

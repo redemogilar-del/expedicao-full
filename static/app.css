@@ -187,3 +187,5 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 .pg-sugestao p{margin:0;white-space:pre-wrap}.pg-falta{color:var(--suave)}
 .pg-ia-titulo{font-size:13px;color:var(--azul)}
 .pg-ficha{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.pg-ficha .pg-texto,.pg-ficha .pg-acoes{align-self:stretch}.pg-ficha .aviso{margin:0}
+
+.painel-topo{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.painel-topo h2{margin:0}.painel-botoes{display:flex;gap:8px}

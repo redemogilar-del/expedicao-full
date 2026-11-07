@@ -474,7 +474,7 @@ function layoutEtiqueta(itens, dpi){
     const duas = quebraSku(txt), h2 = Math.min(hMax / 2 * 0.95, larg / (Math.max(duas[0].length, duas[1].length) * FATOR_LARG));
     return h2 > h1 ? {partes: duas, h: Math.max(10, h2)} : {partes: [txt], h: Math.max(10, h1)};
   };
-  const limpa = t => String(t).replace(/[\^~]/g, ' ');
+  const limpa = t => String(t);                    // vai como imagem: qualquer caractere pode aparecer
   if (n === 1) {                                    // um produto: SKU em cima (1 ou 2 linhas, largura toda) e a quantidade enorme embaixo
     const it = itens[0], hSku = uso * 0.5, a = ajusta(limpa(it.sku), uso, hSku), qt = 'x' + it.qtd, hq = uso * 0.42;
     a.partes.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: m + (hSku - a.h * a.partes.length) / 2 + k * a.h, h: a.h, w: a.h * 0.5, larg: uso}));
@@ -492,16 +492,31 @@ function layoutEtiqueta(itens, dpi){
   }
   return {W, ops: ops.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : v])))};
 }
-function zplEtiqueta(itens, dpi){
-  const {W, ops} = layoutEtiqueta(itens, dpi);
-  let z = '^XA^CI28^PW' + W + '^LL' + W + '^LH0,0\n';
+// A etiqueta é desenhada no navegador (1 ponto da tela = 1 ponto da Zebra) e vai para a impressora como IMAGEM (^GFA).
+// Assim sai exatamente o que aparece na prévia, com qualquer caractere (acentos, Ç, símbolos): a fonte da Zebra não tem todos e simplesmente pulava os que não conhecia.
+function canvasEtiqueta(itens, dpi){
+  const {W, ops} = layoutEtiqueta(itens, dpi), c = el('canvas', {width: W, height: W, class: 'etq-prev'}), x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, W); x.fillStyle = '#000'; x.textBaseline = 'top';
   for (const o of ops) {
-    if (o.t === 'linha') z += '^FO' + o.x + ',' + o.y + '^GB' + o.larg + ',2,2^FS\n';
-    else if (o.t === 'qtd') z += '^FO' + o.x + ',' + o.y + '^A0N,' + o.h + ',' + o.w + '^FB' + o.larg + ',1,0,' + (o.alinha || 'R') + ',0^FD' + o.txt + '^FS\n';
-    else z += '^FO' + o.x + ',' + o.y + '^A0N,' + o.h + ',' + o.w + '^FD' + o.txt + '^FS\n';
+    if (o.t === 'linha') x.fillRect(o.x, o.y, o.larg, 2);
+    else { x.font = 'bold ' + o.h + 'px Arial Narrow, Arial'; const ali = o.t === 'qtd' ? (o.alinha || 'R') : 'L'; x.textAlign = ali === 'R' ? 'right' : (ali === 'C' ? 'center' : 'left'); x.fillText(o.txt, ali === 'R' ? o.x + o.larg : (ali === 'C' ? o.x + o.larg / 2 : o.x), o.y, o.larg); }
   }
-  return z + '^PQ1,0,1,N\n^XZ\n';
+  return c;
 }
+function zplDoCanvas(c){
+  const W = c.width, H = c.height, bpl = Math.ceil(W / 8), px = c.getContext('2d').getImageData(0, 0, W, H).data, hex = [];
+  for (let y = 0; y < H; y++) {
+    let linha = '';
+    for (let b = 0; b < bpl; b++) {
+      let v = 0;
+      for (let k = 0; k < 8; k++) { const xx = b * 8 + k; if (xx < W) { const i = (y * W + xx) * 4; if (px[i] + px[i + 1] + px[i + 2] < 384) v |= 128 >> k; } }   // ponto escuro = preto
+      linha += v.toString(16).toUpperCase().padStart(2, '0');
+    }
+    hex.push(linha);
+  }
+  return '^XA^PW' + W + '^LL' + H + '^LH0,0\n^FO0,0^GFA,' + bpl * H + ',' + bpl * H + ',' + bpl + ',' + hex.join('\n') + '^FS\n^PQ1,0,1,N\n^XZ\n';
+}
+const zplEtiqueta = (itens, dpi) => zplDoCanvas(canvasEtiqueta(itens, dpi));
 function etiquetasDosMarcados(){
   const por = new Map();
   for (const r of LINHAS) if (SEL.has(r._i)) {
@@ -518,19 +533,15 @@ function etiquetasDosMarcados(){
 let ZPL_ATUAL = '';
 function desenharEtiquetas(){
   const dpi = Number($('vEtqDpi').value), etqs = etiquetasDosMarcados();
-  ZPL_ATUAL = etqs.map(e => zplEtiqueta(e, dpi)).join('');
+  const telas = etqs.map(e => canvasEtiqueta(e, dpi));
+  ZPL_ATUAL = telas.map(zplDoCanvas).join('');
   $('vEtqRes').textContent = etqs.length + ' etiqueta(s) de 40 × 40 mm para ' + SEL.size + ' venda(s) marcada(s).' + (etqs.some(e => e.length > 1) ? ' Vendas com mais de um produto saem numa etiqueta só, com o tamanho adaptado.' : '');
-  $('vEtqPrev').replaceChildren(...etqs.map(e => {
-    const {W, ops} = layoutEtiqueta(e, dpi), c = el('canvas', {width: W, height: W, class: 'etq-prev'}), x = c.getContext('2d');
-    x.fillStyle = '#fff'; x.fillRect(0, 0, W, W); x.fillStyle = '#000'; x.textBaseline = 'top';
-    for (const o of ops) {
-      if (o.t === 'linha') x.fillRect(o.x, o.y, o.larg, 2);
-      else { x.font = 'bold ' + o.h + 'px Arial Narrow, Arial'; const ali = o.t === 'qtd' ? (o.alinha || 'R') : 'L'; x.textAlign = ali === 'R' ? 'right' : (ali === 'C' ? 'center' : 'left'); x.fillText(o.txt, ali === 'R' ? o.x + o.larg : (ali === 'C' ? o.x + o.larg / 2 : o.x), o.y, o.larg); }
-    }
-    return c;
-  }));
+  $('vEtqPrev').replaceChildren(...telas);
 }
-$('vEtqGerar').onclick = () => { if (!SEL.size) return; $('vPainelEtq').hidden = false; desenharEtiquetas(); $('vPainelEtq').scrollIntoView({behavior: 'smooth', block: 'center'}); };
+const minimizarEtq = min => { $('vEtqCorpo').hidden = min; $('vEtqMin').textContent = min ? 'Mostrar' : 'Minimizar'; $('vEtqMin').title = min ? 'Mostrar as etiquetas de novo' : 'Esconder as etiquetas sem perder o que foi gerado'; };
+$('vEtqMin').onclick = () => minimizarEtq(!$('vEtqCorpo').hidden);
+$('vEtqX').onclick = () => { $('vPainelEtq').hidden = true; };
+$('vEtqGerar').onclick = () => { if (!SEL.size) return; $('vPainelEtq').hidden = false; minimizarEtq(false); desenharEtiquetas(); $('vPainelEtq').scrollIntoView({behavior: 'smooth', block: 'center'}); };
 $('vEtqDpi').onchange = desenharEtiquetas;
 $('vEtqFechar').onclick = () => { $('vPainelEtq').hidden = true; };
 $('vEtqBaixar').onclick = () => {

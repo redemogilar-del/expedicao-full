@@ -74,12 +74,14 @@
   </div>
 
   <div id="vPainelEtq" class="cartao painel-preco" hidden>
-    <h2>Etiqueta 40 × 40 mm (Zebra, rolo)</h2>
+    <div class="painel-topo"><h2>Etiqueta 40 × 40 mm (Zebra, rolo)</h2><span class="painel-botoes"><button class="secundario" id="vEtqMin" type="button">Minimizar</button><button class="secundario" id="vEtqX" type="button" title="Fechar" aria-label="Fechar">✕</button></span></div>
+    <div id="vEtqCorpo">
     <p class="suave pequeno">Cada etiqueta traz o SKU e a quantidade em letras grandes. Venda com mais de um produto sai numa etiqueta só, com o tamanho adaptado para caber tudo. Baixe o arquivo e envie para a Zebra, ou copie o código e cole no programa da impressora. A imagem abaixo é só uma prévia aproximada.</p>
     <label class="inline-campo">Resolução da impressora: <select id="vEtqDpi"><option value="203">203 dpi (padrão)</option><option value="300">300 dpi</option></select></label>
     <p class="pequeno" id="vEtqRes"></p>
     <div class="etq-lista" id="vEtqPrev"></div>
     <div class="acoes"><button class="primario" id="vEtqBaixar">Baixar arquivo .zpl</button><button class="secundario" id="vEtqCopiar">Copiar código ZPL</button><button class="secundario" id="vEtqMarcar">Marcar estas vendas como etiqueta gerada</button><button class="secundario" id="vEtqFechar">Fechar</button></div>
+    </div>
   </div>
 
   <div id="vPainelPausar" class="cartao painel-preco" hidden>

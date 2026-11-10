@@ -20,6 +20,7 @@ import envios
 import conhecimento
 import fontes
 import precos
+import shopee
 import skus
 import anuncios
 import perguntas
@@ -42,7 +43,7 @@ app.config.update(
 USUARIO = os.environ.get('EXP_LOGIN_USER', '')
 SENHA_HASH = os.environ.get('EXP_LOGIN_PASSWORD_HASH', '')
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True), ('skus', 'Trocar SKU', True), ('perguntas', 'Perguntas', True)]
+ABAS = [('envios', 'Envios Full', True), ('candidatos', 'Candidatos ao Full', True), ('vendas', 'Vendas do dia', True), ('skus', 'Trocar SKU', True), ('perguntas', 'Perguntas', True), ('shopee', 'Shopee', True)]
 
 
 def _configurado():
@@ -1390,3 +1391,187 @@ def api_vendas_exportar_manual():
         return send_file(buf, mimetype=XLSX, as_attachment=True, download_name='fazer_na_mao_%s.xlsx' % datetime.now(FUSO).strftime('%Y-%m-%d_%H%M'))
     except Exception as exc:
         return _erro(exc)
+
+
+
+# ------------------------------------------------------------------ Shopee (lucro por venda e preço; API oficial)
+_CAMPOS_TXT_SHOPEE = _CAMPOS_TXT + ('modelo', 'variacao')
+_NUMS_SHOPEE = ('quantidade', 'venda', 'tarifa', 'frete', 'preco_unit', 'liquido', 'comissao', 'servico', 'cupom_loja', 'frete_vendedor', 'frete_orig')
+
+
+@app.get('/shopee')
+def shopee_pagina():
+    return render_template('shopee.html', abas=ABAS, ativa='shopee', padrao=vendas.PADRAO, ligada=shopee.configurado(), confirmacao=shopee.CONFIRMACAO,
+                           max_aplicar=shopee.MAX_APLICAR, limite=int(shopee.LIMITE_VARIACAO_PCT))
+
+
+@app.post('/api/shopee/pedidos')
+def api_shopee_pedidos():
+    """Pedidos pagos ainda não enviados da Shopee, com a renda real de cada um. Só leitura."""
+    try:
+        c = request.get_json(silent=True) or {}
+        dias = c.get('dias', 15)
+        if not isinstance(dias, int) or isinstance(dias, bool) or not 1 <= dias <= 30:
+            raise envios.ArquivoInvalido('Período inválido (1 a 30 dias).')
+        pedidos = shopee.pedidos_a_enviar(dias)
+        sns = [sn for sn, _ in pedidos]
+        det = shopee.detalhes(sns) if sns else {}
+        renda = shopee.rendas(sns) if sns else {}
+        return jsonify(ok=True, somente_leitura=True, linhas=shopee.linhas_dos_pedidos(pedidos, det, renda), pedidos=len(pedidos), sem_renda=len([s for s in sns if s not in renda]))
+    except Exception as exc:
+        return _erro_leitura(exc)
+
+
+def _params_shopee(c):
+    """Parâmetros da tela; sem imposto digitado, vale o maior % "normal" da TaxasML entre ML19 e ML44."""
+    params = _params_vendas(c)
+    if params.get('imposto_pct') is None:
+        normais = [v.get('normal') for k, v in (params.get('impostos') or {}).items() if k in fontes.CONTAS and v.get('normal') is not None]
+        if normais:
+            params['impostos'][shopee.CONTA] = {'normal': max(normais), 'full': max(normais)}
+    return params
+
+
+def _cad_shopee(cad):
+    """Margem mínima da Shopee (coluna "Margem Shopee" da MargensML); vazia = a margem normal do ML."""
+    saida, origem = {}, {}
+    for k, v in (cad or {}).items():
+        if not isinstance(v, dict):
+            continue
+        ms, m = _num(v.get('margem_shopee')), _num(v.get('margem'))
+        meta = ms if ms is not None else m
+        saida[str(k)] = {'custo': _num(v.get('custo')), 'margem': meta, 'margem_full': meta}
+        origem[str(k)] = 'Shopee' if ms is not None else ('ML (sem margem Shopee)' if m is not None else '')
+    return saida, origem
+
+
+def _linhas_shopee(bruto):
+    if not isinstance(bruto, list) or len(bruto) > 5000:
+        raise envios.ArquivoInvalido('Dados inválidos.')
+    return [{k: (str(r.get(k) or '')[:200] if k in _CAMPOS_TXT_SHOPEE else _num(r.get(k))) for k in _CAMPOS_TXT_SHOPEE + _NUMS_SHOPEE}
+            for r in bruto if isinstance(r, dict)]
+
+
+@app.post('/api/shopee/calcular')
+def api_shopee_calcular():
+    """Lucro e margem de cada venda (mesma regra da aba Vendas do dia). Recalculado aqui; nada é gravado."""
+    try:
+        c = request.get_json(silent=True) or {}
+        params = _params_shopee(c)
+        linhas = _linhas_shopee(c.get('linhas'))
+        for l in linhas:
+            l['conta'] = shopee.CONTA
+        skus = sorted({l['sku'] for l in linhas if l['sku']})
+        cad_bruto = c.get('cadastro')
+        if not isinstance(cad_bruto, dict):
+            cad_bruto = {}
+            for i in range(0, len(skus), 100):
+                cad_bruto.update(fontes.cadastro(skus[i:i + 100]))
+        cadastro, origem = _cad_shopee(cad_bruto)
+        analisadas, resumo = vendas.calcular(linhas, cadastro, params)
+        for a in analisadas:
+            if a.get('meta_origem') == 'planilha':
+                a['meta_origem'] = origem.get(a.get('sku'), 'planilha')
+        imp = (params.get('impostos') or {}).get(shopee.CONTA) or {}
+        return jsonify(ok=True, linhas=analisadas, resumo=resumo, cadastro={k: {kk: (float(vv) if vv is not None else None) for kk, vv in v.items()} for k, v in cad_bruto.items() if isinstance(v, dict)},
+                       imposto_pct=float(params['imposto_pct']) if params.get('imposto_pct') is not None else (float(imp['normal']) if imp.get('normal') is not None else None))
+    except Exception as exc:
+        return _erro_leitura(exc)
+
+
+def _itens_preco_shopee(itens, maximo):
+    if not isinstance(itens, list) or not 1 <= len(itens) <= maximo:
+        raise envios.ArquivoInvalido('Envie de 1 a %d anúncios por vez.' % maximo)
+    saida, vistos = [], set()
+    for x in itens:
+        if not isinstance(x, dict):
+            raise envios.ArquivoInvalido('Item inválido.')
+        try:
+            chave = (shopee.validar_item_id(x.get('mlb')), shopee.validar_modelo(x.get('modelo')))
+        except shopee.Bloqueio as exc:
+            raise envios.ArquivoInvalido(str(exc))
+        if chave in vistos:
+            raise envios.ArquivoInvalido('Anúncio repetido.')
+        vistos.add(chave)
+        saida.append((chave, x))
+    return saida
+
+
+@app.post('/api/shopee/preco-alvo')
+def api_shopee_preco_alvo():
+    """Preço necessário para chegar na margem, por anúncio (somente leitura)."""
+    try:
+        c = request.get_json(silent=True) or {}
+        params = _params_shopee(c)
+        pedidos = _itens_preco_shopee(c.get('itens'), 6)
+
+        def um(p):
+            (item_id, modelo), x = p
+            try:
+                return shopee.analisar_preco(item_id, modelo, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta')), _imposto_item(x, _imposto_shopee(params)))
+            except shopee.Bloqueio as exc:
+                return {'mlb': item_id, 'modelo': modelo, 'acao': 'bloqueado', 'mensagem': str(exc)}
+            except fontes.FonteIndisponivel as exc:
+                return {'mlb': item_id, 'modelo': modelo, 'acao': 'bloqueado', 'mensagem': str(exc)}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            return jsonify(ok=True, somente_leitura=True, resultados=list(ex.map(um, pedidos)))
+    except Exception as exc:
+        return _erro_leitura(exc)
+
+
+def _imposto_shopee(params):
+    """Parâmetros com imposto_pct preenchido pelo da Shopee (para _imposto_item)."""
+    if params.get('imposto_pct') is not None:
+        return params
+    imp = ((params.get('impostos') or {}).get(shopee.CONTA) or {}).get('normal')
+    return dict(params, imposto_pct=imp)
+
+
+@app.post('/api/shopee/preco-aplicar')
+def api_shopee_preco_aplicar():
+    """Altera o preço na Shopee dos anúncios marcados. Recalcula na hora e nunca confia no que o navegador mostrou."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('confirmacao') != shopee.CONFIRMACAO:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para alterar preço.')
+        params = _imposto_shopee(_params_shopee(c))
+        pedidos = _itens_preco_shopee(c.get('itens'), shopee.MAX_APLICAR)
+        liberar = c.get('liberar_acima_limite') is True
+        resultados = []
+        for (item_id, modelo), x in pedidos:
+            r = {'mlb': item_id, 'modelo': modelo, 'status': 'PULADO', 'mensagem': ''}
+            resultados.append(r)
+            custo, meta = _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta'))
+            visto_atual, visto_novo = _decimal_ou_none(x.get('preco_atual_visto')), _decimal_ou_none(x.get('preco_novo_visto'))
+            if None in (custo, meta, visto_atual, visto_novo) or visto_atual <= 0 or visto_novo <= 0:
+                r['mensagem'] = 'Dados do item incompletos'
+                continue
+            try:
+                a = shopee.analisar_preco(item_id, modelo, custo, meta, _imposto_item(x, params))
+                atual, novo = _decimal_ou_none(a['preco_atual']), _decimal_ou_none(a['preco_novo'])
+                if a['acao'] != 'subir' or novo is None:
+                    r['mensagem'] = 'Não precisa mais subir: ' + a.get('mensagem', '')
+                    continue
+                if abs(atual - visto_atual) > precos.D('0.009'):
+                    r['mensagem'] = 'O preço mudou desde a análise (agora R$ %.2f). Calcule de novo.' % atual
+                    continue
+                if abs(novo - visto_novo) / visto_novo * 100 > shopee.DIVERGENCIA_MAX_PCT:
+                    r['mensagem'] = 'O preço calculado mudou (agora R$ %.2f). Calcule de novo.' % novo
+                    continue
+                if a['requer_liberacao'] and not liberar:
+                    r['mensagem'] = 'Aumento acima de %s%%: marque a liberação extra.' % shopee.LIMITE_VARIACAO_PCT
+                    continue
+                if not shopee.reservar(item_id, modelo):
+                    r['mensagem'] = 'Este anúncio acabou de ser alterado. Espere um pouco.'
+                    continue
+                ok, lido = shopee.enviar_preco(item_id, modelo, novo)
+                r.update(status='OK' if ok else 'NAO_CONFIRMADO', preco_novo=float(novo), preco_lido=lido,
+                         mensagem='Preço alterado para R$ %.2f' % novo if ok else 'A Shopee aceitou, mas o preço lido depois foi R$ %s. Confira na Shopee.' % lido)
+                log.info('PRECO SHOPEE %s/%s: %s -> %s %s', item_id, modelo, atual, novo, r['status'])
+            except shopee.Bloqueio as exc:
+                r['mensagem'] = str(exc)
+            except fontes.FonteIndisponivel as exc:
+                r.update(status='ERRO', mensagem=str(exc))
+        return jsonify(ok=True, somente_leitura=False, resultados=resultados)
+    except Exception as exc:
+        return _erro_fonte(exc)

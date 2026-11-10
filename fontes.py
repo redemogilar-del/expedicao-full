@@ -125,7 +125,7 @@ def custos(skus):
 
 
 def cadastro(skus):
-    """{sku: {'custo', 'margem', 'margem_full'}} da planilha (custo em R$, margens em %). Ausente = None, nunca zero.
+    """{sku: {'custo', 'margem', 'margem_full', 'margem_shopee'}} da planilha (custo em R$, margens em %). Ausente = None, nunca zero.
 
     Mesma busca de custos(): se o SKU não existe, tenta grafias parecidas e só aceita uma única correspondência.
     """
@@ -149,7 +149,8 @@ def cadastro(skus):
     for sku in lista:
         v = achados.get(sku) or {}
         c = _numero(v.get('custo'))
-        saida[sku] = {'custo': c if c is not None and c > 0 else None, 'margem': _percentual(v.get('margem')), 'margem_full': _percentual(v.get('margem_full'))}
+        saida[sku] = {'custo': c if c is not None and c > 0 else None, 'margem': _percentual(v.get('margem')), 'margem_full': _percentual(v.get('margem_full')),
+                      'margem_shopee': _percentual(v.get('margem_shopee'))}
     return saida
 
 

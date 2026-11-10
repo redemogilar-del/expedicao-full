@@ -107,11 +107,11 @@ class TestFontesVendas(unittest.TestCase):
 
     def test_cadastro(self):
         os.environ['EXP_SHEETS_URL'] = 'https://script.google.com/macros/s/x/exec'; os.environ['EXP_SHEETS_KEY'] = 'k'
-        resp = {'ok': True, 'items': {'A': {'custo': 'R$ 12,50', 'margem': '25%', 'margem_full': ''}, 'B': {'custo': '0'}}}
+        resp = {'ok': True, 'items': {'A': {'custo': 'R$ 12,50', 'margem': '25%', 'margem_full': '', 'margem_shopee': '30%'}, 'B': {'custo': '0'}}}
         with mock.patch.object(fontes._SESS, 'post', return_value=Resp(resp)):
             r = fontes.cadastro(['A', 'B'])
-        self.assertEqual(r['A'], {'custo': 12.5, 'margem': 25.0, 'margem_full': None})
-        self.assertEqual(r['B'], {'custo': None, 'margem': None, 'margem_full': None})
+        self.assertEqual(r['A'], {'custo': 12.5, 'margem': 25.0, 'margem_full': None, 'margem_shopee': 30.0})
+        self.assertEqual(r['B'], {'custo': None, 'margem': None, 'margem_full': None, 'margem_shopee': None})
 
     def test_rotulo_envio(self):
         casos = [('ready_to_ship', 'invoice_pending', 'Gerar NF'), ('ready_to_ship', 'ready_to_print', 'Gerar etiqueta'), ('ready_to_ship', 'printed', 'Etiqueta impressa'),

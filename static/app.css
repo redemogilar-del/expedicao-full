@@ -189,3 +189,6 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 .pg-ficha{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.pg-ficha .pg-texto,.pg-ficha .pg-acoes{align-self:stretch}.pg-ficha .aviso{margin:0}
 
 .painel-topo{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.painel-topo h2{margin:0}.painel-botoes{display:flex;gap:8px}
+
+/* aba Shopee */
+.s-pedido{white-space:nowrap}.s-pedido .mlbs{white-space:nowrap}

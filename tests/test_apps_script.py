@@ -13,3 +13,8 @@ class TestAppsScript(unittest.TestCase):
         r = subprocess.run(['node', str(Path(__file__).with_name('conhecimento_mock.js'))], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('conhecimento apps script OK', r.stdout)
+
+    def test_token_shopee(self):
+        r = subprocess.run(['node', str(Path(__file__).with_name('shopee_token_mock.js'))], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('shopee token OK', r.stdout)

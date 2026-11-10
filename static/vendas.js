@@ -460,38 +460,78 @@ $('vEtqGerada').onclick = () => marcarEtiqueta('GERADA');
 $('vEtqCancelada').onclick = () => marcarEtiqueta('CANCELADA');
 
 // ---------- etiqueta 40 x 40 mm para impressora térmica Zebra (ZPL) ----------
-const MAX_ITENS_ETQ = 6, FATOR_LARG = 0.55;     // largura de um caractere ≈ 0,55 × altura (a fonte da Zebra é estreita; o cálculo é conservador para o SKU nunca passar da borda)
-function quebraSku(t){
-  const meio = Math.floor(t.length / 2); let melhor = meio;
-  for (let d = 0; d < Math.min(6, meio); d++) for (const p of [meio - d, meio + d]) if (p > 0 && p < t.length && /[_\- .]/.test(t[p - 1])) return [t.slice(0, p), t.slice(p)];
-  return [t.slice(0, melhor), t.slice(melhor)];
+const MAX_ITENS_ETQ = 6, FONTE_ETQ = 'px Arial Narrow, Arial', ENTRELINHA = 1.08;
+let CTX_MEDIR = null;
+const larguraTxt = (t, h) => { CTX_MEDIR = CTX_MEDIR || document.createElement('canvas').getContext('2d'); CTX_MEDIR.font = 'bold ' + h + FONTE_ETQ; return CTX_MEDIR.measureText(t).width; };
+// Quebra o SKU em linhas que cabem na largura, de preferência logo depois de _ - espaço . /
+function quebraLinhas(txt, h, larg, partir){
+  const pedacos = String(txt).match(/[^_\- .\/]*[_\- .\/]?/g).filter(Boolean), linhas = [];
+  let atual = '';
+  for (let p of pedacos) {
+    if (larguraTxt((atual + p).replace(/[_\- .\/]$/, ''), h) <= larg) { atual += p; continue; }   // o _ do fim da linha pode encostar na margem
+    if (atual) { linhas.push(atual); atual = ''; }
+    if (!partir && larguraTxt(p.replace(/[_\- .\/]$/, ''), h) > larg) return null;   // não corta palavra/medida no meio se der para diminuir a letra
+    while (p.length > 1 && larguraTxt(p.replace(/[_\- .\/]$/, ''), h) > larg) {          // pedaço maior que a linha: corta no meio da palavra
+      let k = p.length - 1; while (k > 1 && larguraTxt(p.slice(0, k), h) > larg) k--;
+      linhas.push(p.slice(0, k)); p = p.slice(k);
+    }
+    atual = p;
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+// Maior letra em que o SKU inteiro cabe no espaço (larg × alt), em quantas linhas precisar
+function encaixa(txt, larg, alt, hMax){
+  for (const partir of [false, true]) {             // primeiro sem cortar nenhuma palavra/medida no meio; só corta se nem com letra mínima couber
+    let lo = 8, hi = Math.min(hMax, alt), melhor = null;
+    const cabe = h => { const l = quebraLinhas(txt, h, larg, partir); return l && l.length * h * ENTRELINHA <= alt ? l : null; };
+    if (!cabe(lo)) continue;
+    melhor = {h: lo, linhas: cabe(lo)};
+    while (hi - lo > 0.5) { const h = (lo + hi) / 2, l = cabe(h); if (l) { melhor = {h, linhas: l}; lo = h; } else hi = h; }
+    return melhor;
+  }
+  return {h: 8, linhas: quebraLinhas(txt, 8, larg, true)};
 }
 function layoutEtiqueta(itens, dpi){
   const dpmm = dpi / 25.4, W = Math.round(40 * dpmm), m = Math.round(2 * dpmm), n = itens.length, uso = W - 2 * m, ops = [];
-  const ajusta = (txt, larg, hMax) => {            // maior altura de letra em que o SKU cabe em 1 linha; se ficar pequeno, tenta 2 linhas
-    const h1 = Math.min(hMax, larg / (txt.length * FATOR_LARG));
-    if (h1 >= hMax * 0.5 || txt.length <= 6) return {partes: [txt], h: Math.max(10, h1)};
-    const duas = quebraSku(txt), h2 = Math.min(hMax / 2 * 0.95, larg / (Math.max(duas[0].length, duas[1].length) * FATOR_LARG));
-    return h2 > h1 ? {partes: duas, h: Math.max(10, h2)} : {partes: [txt], h: Math.max(10, h1)};
-  };
-  const limpa = t => String(t);                    // vai como imagem: qualquer caractere pode aparecer
-  if (n === 1) {                                    // um produto: SKU em cima (1 ou 2 linhas, largura toda) e a quantidade enorme embaixo
-    const it = itens[0], hSku = uso * 0.5, a = ajusta(limpa(it.sku), uso, hSku), qt = 'x' + it.qtd, hq = uso * 0.42;
-    a.partes.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: m + (hSku - a.h * a.partes.length) / 2 + k * a.h, h: a.h, w: a.h * 0.5, larg: uso}));
-    ops.push({t: 'qtd', txt: qt, x: m, y: m + uso * 0.56, h: hq, w: hq * 0.5, larg: uso, alinha: 'C'});
+  if (n === 1) {                                    // um produto: SKU o maior possível (centralizado, quantas linhas precisar) e a quantidade embaixo
+    const it = itens[0], qt = 'x' + it.qtd, hq = Math.round(uso * 0.3), alt = uso - hq - m, a = encaixa(it.sku, uso, alt, uso * 0.45);
+    const y0 = m + (alt - a.linhas.length * a.h * ENTRELINHA) / 2;
+    a.linhas.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: y0 + k * a.h * ENTRELINHA, h: a.h, larg: uso, alinha: 'C'}));
+    ops.push({t: 'qtd', txt: qt, x: m, y: W - m - hq, h: hq, larg: uso, alinha: 'C'});
   } else {
     const bh = uso / n;
     itens.forEach((it, i) => {
       const y0 = m + i * bh, qt = 'x' + it.qtd;
-      let hq = bh * 0.82; while (qt.length * hq * FATOR_LARG > uso * 0.32) hq *= 0.92;
-      const qW = Math.ceil(qt.length * hq * FATOR_LARG), disp = uso - qW - m, a = ajusta(limpa(it.sku), disp, bh * 0.82);
-      a.partes.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: y0 + (bh - a.h * a.partes.length) / 2 + k * a.h, h: a.h, w: a.h * 0.5, larg: disp}));
-      ops.push({t: 'qtd', txt: qt, x: W - m - qW, y: y0 + (bh - hq) / 2, h: hq, w: hq * 0.5, larg: qW, alinha: 'R'});
+      let hq = bh * 0.7; while (larguraTxt(qt, hq) > uso * 0.3) hq *= 0.92;
+      const qW = Math.ceil(larguraTxt(qt, hq)), disp = uso - qW - m, a = encaixa(it.sku, disp, bh * 0.9, bh * 0.8);
+      const ys = y0 + (bh - a.linhas.length * a.h * ENTRELINHA) / 2;
+      a.linhas.forEach((t, k) => ops.push({t: 'texto', txt: t, x: m, y: ys + k * a.h * ENTRELINHA, h: a.h, larg: disp, alinha: 'L'}));
+      ops.push({t: 'qtd', txt: qt, x: W - m - qW, y: y0 + (bh - hq) / 2, h: hq, larg: qW, alinha: 'R'});
       if (i > 0) ops.push({t: 'linha', x: m, y: y0, larg: uso});
     });
   }
-  return {W, ops: ops.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : v])))};
+  return {W, ops: ops.map(o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' && k !== 'h' ? Math.round(v) : v])))};
 }
+
+// ---------- ordem de impressão: A–Z, parecidos juntos, medidas do menor para o maior ----------
+// Os SKUs têm letras disfarçadas de propósito (@ = A, £/ε = E, ! = I, 0 = O): para ordenar, lê como letra. Zero perto de número continua número.
+function leSku(s){
+  let t = String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/@/g, 'A').replace(/[£€Εε]/g, 'E').replace(/!/g, 'I');
+  t = t.replace(/0/g, (z, i, str) => /\d/.test(str[i - 1] || '') || /\d/.test(str[i + 1] || '') ? '0' : 'O');
+  const kit = /^KIT[_ \-]*/.test(t), base = t.replace(/^KIT[_ \-]*/, '');
+  return {base, kit, grupo: (base.match(/^[A-Z]+/) || [base.split(/[_ \-]/)[0] || '?'])[0]};
+}
+function comparaSku(a, b){
+  const A = leSku(a), B = leSku(b), ta = A.base.split(/(\d+(?:[.,]\d+)?)/), tb = B.base.split(/(\d+(?:[.,]\d+)?)/);
+  for (let i = 0; i < Math.min(ta.length, tb.length); i++) {
+    if (ta[i] === tb[i]) continue;
+    if (i % 2) return parseFloat(ta[i].replace(',', '.')) - parseFloat(tb[i].replace(',', '.')) || ta[i].localeCompare(tb[i]);   // números: 50 m² antes de 110 m²
+    return ta[i].localeCompare(tb[i], 'pt-BR');
+  }
+  return ta.length - tb.length || (A.kit - B.kit) || String(a).localeCompare(String(b));
+}
+
 // A etiqueta é desenhada no navegador (1 ponto da tela = 1 ponto da Zebra) e vai para a impressora como IMAGEM (^GFA).
 // Assim sai exatamente o que aparece na prévia, com qualquer caractere (acentos, Ç, símbolos): a fonte da Zebra não tem todos e simplesmente pulava os que não conhecia.
 function canvasEtiqueta(itens, dpi){
@@ -499,7 +539,7 @@ function canvasEtiqueta(itens, dpi){
   x.fillStyle = '#fff'; x.fillRect(0, 0, W, W); x.fillStyle = '#000'; x.textBaseline = 'top';
   for (const o of ops) {
     if (o.t === 'linha') x.fillRect(o.x, o.y, o.larg, 2);
-    else { x.font = 'bold ' + o.h + 'px Arial Narrow, Arial'; const ali = o.t === 'qtd' ? (o.alinha || 'R') : 'L'; x.textAlign = ali === 'R' ? 'right' : (ali === 'C' ? 'center' : 'left'); x.fillText(o.txt, ali === 'R' ? o.x + o.larg : (ali === 'C' ? o.x + o.larg / 2 : o.x), o.y, o.larg); }
+    else { x.font = 'bold ' + o.h + FONTE_ETQ; const ali = o.alinha || 'L'; x.textAlign = ali === 'R' ? 'right' : (ali === 'C' ? 'center' : 'left'); x.fillText(o.txt, ali === 'R' ? o.x + o.larg : (ali === 'C' ? o.x + o.larg / 2 : o.x), o.y, o.larg); }
   }
   return c;
 }
@@ -525,18 +565,20 @@ function etiquetasDosMarcados(){
   }
   const etqs = [];
   for (const g of por.values()) {
-    const itens = [...g].map(([sku, qtd]) => ({sku, qtd}));
+    const itens = [...g].map(([sku, qtd]) => ({sku, qtd})).sort((x, y) => comparaSku(x.sku, y.sku));
     for (let i = 0; i < itens.length; i += MAX_ITENS_ETQ) etqs.push(itens.slice(i, i + MAX_ITENS_ETQ));
   }
-  return etqs;
+  return etqs.sort((x, y) => comparaSku(x[0].sku, y[0].sku) || x.length - y.length);
 }
 let ZPL_ATUAL = '';
 function desenharEtiquetas(){
   const dpi = Number($('vEtqDpi').value), etqs = etiquetasDosMarcados();
   const telas = etqs.map(e => canvasEtiqueta(e, dpi));
   ZPL_ATUAL = telas.map(zplDoCanvas).join('');
-  $('vEtqRes').textContent = etqs.length + ' etiqueta(s) de 40 × 40 mm para ' + SEL.size + ' venda(s) marcada(s).' + (etqs.some(e => e.length > 1) ? ' Vendas com mais de um produto saem numa etiqueta só, com o tamanho adaptado.' : '');
-  $('vEtqPrev').replaceChildren(...telas);
+  const grupos = [];                                  // na prévia, cada grupo (mesmo produto) separado, para entregar a um operador
+  etqs.forEach((e, i) => { const g = leSku(e[0].sku).grupo, ult = grupos[grupos.length - 1]; if (ult && ult.nome === g) ult.telas.push(telas[i]); else grupos.push({nome: g, telas: [telas[i]]}); });
+  $('vEtqRes').textContent = etqs.length + ' etiqueta(s) de 40 × 40 mm para ' + SEL.size + ' venda(s) marcada(s), em ' + grupos.length + ' grupo(s). Saem em ordem alfabética, com produtos parecidos juntos e medidas do menor para o maior.' + (etqs.some(e => e.length > 1) ? ' Vendas com mais de um produto saem numa etiqueta só, com o tamanho adaptado.' : '');
+  $('vEtqPrev').replaceChildren(...grupos.flatMap((g, i) => [el('div', {class: 'etq-grupo'}, 'Grupo ' + (i + 1) + ': ' + g.nome + ' — ' + g.telas.length + ' etiqueta(s)'), ...g.telas]));
 }
 const minimizarEtq = min => { $('vEtqCorpo').hidden = min; $('vEtqMin').textContent = min ? 'Mostrar' : 'Minimizar'; $('vEtqMin').title = min ? 'Mostrar as etiquetas de novo' : 'Esconder as etiquetas sem perder o que foi gerado'; };
 $('vEtqMin').onclick = () => minimizarEtq(!$('vEtqCorpo').hidden);

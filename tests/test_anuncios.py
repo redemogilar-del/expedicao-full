@@ -72,6 +72,41 @@ class TestPausar(Base):
         self.assertEqual(d['resultados'][0]['status'], 'PULADO')          # acabou de ser mexido
 
 
+class TestPausarLimiteML(Base):
+    def test_429_espera_e_tenta_de_novo(self):
+        respostas = [mock.Mock(ok=False, status_code=429, text='too_many_requests', headers={}), mock.Mock(ok=False, status_code=429, text='', headers={'Retry-After': '1'})]
+        original = self.fake.put
+
+        def put(url, json=None, **kw):
+            if json and 'status' in json and respostas:
+                self.fake.puts.append((url, json))
+                return respostas.pop(0)
+            return original(url, json, **kw)
+        with mock.patch.object(anuncios.fontes._SESS, 'put', side_effect=put), mock.patch.object(anuncios.time, 'sleep') as dorme:
+            d = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'itens': [{'mlb': 'MLB100000001'}]}).get_json()
+        self.assertEqual(d['resultados'][0]['status'], 'OK')
+        self.assertEqual(self.fake.itens['MLB100000001']['status'], 'paused')
+        self.assertEqual(len(self.fake.puts), 3)
+        self.assertTrue(dorme.called)
+
+    def test_429_sempre_nao_altera_e_libera_nova_tentativa(self):
+        original = self.fake.put
+
+        def put(url, json=None, **kw):
+            if json and 'status' in json:
+                self.fake.puts.append((url, json))
+                return mock.Mock(ok=False, status_code=429, text='too_many_requests', headers={})
+            return original(url, json, **kw)
+        with mock.patch.object(anuncios.fontes._SESS, 'put', side_effect=put), mock.patch.object(anuncios.time, 'sleep'):
+            d = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'itens': [{'mlb': 'MLB100000001'}]}).get_json()
+        r = d['resultados'][0]
+        self.assertEqual(r['status'], 'ERRO')
+        self.assertIn('devagar', r['mensagem'])
+        self.assertEqual(len(self.fake.puts), 1 + len(anuncios.ESPERAS_429))
+        d = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'itens': [{'mlb': 'MLB100000001'}]}).get_json()
+        self.assertEqual(d['resultados'][0]['status'], 'OK')          # não ficou travado pelo anti clique duplo
+
+
 class TestTrocarSkuVendas(Base):
     def test_troca_sku_existente(self):
         d = self.post('/api/vendas/sku-trocar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'itens': [{'mlb': 'MLB100000001', 'sku_atual': 'GR_25kg', 'sku_novo': 'GR_25Kg_NOVO'}]}).get_json()

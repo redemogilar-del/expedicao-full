@@ -39,6 +39,26 @@ def _ler(tk, vendedor, mlb):
     return item
 
 
+ESPERAS_429 = (2, 4, 8, 15)          # segundos entre as tentativas quando o ML responde 429 (pedidos demais) ou 5xx
+
+
+def _put_pausa(tk, mlb):
+    """PUT status=paused. Com 429/5xx espera (Retry-After, se vier) e tenta de novo: pausar duas vezes não faz mal."""
+    for n, espera in enumerate((0,) + ESPERAS_429):
+        if espera:
+            time.sleep(espera)
+        resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json={'status': 'paused'}, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        if resp.status_code not in (429, 500, 502, 503, 504) or n == len(ESPERAS_429):
+            return resp
+        try:
+            pedido = float((getattr(resp, 'headers', None) or {}).get('Retry-After') or 0)
+        except (TypeError, ValueError):
+            pedido = 0
+        if pedido > 0:
+            time.sleep(min(pedido, 30))
+    return resp
+
+
 def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
     """Pausa um anúncio ATIVO. Com `sku_visto`, só pausa se o anúncio ainda tiver esse SKU. Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
@@ -54,7 +74,13 @@ def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
             raise Bloqueio('Este anúncio não tem mais o SKU %s. Busque de novo.' % sku_visto)
         if not _reservar((conta, mlb)):
             raise Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
-        resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json={'status': 'paused'}, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        resp = _put_pausa(tk, mlb)
+        if resp.status_code == 429:
+            with _LOCK:
+                _RECENTES.pop((conta, mlb), None)        # o ML não aplicou nada: pode tentar de novo na hora
+            r.update(status='ERRO', mensagem='O Mercado Livre pediu para ir mais devagar (muitos pedidos ao mesmo tempo) e não pausou este anúncio. '
+                                             'Nada foi alterado: aguarde um minuto e clique em pausar de novo.')
+            return r
         if not resp.ok:
             r.update(status='ERRO', mensagem='O Mercado Livre recusou (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
             return r

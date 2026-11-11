@@ -311,26 +311,40 @@ async function pBuscar(){
   else if (parou) pMensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
   else pMensagem(P_LINHAS.length ? P_LINHAS.length + ' anúncio(s) ativo(s) com o SKU ' + termo + '. Confira a lista antes de pausar.' : 'Nenhum anúncio ativo com o SKU ' + termo + '.', P_LINHAS.length ? 'ok' : '');
 }
+const P_DEVAGAR = l => !!(l.resultado && l.resultado.status === 'ERRO' && /devagar/.test(l.resultado.mensagem || ''));   // 429 do ML: nada foi alterado
+const P_RODADAS = 3, P_ESPERA_S = 30;
 async function pPausar(){
   const sel = P_LINHAS.filter(l => l.marcado && !P_FEITO(l));
   if (P_PAUSANDO || !sel.length || $('pConfirma').value.trim() !== 'PAUSAR') return;
   P_PAUSANDO = true; pMensagem(''); pDesenhar();
-  const porConta = {}; for (const l of sel) (porConta[l.conta] = porConta[l.conta] || []).push(l);
-  let falhou = null, parar = false;
-  await Promise.all(Object.entries(porConta).map(async ([conta, ls]) => {
-    try {
-      for (let i = 0; i < ls.length && !parar; i += 10) {
-        const lote = ls.slice(i, i + 10);                 // sem repetir automaticamente: se der erro, a pessoa busca de novo e confere
-        const d = await json('/api/vendas/pausar', {conta, confirmacao: 'PAUSAR_ANUNCIOS', itens: lote.map(l => ({mlb: l.mlb, sku_visto: l.sku_atual}))});
-        for (const r of d.resultados) { const l = lote.find(x => x.mlb === r.mlb); if (l) { l.resultado = r; if (r.status === 'OK') l.marcado = false; } }
-        pDesenhar();
-      }
-    } catch (e) { falhou = falhou || e; parar = true; }
-  }));
+  let falhou = null, parar = false, alvo = sel;
+  for (let rodada = 1; rodada <= P_RODADAS && alvo.length && !parar; rodada++) {
+    if (rodada > 1) {                                     // o ML pediu para ir mais devagar: espera e tenta de novo SÓ esses (nada tinha sido alterado neles)
+      for (let s = P_ESPERA_S; s > 0; s--) { pMensagem('O Mercado Livre pediu para ir mais devagar. Tentando de novo ' + alvo.length + ' anúncio(s) em ' + s + ' s…'); await new Promise(r => setTimeout(r, 1000)); }
+      pMensagem('');
+    }
+    const porConta = {}; for (const l of alvo) (porConta[l.conta] = porConta[l.conta] || []).push(l);
+    await Promise.all(Object.entries(porConta).map(async ([conta, ls]) => {
+      try {
+        for (let i = 0; i < ls.length && !parar; i += 10) {
+          const lote = ls.slice(i, i + 10);
+          const d = await json('/api/vendas/pausar', {conta, confirmacao: 'PAUSAR_ANUNCIOS', itens: lote.map(l => ({mlb: l.mlb, sku_visto: l.sku_atual}))});
+          for (const r of d.resultados) {
+            const l = lote.find(x => x.mlb === r.mlb);
+            if (!l) continue;
+            if (r.status === 'PULADO' && /Já estava pausado/.test(r.mensagem || '')) r.status = 'OK';     // já está como pedido
+            l.resultado = r; if (r.status === 'OK') l.marcado = false;
+          }
+          pDesenhar();
+        }
+      } catch (e) { falhou = falhou || e; parar = true; }
+    }));
+    alvo = sel.filter(P_DEVAGAR);
+  }
   P_PAUSANDO = false; $('pConfirma').value = ''; pDesenhar();
-  const ok = sel.filter(P_FEITO).length;
-  if (falhou) pMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) pausado(s) até aqui. Busque de novo antes de repetir.', 'erro');
-  else pMensagem(ok + ' de ' + sel.length + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre.', ok === sel.length ? 'ok' : 'erro');
+  const ok = sel.filter(P_FEITO).length, faltam = sel.length - ok;
+  if (falhou) pMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) pausado(s) até aqui. Os que faltam continuam marcados: digite PAUSAR e clique de novo.', 'erro');
+  else pMensagem(ok + ' de ' + sel.length + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre.' + (faltam ? ' Os ' + faltam + ' que faltam continuam marcados (veja o motivo na linha): digite PAUSAR e clique de novo.' : ''), faltam ? 'erro' : 'ok');
 }
 $('pBuscar').addEventListener('click', pBuscar);
 $('pParar').addEventListener('click', () => { P_PARAR = true; });

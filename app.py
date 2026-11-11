@@ -1318,7 +1318,7 @@ def api_vendas_pausar():
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
-        with ThreadPoolExecutor(max_workers=len(lista)) as ex:
+        with ThreadPoolExecutor(max_workers=min(3, len(lista))) as ex:      # poucos de cada vez: o ML recusa (429) quando chegam muitos juntos
             resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
         for r in resultados:
             log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])

@@ -118,7 +118,6 @@ function desenhar(){
   for (const l of daAba) {
     const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: !l.permitido || TROCANDO || !!(l.resultado && l.resultado.status === 'OK')});
     cx.addEventListener('change', () => { l.marcado = cx.checked; resumo(); });
-    const mlb = l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb;
     let sit = STATUS[l.status] || l.status || '—';
     if (!l.permitido && !l.aviso) sit += ' (não dá para alterar)';
     const celSit = el('td', null, sit);
@@ -130,7 +129,7 @@ function desenhar(){
       campo.addEventListener('input', () => { l.novo = campo.value; campo.classList.toggle('editado', PRONTA(l)); if (PRONTA(l) && !l.marcado) { l.marcado = true; cx.checked = true; } resumo(); });   // digitou um SKU diferente: marca a linha sozinha
       celNovo = el('td', null, campo);
     } else celNovo = el('td', null, (l.resultado && l.resultado.status === 'OK' && l.novo) ? l.novo : (l.sku_novo || '—'));
-    corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, mlb), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)), el('td', null, l.variacao_nome || (l.variacao === null ? '(anúncio sem variação)' : '—')),
+    corpo.append(el('tr', null, el('td', null, cx), el('td', null, l.conta), celulaMlb(l), el('td', null, l.titulo), el('td', null, l.variacao === null ? '—' : String(l.variacao)), el('td', null, l.variacao_nome || (l.variacao === null ? '(anúncio sem variação)' : '—')),
       el('td', null, l.sku_atual || '(sem SKU)'), celNovo, celSit));
   }
   const visiveis = todas.length;
@@ -258,6 +257,19 @@ async function baixarExcel(){
 }
 $('sExcel').addEventListener('click', baixarExcel);
 
+// botão ⧉ ao lado do MLB: copia o número (para colar no Mercado Livre, na planilha etc.)
+async function copiarTexto(t){
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t);
+  const a = el('textarea', {}); a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'; document.body.append(a); a.select();
+  try { if (!document.execCommand('copy')) throw new Error('cópia recusada'); } finally { a.remove(); }
+}
+function botaoCopiar(texto){
+  const b = el('button', {class: 'copiar', type: 'button', title: 'Copiar o MLB', 'aria-label': 'Copiar o MLB ' + texto}, '⧉');
+  b.addEventListener('click', async e => { e.stopPropagation(); e.preventDefault(); try { await copiarTexto(String(texto)); b.textContent = '✓'; } catch (err) { b.textContent = '!'; } setTimeout(() => { b.textContent = '⧉'; }, 1200); });
+  return b;
+}
+const celulaMlb = l => el('td', null, l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb, botaoCopiar(l.mlb));
+
 // ---------- pausar os anúncios ativos de um SKU (a busca só lê; pausar exige digitar PAUSAR) ----------
 let P_LINHAS = [], P_BUSCANDO = false, P_PARAR = false, P_PAUSANDO = false;
 let P_AUTO = false, P_ESPERANDO = 0, P_AUTO_ERRO = null;      // pausa automática durante a busca
@@ -266,7 +278,7 @@ const P_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
 function pMensagem(texto, tipo){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function pResumo(){
   const n = P_LINHAS.filter(l => l.marcado && !P_FEITO(l)).length, digitou = $('pConfirma').value.trim() === 'PAUSAR';
-  $('pPausar').textContent = 'Pausar todos os ativos encontrados (' + n + ')';
+  $('pPausar').textContent = 'Pausar só os selecionados (' + n + ')';
   $('pPausar').disabled = P_BUSCANDO || P_PAUSANDO || P_AUTO || !n || !digitou;
   if (P_AUTO) {
     const fila = Object.values(P_FILA).reduce((t, f) => t + f.length, 0);
@@ -282,7 +294,7 @@ function pDesenhar(){
     const sit = el('td', null, P_FEITO(l) ? 'Pausado' : 'Ativo');
     if (l.aviso) sit.append(el('div', {class: 'aviso-linha'}, l.aviso));
     if (l.resultado) sit.append(el('div', {class: P_FEITO(l) ? 'ok-linha' : 'aviso-linha'}, P_FEITO(l) ? 'Pausado e conferido ✔' : l.resultado.mensagem));
-    return el('tr', null, el('td', null, cx), el('td', null, l.conta), el('td', null, l.link ? el('a', {href: l.link, target: '_blank', rel: 'noopener'}, l.mlb) : l.mlb), el('td', null, l.titulo), el('td', null, l.variacao_nome || '—'), el('td', null, l.sku_atual), sit);
+    return el('tr', null, el('td', null, cx), el('td', null, l.conta), celulaMlb(l), el('td', null, l.titulo), el('td', null, l.variacao_nome || '—'), el('td', null, l.sku_atual), sit);
   }));
   $('pResultado').hidden = !P_LINHAS.length;
   pResumo();
@@ -419,7 +431,7 @@ function pFimAuto(termo){
   pDesenhar();
   const ok = P_LINHAS.filter(P_FEITO).length, faltam = P_LINHAS.filter(l => l.marcado && !P_FEITO(l)).length;
   const base = ok + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre' + (pFimAuto.termo ? ' (SKU ' + pFimAuto.termo + ')' : '') + '.';
-  const resto = faltam ? ' ' + faltam + ' continuam ativos e marcados (veja o motivo na linha): digite PAUSAR e clique em "Pausar todos os ativos encontrados".' : '';
+  const resto = faltam ? ' ' + faltam + ' continuam ativos e marcados (veja o motivo na linha): digite PAUSAR e clique em "Pausar só os selecionados".' : '';
   if (P_AUTO_ERRO) pMensagem('A pausa automática parou: ' + P_AUTO_ERRO + ' ' + base + resto, 'erro');
   else if (P_PARAR) pMensagem('Interrompido. ' + base + resto, faltam ? 'erro' : '');
   else pMensagem(P_LINHAS.length ? base + resto : 'Nenhum anúncio ativo com o SKU ' + (pFimAuto.termo || '') + '.', faltam ? 'erro' : (P_LINHAS.length ? 'ok' : ''));

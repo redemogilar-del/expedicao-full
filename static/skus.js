@@ -260,18 +260,25 @@ $('sExcel').addEventListener('click', baixarExcel);
 
 // ---------- pausar os anúncios ativos de um SKU (a busca só lê; pausar exige digitar PAUSAR) ----------
 let P_LINHAS = [], P_BUSCANDO = false, P_PARAR = false, P_PAUSANDO = false;
+let P_AUTO = false, P_ESPERANDO = 0, P_AUTO_ERRO = null;      // pausa automática durante a busca
+const P_FILA = {}, P_RODANDO = {};
 const P_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
 function pMensagem(texto, tipo){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function pResumo(){
   const n = P_LINHAS.filter(l => l.marcado && !P_FEITO(l)).length, digitou = $('pConfirma').value.trim() === 'PAUSAR';
   $('pPausar').textContent = 'Pausar todos os ativos encontrados (' + n + ')';
-  $('pPausar').disabled = P_BUSCANDO || P_PAUSANDO || !n || !digitou;
+  $('pPausar').disabled = P_BUSCANDO || P_PAUSANDO || P_AUTO || !n || !digitou;
+  if (P_AUTO) {
+    const fila = Object.values(P_FILA).reduce((t, f) => t + f.length, 0);
+    $('pDica').textContent = 'Pausa automática ligada: ' + P_LINHAS.filter(P_FEITO).length + ' pausado(s) · ' + (fila + P_ESPERANDO) + ' na fila' + (P_ESPERANDO ? ' (' + P_ESPERANDO + ' esperando o Mercado Livre liberar)' : '') + ' · ' + P_LINHAS.filter(l => l.resultado && !P_FEITO(l) && !P_DEVAGAR(l)).length + ' não pausado(s).';
+    return;
+  }
   $('pDica').textContent = P_PAUSANDO ? 'Pausando no Mercado Livre… aguarde.' : P_BUSCANDO ? 'Aguarde a busca terminar para pausar.' : !n ? 'Nenhum anúncio marcado para pausar.' : !digitou ? 'Digite PAUSAR (só a palavra, em maiúsculas) para ligar o botão.' : 'Tudo certo: clique no botão para pausar no Mercado Livre.';
 }
 function pDesenhar(){
   $('pCorpo').replaceChildren(...P_LINHAS.map(l => {
     const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: P_PAUSANDO || P_FEITO(l)});
-    cx.addEventListener('change', () => { l.marcado = cx.checked; pResumo(); });
+    cx.addEventListener('change', () => { l.marcado = cx.checked; pResumo(); });       // desmarcado sai da fila automática (ela só pausa os marcados)
     const sit = el('td', null, P_FEITO(l) ? 'Pausado' : 'Ativo');
     if (l.aviso) sit.append(el('div', {class: 'aviso-linha'}, l.aviso));
     if (l.resultado) sit.append(el('div', {class: P_FEITO(l) ? 'ok-linha' : 'aviso-linha'}, P_FEITO(l) ? 'Pausado e conferido ✔' : l.resultado.mensagem));
@@ -284,12 +291,20 @@ function pProgresso(texto, pct){
   $('pProg').hidden = texto === null; if (texto === null) return;
   $('pBarra').style.width = Math.max(2, Math.min(100, pct || 0)) + '%'; $('pTxt').textContent = texto;
 }
-async function pBuscar(){
-  if (P_BUSCANDO || P_PAUSANDO) return;
+async function pBuscar(auto){
+  if (P_BUSCANDO || P_PAUSANDO || P_AUTO) return;
   const termo = $('pSku').value.trim();
   if (!termo) { pMensagem('Digite o SKU dos anúncios que serão pausados.', 'erro'); return; }
+  if (auto === true) {
+    const conf = prompt('Vou buscar e PAUSAR NO MERCADO LIVRE, um a um assim que aparecem, todos os anúncios ATIVOS com o SKU exato:\n\n' + termo +
+      '\n\nA pausa vale para o anúncio inteiro (inclusive variações com outro SKU). Para começar, digite PAUSAR:');
+    if (conf === null) return;
+    if (conf.trim() !== 'PAUSAR') { pMensagem('Pausa automática não ligada: é preciso digitar PAUSAR (em maiúsculas).', 'erro'); return; }
+    P_AUTO = true; P_AUTO_ERRO = null; P_ESPERANDO = 0;
+    for (const k of Object.keys(P_FILA)) delete P_FILA[k];
+  }
   const contas = $('pConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('pConta').value], andamento = {};
-  P_BUSCANDO = true; P_PARAR = false; P_LINHAS = []; $('pConfirma').value = ''; $('pBuscar').disabled = true; $('pParar').hidden = false; pMensagem(''); pDesenhar();
+  P_BUSCANDO = true; P_PARAR = false; P_LINHAS = []; $('pConfirma').value = ''; $('pBuscar').disabled = true; $('pBuscarAuto').disabled = true; $('pParar').hidden = false; pMensagem(''); pDesenhar();
   let falhou = null, parou = false;
   await Promise.all(contas.map(async conta => {
     let scroll = null; andamento[conta] = {lidos: 0, total: 0};
@@ -298,7 +313,11 @@ async function pBuscar(){
         if (P_PARAR) { parou = true; break; }
         const d = await comTentativas(() => json('/api/skus/buscar', {conta, scroll_id: scroll, modo: 'pausar_sku', termo}));
         scroll = d.scroll_id; andamento[conta].lidos += d.lidos; andamento[conta].total = d.total || andamento[conta].total;
-        for (const a of d.achados) P_LINHAS.push(Object.assign({}, a, {conta, marcado: true, resultado: null}));
+        for (const a of d.achados) {
+          const l = Object.assign({}, a, {conta, marcado: true, resultado: null, tentativas: 0});
+          P_LINHAS.push(l);
+          if (P_AUTO) pEnfileirar(l);
+        }
         const lidos = Object.values(andamento).reduce((t, x) => t + x.lidos, 0), total = Object.values(andamento).reduce((t, x) => t + x.total, 0);
         pProgresso(lidos.toLocaleString('pt-BR') + (total ? ' de ' + total.toLocaleString('pt-BR') : '') + ' anúncios ativos lidos · ' + P_LINHAS.length + ' com este SKU', total ? lidos / total * 100 : 5);
         pDesenhar();
@@ -306,7 +325,13 @@ async function pBuscar(){
       }
     } catch (e) { falhou = falhou || e; P_PARAR = true; }
   }));
-  P_BUSCANDO = false; $('pBuscar').disabled = false; $('pParar').hidden = true; pProgresso(null); pDesenhar();
+  P_BUSCANDO = false; pProgresso(null); pDesenhar();
+  if (auto === true) {                                    // a pausa automática termina sozinha quando a fila esvaziar (ou mostra por que parou)
+    if (falhou) P_AUTO_ERRO = P_AUTO_ERRO || ('a busca parou: ' + falhou.message + ' A lista pode estar incompleta.');
+    pFimAuto(termo);
+    return;
+  }
+  $('pBuscar').disabled = false; $('pBuscarAuto').disabled = false; $('pParar').hidden = true;
   if (falhou) pMensagem('A busca parou: ' + falhou.message + ' A lista pode estar incompleta.', 'erro');
   else if (parou) pMensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
   else pMensagem(P_LINHAS.length ? P_LINHAS.length + ' anúncio(s) ativo(s) com o SKU ' + termo + '. Confira a lista antes de pausar.' : 'Nenhum anúncio ativo com o SKU ' + termo + '.', P_LINHAS.length ? 'ok' : '');
@@ -346,7 +371,62 @@ async function pPausar(){
   if (falhou) pMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) pausado(s) até aqui. Os que faltam continuam marcados: digite PAUSAR e clique de novo.', 'erro');
   else pMensagem(ok + ' de ' + sel.length + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre.' + (faltam ? ' Os ' + faltam + ' que faltam continuam marcados (veja o motivo na linha): digite PAUSAR e clique de novo.' : ''), faltam ? 'erro' : 'ok');
 }
-$('pBuscar').addEventListener('click', pBuscar);
-$('pParar').addEventListener('click', () => { P_PARAR = true; });
+// ---------- pausa automática: cada anúncio entra na fila da sua conta assim que aparece; lotes de até 10, um por vez por conta ----------
+function pEnfileirar(l){
+  (P_FILA[l.conta] = P_FILA[l.conta] || []).push(l);
+  pRodarFila(l.conta);
+}
+async function pRodarFila(conta){
+  if (P_RODANDO[conta]) return;
+  P_RODANDO[conta] = true;
+  try {
+    while (P_AUTO && (P_FILA[conta] || []).length) {
+      const lote = P_FILA[conta].splice(0, 10).filter(l => l.marcado && !P_FEITO(l));
+      if (!lote.length) continue;
+      let d;
+      try {
+        d = await json('/api/vendas/pausar', {conta, confirmacao: 'PAUSAR_ANUNCIOS', itens: lote.map(l => ({mlb: l.mlb, sku_visto: l.sku_atual}))});
+      } catch (e) {
+        P_AUTO_ERRO = P_AUTO_ERRO || e.message; P_AUTO = false; P_PARAR = true;     // falha de conexão: para tudo (não repete às cegas)
+        break;
+      }
+      for (const r of d.resultados) {
+        const l = lote.find(x => x.mlb === r.mlb);
+        if (!l) continue;
+        if (r.status === 'PULADO' && /Já estava pausado/.test(r.mensagem || '')) r.status = 'OK';
+        l.resultado = r; if (r.status === 'OK') l.marcado = false;
+        if (P_DEVAGAR(l) && ++l.tentativas < P_RODADAS) {         // o ML pediu para ir mais devagar: nada foi alterado, tenta de novo daqui a pouco
+          P_ESPERANDO++;
+          setTimeout(() => { P_ESPERANDO--; if (P_AUTO) pEnfileirar(l); else pFimAuto(); }, P_ESPERA_S * 1000);
+        }
+      }
+      pDesenhar();
+    }
+  } finally {
+    P_RODANDO[conta] = false;
+    pFimAuto();
+  }
+}
+function pFimAuto(termo){
+  if (termo) pFimAuto.termo = termo;
+  const ocupado = Object.values(P_RODANDO).some(Boolean) || Object.values(P_FILA).some(f => f.length) || P_ESPERANDO > 0;
+  if (P_BUSCANDO || (P_AUTO && ocupado)) { pDesenhar(); return; }
+  if (!P_AUTO && !P_AUTO_ERRO && !P_PARAR && ocupado) return;
+  if ($('pParar').hidden && !P_AUTO) return;             // já encerrado
+  P_AUTO = false;
+  for (const k of Object.keys(P_FILA)) P_FILA[k].length = 0;
+  $('pBuscar').disabled = false; $('pBuscarAuto').disabled = false; $('pParar').hidden = true; $('pConfirma').value = '';
+  pDesenhar();
+  const ok = P_LINHAS.filter(P_FEITO).length, faltam = P_LINHAS.filter(l => l.marcado && !P_FEITO(l)).length;
+  const base = ok + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre' + (pFimAuto.termo ? ' (SKU ' + pFimAuto.termo + ')' : '') + '.';
+  const resto = faltam ? ' ' + faltam + ' continuam ativos e marcados (veja o motivo na linha): digite PAUSAR e clique em "Pausar todos os ativos encontrados".' : '';
+  if (P_AUTO_ERRO) pMensagem('A pausa automática parou: ' + P_AUTO_ERRO + ' ' + base + resto, 'erro');
+  else if (P_PARAR) pMensagem('Interrompido. ' + base + resto, faltam ? 'erro' : '');
+  else pMensagem(P_LINHAS.length ? base + resto : 'Nenhum anúncio ativo com o SKU ' + (pFimAuto.termo || '') + '.', faltam ? 'erro' : (P_LINHAS.length ? 'ok' : ''));
+  P_AUTO_ERRO = null;
+}
+$('pBuscar').addEventListener('click', () => pBuscar(false));
+$('pBuscarAuto').addEventListener('click', () => pBuscar(true));
+$('pParar').addEventListener('click', () => { P_PARAR = true; if (P_AUTO) { P_AUTO = false; pFimAuto(); } });
 $('pConfirma').addEventListener('input', pResumo);
 $('pPausar').addEventListener('click', pPausar);

@@ -33,13 +33,24 @@
     <label>Conta<select id="pConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
     <label>SKU<input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
   </div>
-  <div class="acoes"><button class="primario" id="pBuscar">Buscar ativos com este SKU</button><button class="primario" id="pBuscarAuto" title="Pausa cada anúncio ativo com este SKU assim que ele aparece na busca (pede confirmação antes)">Buscar e pausar automaticamente</button><button id="pParar" hidden>Parar</button></div>
-  <p class="suave pequeno"><b>Buscar e pausar automaticamente:</b> não espera a busca terminar: cada anúncio ativo com o SKU é pausado assim que aparece (pede para digitar PAUSAR antes de começar). "Parar" interrompe a busca e a pausa; o que já foi pausado continua pausado.</p>
+  <div class="pausa-blocos">
+    <div class="pausa-bloco">
+      <h3>1. Só buscar e conferir</h3>
+      <p class="suave pequeno">Lista os anúncios ativos com o SKU. <b>Nada é pausado</b>: você confere, desmarca o que quiser, digita PAUSAR e clica em "Pausar só os selecionados", embaixo da lista. O ⧉ ao lado de cada MLB copia o número.</p>
+      <button class="primario" id="pBuscar">Buscar ativos com este SKU</button>
+    </div>
+    <div class="pausa-bloco perigo">
+      <h3>2. Buscar e pausar automaticamente</h3>
+      <p class="suave pequeno"><b>Pausa na hora</b>, sem esperar a busca terminar: cada anúncio ativo com o SKU é pausado assim que aparece. Pede para digitar PAUSAR antes de começar. "Parar" interrompe a busca e a pausa; o que já foi pausado continua pausado.</p>
+      <button class="perigo" id="pBuscarAuto">Buscar e pausar automaticamente</button>
+    </div>
+  </div>
+  <div class="acoes"><button id="pParar" hidden>Parar</button></div>
   <p id="pMsg" class="aviso" hidden role="status"></p>
   <div id="pProg" class="progresso" hidden><div id="pBarra"></div><span id="pTxt"></span></div>
   <div id="pResultado" hidden>
     <div class="tabela-caixa"><table><thead><tr><th>Pausar</th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação com o SKU</th><th>SKU</th><th>Situação</th></tr></thead><tbody id="pCorpo"></tbody></table></div>
-    <div class="barra"><input type="text" id="pConfirma" autocomplete="off" placeholder="Digite PAUSAR" maxlength="10"><button class="primario" id="pPausar" disabled>Pausar todos os ativos encontrados</button></div>
+    <div class="barra"><input type="text" id="pConfirma" autocomplete="off" placeholder="Digite PAUSAR" maxlength="10"><button class="primario" id="pPausar" disabled>Pausar só os selecionados</button></div>
     <p class="dica" id="pDica" role="status"></p>
   </div>
 </section>

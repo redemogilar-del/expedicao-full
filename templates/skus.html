@@ -33,7 +33,8 @@
     <label>Conta<select id="pConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
     <label>SKU<input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
   </div>
-  <div class="acoes"><button class="primario" id="pBuscar">Buscar ativos com este SKU</button><button id="pParar" hidden>Parar busca</button></div>
+  <div class="acoes"><button class="primario" id="pBuscar">Buscar ativos com este SKU</button><button class="primario" id="pBuscarAuto" title="Pausa cada anúncio ativo com este SKU assim que ele aparece na busca (pede confirmação antes)">Buscar e pausar automaticamente</button><button id="pParar" hidden>Parar</button></div>
+  <p class="suave pequeno"><b>Buscar e pausar automaticamente:</b> não espera a busca terminar: cada anúncio ativo com o SKU é pausado assim que aparece (pede para digitar PAUSAR antes de começar). "Parar" interrompe a busca e a pausa; o que já foi pausado continua pausado.</p>
   <p id="pMsg" class="aviso" hidden role="status"></p>
   <div id="pProg" class="progresso" hidden><div id="pBarra"></div><span id="pTxt"></span></div>
   <div id="pResultado" hidden>

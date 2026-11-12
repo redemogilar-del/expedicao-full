@@ -274,6 +274,7 @@ const celulaMlb = l => el('td', null, l.link ? el('a', {href: l.link, target: '_
 let P_LINHAS = [], P_BUSCANDO = false, P_PARAR = false, P_PAUSANDO = false;
 let P_AUTO = false, P_ESPERANDO = 0, P_AUTO_ERRO = null;      // pausa automática durante a busca
 const P_FILA = {}, P_RODANDO = {};
+let P_TERMO = '', P_MOTIVO = null;                              // SKU da busca e motivo/previsão da pausa em andamento (vão para a planilha)
 const P_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
 function pMensagem(texto, tipo){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
 function pResumo(){
@@ -303,18 +304,58 @@ function pProgresso(texto, pct){
   $('pProg').hidden = texto === null; if (texto === null) return;
   $('pBarra').style.width = Math.max(2, Math.min(100, pct || 0)) + '%'; $('pTxt').textContent = texto;
 }
+function pMotivoLer(){
+  const motivo = $('pMotivo').value, previsao = $('pPrevisao').value;
+  if (!motivo) return {erro: 'Escolha o motivo da pausa: falta de estoque ou produto descontinuado.'};
+  if (motivo === 'FALTA_ESTOQUE' && !/^\d{4}-\d{2}-\d{2}$/.test(previsao)) return {erro: 'Informe a data prevista para o SKU chegar (é nela que ele será reativado).'};
+  return {motivo, previsao: motivo === 'FALTA_ESTOQUE' ? previsao : ''};
+}
+function pMotivoForm(){
+  const desc = $('pMotivo').value === 'DESCONTINUADO';
+  $('pPrevRot').hidden = desc; if (desc) $('pPrevisao').value = '';
+}
+const dataBr = iso => iso ? iso.split('-').reverse().join('/') : '';
+// anota na aba "Pausas por SKU" (só a planilha; os anúncios já foram alterados). Falha aqui não desfaz nada: avisa para anotar à mão.
+async function anotarPlanilha(idMsg, corpo, linhas){
+  const m = $(idMsg);
+  linhas.forEach(l => { l.anotado = true; });
+  m.hidden = false; m.className = 'aviso'; m.textContent = 'Anotando na planilha…';
+  try {
+    const d = await comTentativas(() => json('/api/skus/pausas-registrar', corpo));
+    m.className = 'aviso ok';
+    m.textContent = 'Anotado na planilha (aba Pausas por SKU): SKU ' + corpo.sku + ' · ' + corpo.ok + (corpo.tipo === 'pausa' ? ' pausado(s)' : ' reativado(s)') + ' · ' + corpo.erros + ' com erro' +
+      (corpo.tipo === 'pausa' ? ' · ' + (corpo.motivo === 'FALTA_ESTOQUE' ? 'falta de estoque, chega em ' + dataBr(corpo.previsao) : 'produto descontinuado') : ' · situação: ' + d.situacao) + '.';
+    return true;
+  } catch (e) {
+    linhas.forEach(l => { l.anotado = false; });                  // na próxima rodada vão de novo
+    m.className = 'aviso erro';
+    m.textContent = 'Os anúncios já foram alterados no Mercado Livre, mas não consegui anotar na planilha: ' + e.message;
+    return false;
+  }
+}
+function pRegistrar(){
+  if (!P_MOTIVO || !P_TERMO) return;
+  const novos = P_LINHAS.filter(l => P_FEITO(l) && !l.anotado), erros = P_LINHAS.filter(l => l.resultado && !P_FEITO(l)).length;
+  if (!novos.length && !erros) return;
+  const contas = [...new Set(P_LINHAS.filter(l => l.resultado).map(l => l.conta))];
+  anotarPlanilha('pPlanilha', {tipo: 'pausa', sku: P_TERMO, ok: novos.length, erros, contas, motivo: P_MOTIVO.motivo, previsao: P_MOTIVO.previsao}, novos);
+}
 async function pBuscar(auto){
   if (P_BUSCANDO || P_PAUSANDO || P_AUTO) return;
   const termo = $('pSku').value.trim();
   if (!termo) { pMensagem('Digite o SKU dos anúncios que serão pausados.', 'erro'); return; }
   if (auto === true) {
+    const mot = pMotivoLer();
+    if (mot.erro) { pMensagem(mot.erro, 'erro'); return; }
     const conf = prompt('Vou buscar e PAUSAR NO MERCADO LIVRE, um a um assim que aparecem, todos os anúncios ATIVOS com o SKU exato:\n\n' + termo +
+      '\n\nMotivo: ' + (mot.motivo === 'FALTA_ESTOQUE' ? 'falta de estoque (chega em ' + dataBr(mot.previsao) + ')' : 'produto descontinuado') +
       '\n\nA pausa vale para o anúncio inteiro (inclusive variações com outro SKU). Para começar, digite PAUSAR:');
     if (conf === null) return;
     if (conf.trim() !== 'PAUSAR') { pMensagem('Pausa automática não ligada: é preciso digitar PAUSAR (em maiúsculas).', 'erro'); return; }
-    P_AUTO = true; P_AUTO_ERRO = null; P_ESPERANDO = 0;
+    P_AUTO = true; P_AUTO_ERRO = null; P_ESPERANDO = 0; P_MOTIVO = mot;
     for (const k of Object.keys(P_FILA)) delete P_FILA[k];
   }
+  P_TERMO = termo; $('pPlanilha').hidden = true;
   const contas = $('pConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('pConta').value], andamento = {};
   P_BUSCANDO = true; P_PARAR = false; P_LINHAS = []; $('pConfirma').value = ''; $('pBuscar').disabled = true; $('pBuscarAuto').disabled = true; $('pParar').hidden = false; pMensagem(''); pDesenhar();
   let falhou = null, parou = false;
@@ -353,6 +394,9 @@ const P_RODADAS = 3, P_ESPERA_S = 30;
 async function pPausar(){
   const sel = P_LINHAS.filter(l => l.marcado && !P_FEITO(l));
   if (P_PAUSANDO || !sel.length || $('pConfirma').value.trim() !== 'PAUSAR') return;
+  const mot = pMotivoLer();
+  if (mot.erro) { pMensagem(mot.erro, 'erro'); return; }
+  P_MOTIVO = mot;
   P_PAUSANDO = true; pMensagem(''); pDesenhar();
   let falhou = null, parar = false, alvo = sel;
   for (let rodada = 1; rodada <= P_RODADAS && alvo.length && !parar; rodada++) {
@@ -382,6 +426,7 @@ async function pPausar(){
   const ok = sel.filter(P_FEITO).length, faltam = sel.length - ok;
   if (falhou) pMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) pausado(s) até aqui. Os que faltam continuam marcados: digite PAUSAR e clique de novo.', 'erro');
   else pMensagem(ok + ' de ' + sel.length + ' anúncio(s) pausado(s) e conferido(s) no Mercado Livre.' + (faltam ? ' Os ' + faltam + ' que faltam continuam marcados (veja o motivo na linha): digite PAUSAR e clique de novo.' : ''), faltam ? 'erro' : 'ok');
+  pRegistrar();
 }
 // ---------- pausa automática: cada anúncio entra na fila da sua conta assim que aparece; lotes de até 10, um por vez por conta ----------
 function pEnfileirar(l){
@@ -436,9 +481,140 @@ function pFimAuto(termo){
   else if (P_PARAR) pMensagem('Interrompido. ' + base + resto, faltam ? 'erro' : '');
   else pMensagem(P_LINHAS.length ? base + resto : 'Nenhum anúncio ativo com o SKU ' + (pFimAuto.termo || '') + '.', faltam ? 'erro' : (P_LINHAS.length ? 'ok' : ''));
   P_AUTO_ERRO = null;
+  pRegistrar();
 }
 $('pBuscar').addEventListener('click', () => pBuscar(false));
 $('pBuscarAuto').addEventListener('click', () => pBuscar(true));
 $('pParar').addEventListener('click', () => { P_PARAR = true; if (P_AUTO) { P_AUTO = false; pFimAuto(); } });
 $('pConfirma').addEventListener('input', pResumo);
 $('pPausar').addEventListener('click', pPausar);
+$('pMotivo').addEventListener('change', pMotivoForm);
+pMotivoForm();
+
+// ---------- reativar os anúncios pausados de um SKU (a busca só lê; reativar exige digitar REATIVAR) ----------
+let R_LINHAS = [], R_BUSCANDO = false, R_PARAR = false, R_REATIVANDO = false, R_TERMO = '', R_PLAN_ABERTA = false;
+const R_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
+const R_DEVAGAR = l => !!(l.resultado && l.resultado.status === 'ERRO' && /devagar/.test(l.resultado.mensagem || ''));
+function rMensagem(texto, tipo){ const m = $('rMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }
+function rProgresso(texto, pct){
+  $('rProg').hidden = texto === null; if (texto === null) return;
+  $('rBarra').style.width = Math.max(2, Math.min(100, pct || 0)) + '%'; $('rTxt').textContent = texto;
+}
+function rResumo(){
+  const n = R_LINHAS.filter(l => l.marcado && !R_FEITO(l)).length, digitou = $('rConfirma').value.trim() === 'REATIVAR';
+  $('rReativar').textContent = 'Reativar só os selecionados (' + n + ')';
+  $('rReativar').disabled = R_BUSCANDO || R_REATIVANDO || !n || !digitou;
+  $('rDica').textContent = R_REATIVANDO ? 'Reativando no Mercado Livre… aguarde.' : R_BUSCANDO ? 'Aguarde a busca terminar para reativar.' : !n ? 'Nenhum anúncio marcado para reativar.' : !digitou ? 'Digite REATIVAR (só a palavra, em maiúsculas) para ligar o botão.' : 'Tudo certo: clique no botão para reativar no Mercado Livre.';
+}
+function rDesenhar(){
+  $('rCorpo').replaceChildren(...R_LINHAS.map(l => {
+    const cx = el('input', {type: 'checkbox', checked: l.marcado, disabled: R_REATIVANDO || R_FEITO(l)});
+    cx.addEventListener('change', () => { l.marcado = cx.checked; rResumo(); });
+    const sit = el('td', null, R_FEITO(l) ? 'Ativo' : 'Pausado');
+    if (l.aviso) sit.append(el('div', {class: 'aviso-linha'}, l.aviso));
+    if (l.resultado) sit.append(el('div', {class: R_FEITO(l) ? 'ok-linha' : 'aviso-linha'}, R_FEITO(l) ? 'Reativado e conferido ✔' : l.resultado.mensagem));
+    return el('tr', null, el('td', null, cx), el('td', null, l.conta), celulaMlb(l), el('td', null, l.titulo), el('td', null, l.variacao_nome || '—'), el('td', null, l.sku_atual),
+      el('td', null, l.estoque === null || l.estoque === undefined ? '—' : String(l.estoque)), sit);
+  }));
+  $('rResultado').hidden = !R_LINHAS.length;
+  rResumo();
+}
+async function rBuscar(){
+  if (R_BUSCANDO || R_REATIVANDO) return;
+  const termo = $('rSku').value.trim();
+  if (!termo) { rMensagem('Digite o SKU dos anúncios que serão reativados.', 'erro'); return; }
+  const contas = $('rConta').value === 'AMBAS' ? ['ML19', 'ML44'] : [$('rConta').value], andamento = {};
+  R_BUSCANDO = true; R_PARAR = false; R_LINHAS = []; R_TERMO = termo; $('rConfirma').value = ''; $('rBuscar').disabled = true; $('rParar').hidden = false; $('rPlanilha').hidden = true; rMensagem(''); rDesenhar();
+  let falhou = null, parou = false;
+  await Promise.all(contas.map(async conta => {
+    let scroll = null; andamento[conta] = {lidos: 0, total: 0};
+    try {
+      for (;;) {
+        if (R_PARAR) { parou = true; break; }
+        const d = await comTentativas(() => json('/api/skus/buscar', {conta, scroll_id: scroll, modo: 'reativar_sku', termo}));
+        scroll = d.scroll_id; andamento[conta].lidos += d.lidos; andamento[conta].total = d.total || andamento[conta].total;
+        for (const a of d.achados) R_LINHAS.push(Object.assign({}, a, {conta, marcado: a.estoque !== 0, resultado: null}));      // sem estoque o ML não reativa: vem desmarcado
+        const lidos = Object.values(andamento).reduce((t, x) => t + x.lidos, 0), total = Object.values(andamento).reduce((t, x) => t + x.total, 0);
+        rProgresso(lidos.toLocaleString('pt-BR') + (total ? ' de ' + total.toLocaleString('pt-BR') : '') + ' anúncios pausados lidos · ' + R_LINHAS.length + ' com este SKU', total ? lidos / total * 100 : 5);
+        rDesenhar();
+        if (d.concluido) break;
+      }
+    } catch (e) { falhou = falhou || e; R_PARAR = true; }
+  }));
+  R_BUSCANDO = false; rProgresso(null); rDesenhar();
+  $('rBuscar').disabled = false; $('rParar').hidden = true;
+  const semEstoque = R_LINHAS.filter(l => l.estoque === 0).length;
+  if (falhou) rMensagem('A busca parou: ' + falhou.message + ' A lista pode estar incompleta.', 'erro');
+  else if (parou) rMensagem('Busca interrompida. A lista mostra só o que foi lido até aqui.');
+  else rMensagem(R_LINHAS.length ? R_LINHAS.length + ' anúncio(s) pausado(s) com o SKU ' + termo + '.' + (semEstoque ? ' ' + semEstoque + ' sem estoque vieram desmarcados (o Mercado Livre não reativa sem estoque).' : '') + ' Confira a lista antes de reativar.' : 'Nenhum anúncio pausado com o SKU ' + termo + '.', R_LINHAS.length ? 'ok' : '');
+}
+async function rReativar(){
+  const sel = R_LINHAS.filter(l => l.marcado && !R_FEITO(l));
+  if (R_REATIVANDO || !sel.length || $('rConfirma').value.trim() !== 'REATIVAR') return;
+  R_REATIVANDO = true; rMensagem(''); rDesenhar();
+  let falhou = null, parar = false, alvo = sel;
+  for (let rodada = 1; rodada <= P_RODADAS && alvo.length && !parar; rodada++) {
+    if (rodada > 1) {
+      for (let s = P_ESPERA_S; s > 0; s--) { rMensagem('O Mercado Livre pediu para ir mais devagar. Tentando de novo ' + alvo.length + ' anúncio(s) em ' + s + ' s…'); await new Promise(r => setTimeout(r, 1000)); }
+      rMensagem('');
+    }
+    const porConta = {}; for (const l of alvo) (porConta[l.conta] = porConta[l.conta] || []).push(l);
+    await Promise.all(Object.entries(porConta).map(async ([conta, ls]) => {
+      try {
+        for (let i = 0; i < ls.length && !parar; i += 10) {
+          const lote = ls.slice(i, i + 10);
+          const d = await json('/api/skus/reativar', {conta, confirmacao: 'REATIVAR_ANUNCIOS', itens: lote.map(l => ({mlb: l.mlb, sku_visto: l.sku_atual}))});
+          for (const r of d.resultados) {
+            const l = lote.find(x => x.mlb === r.mlb);
+            if (!l) continue;
+            if (r.status === 'PULADO' && /Já estava ativo/.test(r.mensagem || '')) r.status = 'OK';
+            l.resultado = r; if (r.status === 'OK') l.marcado = false;
+          }
+          rDesenhar();
+        }
+      } catch (e) { falhou = falhou || e; parar = true; }
+    }));
+    alvo = sel.filter(R_DEVAGAR);
+  }
+  R_REATIVANDO = false; $('rConfirma').value = ''; rDesenhar();
+  const ok = sel.filter(R_FEITO).length, faltam = sel.length - ok;
+  if (falhou) rMensagem('Parou no meio: ' + falhou.message + ' ' + ok + ' anúncio(s) reativado(s) até aqui. Os que faltam continuam marcados: digite REATIVAR e clique de novo.', 'erro');
+  else rMensagem(ok + ' de ' + sel.length + ' anúncio(s) reativado(s) e conferido(s) no Mercado Livre.' + (faltam ? ' Os ' + faltam + ' que faltam continuam marcados (veja o motivo na linha): digite REATIVAR e clique de novo.' : ''), faltam ? 'erro' : 'ok');
+  const novos = R_LINHAS.filter(l => R_FEITO(l) && !l.anotado), erros = R_LINHAS.filter(l => l.resultado && !R_FEITO(l)).length;
+  if (novos.length || erros) {
+    const anotou = await anotarPlanilha('rPlanilha', {tipo: 'reativacao', sku: R_TERMO, ok: novos.length, erros, contas: [...new Set(R_LINHAS.filter(l => l.resultado).map(l => l.conta))]}, novos);
+    if (anotou && R_PLAN_ABERTA) rLerPlanilha();
+  }
+}
+function dataDe(br){ const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(br || ''); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null; }
+async function rLerPlanilha(){
+  $('rLerPlanilha').disabled = true; $('rPlanMsg').textContent = 'Lendo a planilha…';
+  try {
+    const d = await comTentativas(() => json('/api/skus/pausas-ler', {}));
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    R_PLAN_ABERTA = true;
+    $('rPlanCorpo').replaceChildren(...d.pausas.map(x => {
+      const prev = dataDe(x.previsao), chegou = prev && prev <= hoje;
+      const b = el('button', {type: 'button'}, 'Reativar este SKU');
+      b.addEventListener('click', () => {
+        $('rSku').value = x.sku;
+        const cs = (x.contas || '').split(/[,\s]+/).filter(Boolean);
+        $('rConta').value = cs.length === 1 && ['ML19', 'ML44'].includes(cs[0]) ? cs[0] : 'AMBAS';
+        $('rSku').scrollIntoView({block: 'center'}); rBuscar();
+      });
+      const tdPrev = el('td', null, x.previsao || '—');
+      if (chegou) tdPrev.append(el('div', {class: 'ok-linha'}, 'chegou a data de reativar'));
+      return el('tr', null, el('td', null, x.sku, botaoCopiar(x.sku)), el('td', null, x.motivo || '—', x.situacao && x.situacao !== 'Pausado' ? el('div', {class: 'aviso-linha'}, x.situacao) : null),
+        tdPrev, el('td', null, x.pausados || '0'), el('td', null, x.data), el('td', null, x.contas || '—'), el('td', null, b));
+    }));
+    $('rPlanCaixa').hidden = !d.pausas.length;
+    $('rPlanMsg').textContent = d.pausas.length ? d.pausas.length + ' SKU(s) pausado(s) na planilha (mais recentes primeiro).' : 'Nenhum SKU pausado anotado na planilha.';
+  } catch (e) {
+    $('rPlanMsg').textContent = 'Não consegui ler a planilha: ' + e.message;
+  } finally { $('rLerPlanilha').disabled = false; }
+}
+$('rBuscar').addEventListener('click', rBuscar);
+$('rParar').addEventListener('click', () => { R_PARAR = true; });
+$('rConfirma').addEventListener('input', rResumo);
+$('rReativar').addEventListener('click', rReativar);
+$('rLerPlanilha').addEventListener('click', rLerPlanilha);

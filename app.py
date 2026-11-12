@@ -1250,8 +1250,8 @@ def api_skus_aplicar():
             regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
         except skus.Bloqueio as exc:
             raise envios.ArquivoInvalido(str(exc))
-        if regra[0] == skus.MODO_PAUSAR:
-            raise envios.ArquivoInvalido('Esta busca serve só para pausar anúncios.')
+        if regra[0] in skus.MODOS_STATUS:
+            raise envios.ArquivoInvalido('Esta busca serve só para pausar ou reativar anúncios.')
         itens = c.get('itens')
         if not isinstance(itens, list) or not 1 <= len(itens) <= skus.MAX_APLICAR * 20:
             raise envios.ArquivoInvalido('Envie de 1 a %d locais por vez.' % (skus.MAX_APLICAR * 20))
@@ -1323,6 +1323,72 @@ def api_vendas_pausar():
         for r in resultados:
             log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, pausados=sum(r['status'] == 'OK' for r in resultados))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/skus/reativar')
+def api_skus_reativar():
+    """Reativa os anúncios marcados (só pausados). Relê cada um na hora, só reativa se ainda tiver o SKU visto e confere depois."""
+    try:
+        c = request.get_json(silent=True) or {}
+        if c.get('confirmacao') != anuncios.CONFIRMACAO_REATIVAR:
+            raise envios.ArquivoInvalido('Confirmação obrigatória para reativar anúncios.')
+        lista = _itens_acao(c)
+        conta = c['conta']
+        tk = fontes.token(conta)
+        vendedor = fontes._vendedor(conta, tk)
+        with ThreadPoolExecutor(max_workers=min(3, len(lista))) as ex:      # poucos de cada vez: o ML recusa (429) quando chegam muitos juntos
+            resultados = list(ex.map(lambda p: anuncios.reativar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
+        for r in resultados:
+            log.info('REATIVAR %s %s: %s', conta, r['mlb'], r['status'])
+        return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, reativados=sum(r['status'] == 'OK' for r in resultados))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/skus/pausas-registrar')
+def api_skus_pausas_registrar():
+    """Anota na aba 'Pausas por SKU' da planilha quantos anúncios do SKU foram pausados/reativados e quantos deram erro. Escreve só na planilha."""
+    try:
+        c = request.get_json(silent=True) or {}
+        tipo = c.get('tipo')
+        if tipo not in ('pausa', 'reativacao'):
+            raise envios.ArquivoInvalido('Tipo de registro inválido.')
+        sku = str(c.get('sku') or '').strip()
+        if not sku or len(sku) > skus.MAX_SKU or skus._CTRL.search(sku):
+            raise envios.ArquivoInvalido('SKU inválido.')
+        def inteiro(v):
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 100000:
+                raise envios.ArquivoInvalido('Quantidade inválida.')
+            return v
+        ok, erros = inteiro(c.get('ok')), inteiro(c.get('erros'))
+        if not ok and not erros:
+            raise envios.ArquivoInvalido('Nada para anotar: nenhum anúncio foi alterado nem deu erro.')
+        contas = c.get('contas')
+        if not isinstance(contas, list) or not contas or any(x not in fontes.CONTAS for x in contas):
+            raise envios.ArquivoInvalido('Conta inválida.')
+        reg = {'tipo': tipo, 'sku': sku, 'ok': ok, 'erros': erros, 'contas': sorted(set(contas)), 'motivo': '', 'previsao': ''}
+        if tipo == 'pausa':
+            motivo = c.get('motivo')
+            if motivo not in fontes.MOTIVOS_PAUSA:
+                raise envios.ArquivoInvalido('Escolha o motivo da pausa: falta de estoque ou produto descontinuado.')
+            reg['motivo'] = motivo
+            if motivo == 'FALTA_ESTOQUE':
+                try:
+                    reg['previsao'] = datetime.strptime(str(c.get('previsao') or ''), '%Y-%m-%d').strftime('%Y-%m-%d')
+                except ValueError:
+                    raise envios.ArquivoInvalido('Informe a data prevista para o SKU chegar (é nela que ele será reativado).')
+        return jsonify(ok=True, **fontes.pausas_registrar(reg))
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
+@app.post('/api/skus/pausas-ler')
+def api_skus_pausas_ler():
+    """Lê da aba 'Pausas por SKU' os SKUs que continuam pausados (com motivo e previsão de chegada). Somente leitura."""
+    try:
+        return jsonify(ok=True, somente_leitura=True, pausas=fontes.pausas_ler())
     except Exception as exc:
         return _erro_fonte(exc)
 

@@ -1,4 +1,4 @@
-"""Ações manuais sobre anúncios, a partir da tela Vendas do dia: pausar e trocar SKU de um anúncio.
+"""Ações manuais sobre anúncios (telas Vendas do dia e Trocar SKU): pausar, reativar e trocar SKU de um anúncio.
 
 Regras (iguais às de preço/SKU): só altera com seleção + confirmação, lê o anúncio de novo na hora,
 confere no Mercado Livre depois de gravar e nunca dá como feito sem conferência.
@@ -10,6 +10,7 @@ import fontes
 import skus
 
 CONFIRMACAO_PAUSAR = 'PAUSAR_ANUNCIOS'
+CONFIRMACAO_REATIVAR = 'REATIVAR_ANUNCIOS'
 MAX_PAUSAR = 10
 JANELA = 60
 _RECENTES, _LOCK = {}, threading.Lock()
@@ -42,12 +43,12 @@ def _ler(tk, vendedor, mlb):
 ESPERAS_429 = (2, 4, 8, 15)          # segundos entre as tentativas quando o ML responde 429 (pedidos demais) ou 5xx
 
 
-def _put_pausa(tk, mlb):
-    """PUT status=paused. Com 429/5xx espera (Retry-After, se vier) e tenta de novo: pausar duas vezes não faz mal."""
+def _put_status(tk, mlb, status):
+    """PUT status (paused/active). Com 429/5xx espera (Retry-After, se vier) e tenta de novo: repetir o mesmo status não faz mal."""
     for n, espera in enumerate((0,) + ESPERAS_429):
         if espera:
             time.sleep(espera)
-        resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json={'status': 'paused'}, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
+        resp = fontes._SESS.put(fontes.API + '/items/' + mlb, json={'status': status}, headers={'Authorization': 'Bearer ' + tk}, timeout=(5, 25))
         if resp.status_code not in (429, 500, 502, 503, 504) or n == len(ESPERAS_429):
             return resp
         try:
@@ -59,34 +60,51 @@ def _put_pausa(tk, mlb):
     return resp
 
 
-def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
-    """Pausa um anúncio ATIVO. Com `sku_visto`, só pausa se o anúncio ainda tiver esse SKU. Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
+def _put_pausa(tk, mlb):
+    return _put_status(tk, mlb, 'paused')
+
+
+_TEXTOS = {
+    'paused': {'ja': 'Já estava pausado.', 'de': 'active', 'so': 'Só dá para pausar anúncio ativo (este está: %s).', 'verbo': 'pausou', 'clique': 'pausar',
+               'ok': 'Anúncio pausado e conferido no Mercado Livre.'},
+    'active': {'ja': 'Já estava ativo.', 'de': 'paused', 'so': 'Só dá para reativar anúncio pausado (este está: %s).', 'verbo': 'reativou', 'clique': 'reativar',
+               'ok': 'Anúncio reativado e conferido no Mercado Livre.'},
+}
+
+
+def _mudar_status(conta, tk, vendedor, mlb, sku_visto, alvo):
+    """Pausa (alvo 'paused') ou reativa (alvo 'active') um anúncio. Com `sku_visto`, só altera se o anúncio ainda tiver esse SKU.
+    Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
+    t = _TEXTOS[alvo]
     r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
     try:
         item = _ler(tk, vendedor, mlb)
         st = item.get('status')
-        if st == 'paused':
-            r['mensagem'] = 'Já estava pausado.'
+        if st == alvo:
+            r['mensagem'] = t['ja']
             return r
-        if st != 'active':
-            raise Bloqueio('Só dá para pausar anúncio ativo (este está: %s).' % (st or 'sem status'))
+        if st != t['de']:
+            raise Bloqueio(t['so'] % (st or 'sem status'))
         if sku_visto and not skus.tem_sku(item, sku_visto):
             raise Bloqueio('Este anúncio não tem mais o SKU %s. Busque de novo.' % sku_visto)
         if not _reservar((conta, mlb)):
             raise Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
-        resp = _put_pausa(tk, mlb)
+        resp = _put_pausa(tk, mlb) if alvo == 'paused' else _put_status(tk, mlb, alvo)
         if resp.status_code == 429:
             with _LOCK:
                 _RECENTES.pop((conta, mlb), None)        # o ML não aplicou nada: pode tentar de novo na hora
-            r.update(status='ERRO', mensagem='O Mercado Livre pediu para ir mais devagar (muitos pedidos ao mesmo tempo) e não pausou este anúncio. '
-                                             'Nada foi alterado: aguarde um minuto e clique em pausar de novo.')
+            r.update(status='ERRO', mensagem='O Mercado Livre pediu para ir mais devagar (muitos pedidos ao mesmo tempo) e não %s este anúncio. '
+                                             'Nada foi alterado: aguarde um minuto e clique em %s de novo.' % (t['verbo'], t['clique']))
             return r
         if not resp.ok:
-            r.update(status='ERRO', mensagem='O Mercado Livre recusou (HTTP %s): %s' % (resp.status_code, resp.text[:160]))
+            dica = ''
+            if alvo == 'active' and (item.get('available_quantity') == 0 or 'stock' in resp.text.lower() or 'quantity' in resp.text.lower()):
+                dica = ' O anúncio está sem estoque: coloque estoque nele e reative de novo.'
+            r.update(status='ERRO', mensagem='O Mercado Livre recusou (HTTP %s): %s.%s' % (resp.status_code, resp.text[:160], dica))
             return r
         depois = _ler(tk, vendedor, mlb)
-        if depois.get('status') == 'paused':
-            r.update(status='OK', mensagem='Anúncio pausado e conferido no Mercado Livre.')
+        if depois.get('status') == alvo:
+            r.update(status='OK', mensagem=t['ok'])
         else:
             r.update(status='NAO_CONFIRMADO', mensagem='O Mercado Livre aceitou, mas o anúncio ainda aparece como %s. Confira no Mercado Livre.' % (depois.get('status') or 'sem status'))
     except Bloqueio as exc:
@@ -94,6 +112,16 @@ def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
     except (RuntimeError, ValueError) as exc:
         r.update(status='ERRO', mensagem='Falha ao falar com o Mercado Livre: ' + str(exc)[:120])
     return r
+
+
+def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
+    """Pausa um anúncio ATIVO (ver `_mudar_status`)."""
+    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'paused')
+
+
+def reativar_item(conta, tk, vendedor, mlb, sku_visto=''):
+    """Reativa um anúncio PAUSADO (ver `_mudar_status`). O ML recusa reativar anúncio sem estoque: a mensagem avisa."""
+    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'active')
 
 
 _QUALQUER = object()

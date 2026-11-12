@@ -687,7 +687,7 @@ def pedidos_financeiros(conta, inicio, fim, offset=0, limite=20, somente_a_envia
     return {'itens': itens, 'total': total, 'proximo': proximo, 'concluido': not pedidos or proximo >= total}
 
 
-def _sheets_post(corpo, espera=35):
+def _sheets_post(corpo, espera=35, falta='A planilha ainda não tem o trecho das etiquetas (arquivo apps_script/etiquetas.gs). Falta colocar no Apps Script.'):
     url, chave = os.getenv('EXP_SHEETS_URL', '').strip(), os.getenv('EXP_SHEETS_KEY', '').strip()
     if not url.startswith('https://script.google.com/') or not chave:
         raise FonteIndisponivel('A planilha não está configurada (EXP_SHEETS_URL e EXP_SHEETS_KEY no Render).')
@@ -698,7 +698,8 @@ def _sheets_post(corpo, espera=35):
     except (requests.RequestException, ValueError) as exc:
         raise FonteIndisponivel('Não consegui falar com a planilha agora (%s). Tente de novo.' % str(exc)[:80])
     if not isinstance(dados, dict) or dados.get('ok') is not True:
-        raise FonteIndisponivel('A planilha ainda não tem o trecho das etiquetas (arquivo apps_script/etiquetas.gs). Falta colocar no Apps Script.')
+        erro = str(dados.get('erro') or '') if isinstance(dados, dict) else ''
+        raise FonteIndisponivel(falta if not erro or erro.startswith('Ação desconhecida') else 'A planilha recusou: ' + erro[:160])
     return dados
 
 
@@ -706,6 +707,26 @@ def etiquetas_registrar(registros):
     """Grava na aba 'Etiquetas' da planilha a situação (GERADA/CANCELADA) de cada pedido. Quem repete é atualizado, nunca duplicado."""
     dados = _sheets_post({'acao': 'etiquetas_registrar', 'registros': registros})
     return {'gravados': int(dados.get('gravados') or 0), 'atualizados': int(dados.get('atualizados') or 0)}
+
+
+MOTIVOS_PAUSA = {'FALTA_ESTOQUE': 'Falta de estoque', 'DESCONTINUADO': 'Produto descontinuado'}
+_FALTA_PAUSAS = 'A planilha ainda não tem o trecho das pausas por SKU (V30 do Apps Script, ou o arquivo apps_script/pausas_sku.gs). Falta colocar no Apps Script.'
+
+
+def pausas_registrar(reg):
+    """Anota na aba 'Pausas por SKU' uma rodada de pausa ou de reativação de um SKU (`reg` já validado pela rota)."""
+    dados = _sheets_post(dict(reg, acao='pausas_registrar'), falta=_FALTA_PAUSAS)
+    return {'situacao': str(dados.get('situacao') or ''), 'nova': bool(dados.get('nova')), 'linha': int(dados.get('linha') or 0)}
+
+
+def pausas_ler():
+    """SKUs que ainda estão pausados segundo a aba 'Pausas por SKU' (mais recentes primeiro). Somente leitura."""
+    dados = _sheets_post({'acao': 'pausas_ler'}, espera=45, falta=_FALTA_PAUSAS)
+    saida = []
+    for x in (dados.get('pausas') or [])[:500]:
+        if isinstance(x, dict) and str(x.get('sku') or '').strip():
+            saida.append({k: str(x.get(k) if x.get(k) is not None else '')[:200] for k in ('sku', 'pausados', 'erros', 'data', 'motivo', 'previsao', 'reativados', 'situacao', 'contas')})
+    return saida
 
 
 def etiquetas_ler(conta, pedidos):

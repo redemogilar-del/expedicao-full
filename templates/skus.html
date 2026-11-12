@@ -32,7 +32,10 @@
   <div class="regras">
     <label>Conta<select id="pConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
     <label>SKU<input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label>Motivo da pausa<select id="pMotivo"><option value="">— escolha —</option><option value="FALTA_ESTOQUE">Falta de estoque</option><option value="DESCONTINUADO">Produto descontinuado</option></select></label>
+    <label id="pPrevRot">Data prevista para o SKU chegar<input type="date" id="pPrevisao"></label>
   </div>
+  <p class="suave pequeno">O motivo (e, na falta de estoque, a data prevista de chegada, quando o SKU será reativado) é obrigatório para pausar. Ao terminar, a aba <b>Pausas por SKU</b> da planilha recebe o SKU, quantos foram pausados, quantos deram erro, a data, o motivo e a previsão.</p>
   <div class="pausa-blocos">
     <div class="pausa-bloco">
       <h3>1. Só buscar e conferir</h3>
@@ -53,6 +56,32 @@
     <div class="barra"><input type="text" id="pConfirma" autocomplete="off" placeholder="Digite PAUSAR" maxlength="10"><button class="primario" id="pPausar" disabled>Pausar só os selecionados</button></div>
     <p class="dica" id="pDica" role="status"></p>
   </div>
+  <p id="pPlanilha" class="aviso" hidden role="status"></p>
+</section>
+
+<section class="cartao" id="rCaixa">
+  <h2>Reativar anúncios pausados por SKU</h2>
+  <p class="suave pequeno">Quando o SKU chegar, busque os anúncios <b>pausados</b> com ele, confira e reative. Nada é reativado na busca. O Mercado Livre só reativa anúncio com estoque. Ao terminar, a linha do SKU na aba <b>Pausas por SKU</b> recebe a data da reativação e quantos foram reativados.</p>
+  <div class="pausa-bloco">
+    <h3>SKUs pausados anotados na planilha</h3>
+    <p class="suave pequeno">"Reativar este SKU" preenche o campo abaixo e já busca os anúncios pausados.</p>
+    <button id="rLerPlanilha">Ver SKUs pausados na planilha</button>
+    <p id="rPlanMsg" class="suave pequeno" role="status"></p>
+    <div class="tabela-caixa" id="rPlanCaixa" hidden><table><thead><tr><th>SKU</th><th>Motivo</th><th>Previsão de chegada</th><th>Pausados</th><th>Atualizado em</th><th>Contas</th><th></th></tr></thead><tbody id="rPlanCorpo"></tbody></table></div>
+  </div>
+  <div class="regras">
+    <label>Conta<select id="rConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
+    <label>SKU para reativar<input type="text" id="rSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+  </div>
+  <div class="acoes"><button class="primario" id="rBuscar">Buscar pausados com este SKU</button><button id="rParar" hidden>Parar</button></div>
+  <p id="rMsg" class="aviso" hidden role="status"></p>
+  <div id="rProg" class="progresso" hidden><div id="rBarra"></div><span id="rTxt"></span></div>
+  <div id="rResultado" hidden>
+    <div class="tabela-caixa"><table><thead><tr><th>Reativar</th><th>Conta</th><th>Anúncio (MLB)</th><th>Produto</th><th>Variação com o SKU</th><th>SKU</th><th>Estoque</th><th>Situação</th></tr></thead><tbody id="rCorpo"></tbody></table></div>
+    <div class="barra"><input type="text" id="rConfirma" autocomplete="off" placeholder="Digite REATIVAR" maxlength="10"><button class="primario" id="rReativar" disabled>Reativar só os selecionados</button></div>
+    <p class="dica" id="rDica" role="status"></p>
+  </div>
+  <p id="rPlanilha" class="aviso" hidden role="status"></p>
 </section>
 
 <p id="sMsg" class="aviso" hidden role="status"></p>

@@ -21,7 +21,9 @@ MODOS_TITULO = ('tit_contem', 'tit_exato', 'tit_comeca')      # todos os anúnci
 MODOS_SEM_SKU = ('sem_contem', 'sem_exato', 'sem_comeca', 'sem_todos')     # anúncios que estão SEM SKU; o termo é buscado no TÍTULO
 MODOS_INDIVIDUAL = MODOS_TITULO + MODOS_SEM_SKU               # o SKU novo é digitado por linha na tela, não na regra
 MODO_PAUSAR = 'pausar_sku'                                    # só leitura: anúncios ATIVOS com este SKU, para a tela pausar
-MODOS = ('igual', 'contem', 'comeca') + MODOS_INDIVIDUAL + (MODO_PAUSAR,)
+MODO_REATIVAR = 'reativar_sku'                                # só leitura: anúncios PAUSADOS com este SKU, para a tela reativar
+MODOS_STATUS = (MODO_PAUSAR, MODO_REATIVAR)                   # buscas só para pausar/reativar: não trocam SKU
+MODOS = ('igual', 'contem', 'comeca') + MODOS_INDIVIDUAL + MODOS_STATUS
 ESCOPOS = ('inteiro', 'trecho')
 MAX_APLICAR = 10                # anúncios por chamada (trocados ao mesmo tempo)
 MAX_SKU = 100
@@ -29,7 +31,7 @@ MIN_TERMO_PARCIAL = 2           # "contém" / "começa com" com 1 letra pegaria 
 LOTE_VARREDURA = 100            # ids por passo da varredura
 JANELA_REAPLICACAO = 60
 ATIVOS = ('active', 'paused')
-CAMPOS_ITEM = 'id,title,status,seller_id,seller_custom_field,attributes,variations,permalink'
+CAMPOS_ITEM = 'id,title,status,seller_id,seller_custom_field,attributes,variations,permalink,available_quantity'
 _RECENTES, _LOCK = {}, threading.Lock()
 _CTRL = re.compile(r'[\x00-\x1f\x7f]')
 
@@ -44,9 +46,9 @@ def validar_regra(modo, termo, novo, escopo):
     termo, novo = str(termo or '').strip(), str(novo or '').strip()
     if len(termo) > MAX_SKU or _CTRL.search(termo) or len(novo) > MAX_SKU or _CTRL.search(novo):
         raise Bloqueio('Texto inválido (máximo %d caracteres, sem caracteres especiais de controle).' % MAX_SKU)
-    if modo == MODO_PAUSAR:
+    if modo in MODOS_STATUS:
         if not termo:
-            raise Bloqueio('Digite o SKU dos anúncios que serão pausados.')
+            raise Bloqueio('Digite o SKU dos anúncios que serão %s.' % ('pausados' if modo == MODO_PAUSAR else 'reativados'))
         return modo, termo, '', 'inteiro'
     if modo == 'sem_todos':                    # só olhar a lista: não troca nada
         return modo, termo, novo, 'inteiro'
@@ -206,17 +208,22 @@ def tem_sku(item, sku):
     return ''
 
 
-def _achados_pausar(item, termo):
-    """Uma linha por anúncio ATIVO com o SKU. Pausar vale para o anúncio inteiro, então avisa se há variações com outro SKU."""
-    achado = tem_sku(item, termo) if item.get('status') == 'active' else ''
+def _achados_pausar(item, termo, estado='active'):
+    """Uma linha por anúncio no `estado` (ativo para pausar, pausado para reativar) com o SKU. A mudança vale para o anúncio inteiro, então avisa se há variações com outro SKU."""
+    achado = tem_sku(item, termo) if item.get('status') == estado else ''
     if not achado:
         return []
     t, variacoes = termo.casefold(), _ids_variacoes(item)
     casam = [l['variacao'] for l in locais(item) if l['variacao'] is not None and t in (l['scf'].casefold(), l['attr'].casefold())]
     outras = len(variacoes) - len(casam)
-    aviso = '%d de %d variações têm outro SKU ou estão sem SKU e também vão parar de vender: a pausa vale para o anúncio inteiro.' % (outras, len(variacoes)) if variacoes and outras else ''
-    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': 'active', 'variacao': None, 'variacao_nome': ' | '.join(n for n in (nome_variacao(item, v) for v in casam) if n)[:200],
-             'sku_atual': achado, 'sku_novo': '', 'aviso': aviso, 'permitido': True,
+    avisos = []
+    if variacoes and outras:
+        avisos.append('%d de %d variações têm outro SKU ou estão sem SKU e também vão %s: a %s vale para o anúncio inteiro.'
+                      % (outras, len(variacoes), 'parar de vender' if estado == 'active' else 'voltar a vender', 'pausa' if estado == 'active' else 'reativação'))
+    if estado == 'paused' and item.get('available_quantity') == 0:
+        avisos.append('Sem estoque no anúncio: o Mercado Livre não deixa reativar sem estoque.')
+    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': estado, 'variacao': None, 'variacao_nome': ' | '.join(n for n in (nome_variacao(item, v) for v in casam) if n)[:200],
+             'sku_atual': achado, 'sku_novo': '', 'aviso': ' '.join(avisos), 'permitido': True, 'estoque': item.get('available_quantity'),
              'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''}]
 
 
@@ -224,6 +231,8 @@ def achados(item, regra):
     """Linhas de pré-visualização para um anúncio (uma por local que casa com a regra)."""
     if regra[0] == MODO_PAUSAR:
         return _achados_pausar(item, regra[1])
+    if regra[0] == MODO_REATIVAR:
+        return _achados_pausar(item, regra[1], 'paused')
     if item.get('status') not in ATIVOS:
         return []            # só entram na lista anúncios que dá para alterar (ativos e pausados)
     if regra[0] in MODOS_INDIVIDUAL:
@@ -307,7 +316,7 @@ def varrer(conta, regra, scroll_id=None):
     total, fatias = _ler_fatias(scroll_id)
     if fatias is None:                               # primeiro passo
         try:
-            total, fatias = _plano(busca, ('active',) if regra[0] == MODO_PAUSAR else ESTADOS)
+            total, fatias = _plano(busca, ('active',) if regra[0] == MODO_PAUSAR else ('paused',) if regra[0] == MODO_REATIVAR else ESTADOS)
         except fontes.FonteIndisponivel:
             total, fatias = 0, [{'st': None, 'tp': None, 's': None, 'f': False}]     # o ML não aceitou o filtro: lê tudo, como antes
 

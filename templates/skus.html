@@ -19,7 +19,7 @@
       </optgroup>
     </select></label>
     <label id="sTermoRot"><span id="sTermoTxt">Palavras do título</span><input type="text" id="sTermo" maxlength="100" autocomplete="off" placeholder="ex.: granito 25kg"></label>
-    <label id="sNovoCaixa" hidden>SKU novo<input type="text" id="sNovo" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label id="sNovoCaixa" hidden>SKU novo (opcional)<input type="text" id="sNovo" maxlength="100" autocomplete="off" placeholder="vazio = digitar em cada linha"></label>
     <label id="sEscopoCaixa" hidden>O que trocar<select id="sEscopo"><option value="inteiro">O SKU inteiro pelo SKU novo</option><option value="trecho">Só o trecho encontrado</option></select></label>
   </div>
   <p class="suave pequeno" id="sAjuda"><b>Busca pelo título:</b> "contém as palavras" acha o título com todas as palavras, em qualquer ordem; "exato" exige o título inteiro igual; "começa com" olha o início do título. Maiúsculas e acentos não importam. Depois de buscar, digite o SKU na coluna da linha ou preencha vários de uma vez. Nas buscas "Sem SKU" entram só anúncios ou variações que estão sem SKU. Anúncios com variações aparecem variação por variação. A busca lê todos os anúncios da conta e pode levar alguns minutos; você pode parar quando quiser.</p>
@@ -27,11 +27,12 @@
 </section>
 
 <section class="cartao" id="pCaixa">
-  <h2>Pausar anúncios ativos por SKU</h2>
-  <p class="suave pequeno">Digite o SKU e clique em buscar: aparecem os anúncios <b>ativos</b> com exatamente esse SKU (maiúsculas não importam). Nada é pausado nesse passo. A pausa vale para o anúncio inteiro, inclusive variações com outro SKU; a linha avisa quando for o caso.</p>
+  <h2>Pausar anúncios ativos por SKU ou título</h2>
+  <p class="suave pequeno">Escolha como buscar — SKU igual, SKU que contém um pedaço, SKU que começa com, ou pelo título — e clique em buscar: aparecem os anúncios <b>ativos</b> que casam (maiúsculas não importam). Nada é pausado nesse passo. A pausa vale para o anúncio inteiro, inclusive variações com outro SKU; a linha avisa quando for o caso.</p>
   <div class="regras">
     <label>Conta<select id="pConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
-    <label>SKU<input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label>Como buscar<select id="pComo"><option value="sku_igual" selected>SKU igual a…</option><option value="sku_contem">SKU que contém…</option><option value="sku_comeca">SKU que começa com…</option><option value="tit_contem">Título que contém as palavras…</option><option value="tit_exato">Título exato…</option><option value="tit_comeca">Título que começa com…</option></select></label>
+    <label><span id="pSkuTxt">SKU</span><input type="text" id="pSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
     <label>Motivo da pausa<select id="pMotivo"><option value="">— escolha —</option><option value="FALTA_ESTOQUE">Falta de estoque</option><option value="DESCONTINUADO">Produto descontinuado</option></select></label>
     <label id="pPrevRot">Data prevista para o SKU chegar<input type="date" id="pPrevisao"></label>
   </div>
@@ -60,7 +61,7 @@
 </section>
 
 <section class="cartao" id="rCaixa">
-  <h2>Reativar anúncios pausados por SKU</h2>
+  <h2>Reativar anúncios pausados por SKU ou título</h2>
   <p class="suave pequeno">Quando o SKU chegar, busque os anúncios <b>pausados</b> com ele, confira e reative. Nada é reativado na busca. O Mercado Livre só reativa anúncio com estoque. Ao terminar, a linha do SKU na aba <b>Pausas por SKU</b> recebe a data da reativação e quantos foram reativados.</p>
   <div class="pausa-bloco">
     <h3>SKUs pausados anotados na planilha</h3>
@@ -71,7 +72,8 @@
   </div>
   <div class="regras">
     <label>Conta<select id="rConta"><option value="AMBAS" selected>As duas ao mesmo tempo (ML19 e ML44)</option><option value="ML19">Só ML19</option><option value="ML44">Só ML44</option></select></label>
-    <label>SKU para reativar<input type="text" id="rSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
+    <label>Como buscar<select id="rComo"><option value="sku_igual" selected>SKU igual a…</option><option value="sku_contem">SKU que contém…</option><option value="sku_comeca">SKU que começa com…</option><option value="tit_contem">Título que contém as palavras…</option><option value="tit_exato">Título exato…</option><option value="tit_comeca">Título que começa com…</option></select></label>
+    <label><span id="rSkuTxt">SKU para reativar</span><input type="text" id="rSku" maxlength="100" autocomplete="off" placeholder="ex.: GRANITO_25KG"></label>
   </div>
   <div class="acoes"><button class="primario" id="rBuscar">Buscar pausados com este SKU</button><button id="rParar" hidden>Parar</button></div>
   <p id="rMsg" class="aviso" hidden role="status"></p>

@@ -24,6 +24,8 @@ MODO_PAUSAR = 'pausar_sku'                                    # só leitura: an�
 MODO_REATIVAR = 'reativar_sku'                                # só leitura: anúncios PAUSADOS com este SKU, para a tela reativar
 MODOS_STATUS = (MODO_PAUSAR, MODO_REATIVAR)                   # buscas só para pausar/reativar: não trocam SKU
 MODOS = ('igual', 'contem', 'comeca') + MODOS_INDIVIDUAL + MODOS_STATUS
+MODOS_SKU = ('igual', 'contem', 'comeca')                    # sem SKU novo na regra, o SKU novo é digitado por linha (como nos modos por título)
+COMOS_STATUS = ('sku_igual', 'sku_contem', 'sku_comeca', 'tit_contem', 'tit_exato', 'tit_comeca')   # como achar os anúncios para pausar/reativar
 ESCOPOS = ('inteiro', 'trecho')
 MAX_APLICAR = 10                # anúncios por chamada (trocados ao mesmo tempo)
 MAX_SKU = 100
@@ -40,16 +42,22 @@ class Bloqueio(Exception):
     """Motivo, em português simples, pelo qual o anúncio não pode ser alterado."""
 
 
-def validar_regra(modo, termo, novo, escopo):
+def validar_regra(modo, termo, novo, escopo, como=None):
+    """(modo, termo, novo, escopo). Nos modos de pausar/reativar a 3ª posição guarda o `como` (SKU igual/contém/começa, título…)."""
     if modo not in MODOS:
         raise Bloqueio('Escolha como buscar.')
     termo, novo = str(termo or '').strip(), str(novo or '').strip()
     if len(termo) > MAX_SKU or _CTRL.search(termo) or len(novo) > MAX_SKU or _CTRL.search(novo):
         raise Bloqueio('Texto inválido (máximo %d caracteres, sem caracteres especiais de controle).' % MAX_SKU)
     if modo in MODOS_STATUS:
+        como = como or 'sku_igual'
+        if como not in COMOS_STATUS:
+            raise Bloqueio('Escolha como buscar.')
         if not termo:
-            raise Bloqueio('Digite o SKU dos anúncios que serão %s.' % ('pausados' if modo == MODO_PAUSAR else 'reativados'))
-        return modo, termo, '', 'inteiro'
+            raise Bloqueio(('Digite o SKU' if como.startswith('sku_') else 'Digite o que está no título') + ' dos anúncios que serão %s.' % ('pausados' if modo == MODO_PAUSAR else 'reativados'))
+        if como != 'sku_igual' and len(termo) < MIN_TERMO_PARCIAL:
+            raise Bloqueio('Digite pelo menos %d caracteres para buscar.' % MIN_TERMO_PARCIAL)
+        return modo, termo, como, 'inteiro'
     if modo == 'sem_todos':                    # só olhar a lista: não troca nada
         return modo, termo, novo, 'inteiro'
     if not termo:
@@ -58,11 +66,22 @@ def validar_regra(modo, termo, novo, escopo):
         raise Bloqueio('Digite pelo menos %d caracteres para buscar por "contém" ou "começa com".' % MIN_TERMO_PARCIAL)
     if escopo not in ESCOPOS:
         escopo = 'inteiro'
-    if modo == 'igual' or modo in MODOS_INDIVIDUAL:
+    if modo == 'igual' or modo in MODOS_INDIVIDUAL or not novo:     # sem SKU novo na regra: o SKU novo inteiro é digitado em cada linha
         escopo = 'inteiro'
-    if not novo and modo not in MODOS_INDIVIDUAL:
-        raise Bloqueio('Digite o SKU novo.')
     return modo, termo, novo, escopo
+
+
+def sku_por_linha(regra):
+    """True quando o SKU novo vem de cada linha (busca por título, sem SKU, ou busca por SKU sem SKU novo na regra)."""
+    return regra[0] in MODOS_INDIVIDUAL or (regra[0] in MODOS_SKU and not regra[2])
+
+
+def casa_sku(valor, modo, termo):
+    """O SKU `valor` casa com a busca por SKU (igual/contém/começa com; maiúsculas não importam)?"""
+    a, t = str(valor or '').strip().casefold(), str(termo or '').strip().casefold()
+    if not a or not t:
+        return False
+    return a == t if modo == 'igual' else a.startswith(t) if modo == 'comeca' else t in a
 
 
 def _normaliza(texto):
@@ -208,13 +227,32 @@ def tem_sku(item, sku):
     return ''
 
 
-def _achados_pausar(item, termo, estado='active'):
-    """Uma linha por anúncio no `estado` (ativo para pausar, pausado para reativar) com o SKU. A mudança vale para o anúncio inteiro, então avisa se há variações com outro SKU."""
-    achado = tem_sku(item, termo) if item.get('status') == estado else ''
-    if not achado:
+def casa_status(item, como, termo):
+    """Para pausar/reativar: (casa?, SKU mostrado) — pelo SKU (igual/contém/começa com) ou pelo título."""
+    if como.startswith('tit_'):
+        if not titulo_casa(item.get('title'), como, termo):
+            return False, ''
+        return True, ' | '.join(sorted({l['scf'] or l['attr'] for l in locais(item)}))[:200]
+    modo = como[4:]
+    for l in locais(item):
+        for v in (l['scf'], l['attr']):
+            if casa_sku(v, modo, termo):
+                return True, v
+    return False, ''
+
+
+def _achados_pausar(item, termo, estado='active', como='sku_igual'):
+    """Uma linha por anúncio no `estado` (ativo para pausar, pausado para reativar) que casa com a busca. A mudança vale para o anúncio inteiro, então avisa se há variações com outro SKU."""
+    if item.get('status') != estado:
         return []
-    t, variacoes = termo.casefold(), _ids_variacoes(item)
-    casam = [l['variacao'] for l in locais(item) if l['variacao'] is not None and t in (l['scf'].casefold(), l['attr'].casefold())]
+    casa, achado = casa_status(item, como, termo)
+    if not casa:
+        return []
+    variacoes = _ids_variacoes(item)
+    if como.startswith('tit_'):
+        casam = list(variacoes)
+    else:
+        casam = [l['variacao'] for l in locais(item) if l['variacao'] is not None and (casa_sku(l['scf'], como[4:], termo) or casa_sku(l['attr'], como[4:], termo))]
     outras = len(variacoes) - len(casam)
     avisos = []
     if variacoes and outras:
@@ -222,21 +260,37 @@ def _achados_pausar(item, termo, estado='active'):
                       % (outras, len(variacoes), 'parar de vender' if estado == 'active' else 'voltar a vender', 'pausa' if estado == 'active' else 'reativação'))
     if estado == 'paused' and item.get('available_quantity') == 0:
         avisos.append('Sem estoque no anúncio: o Mercado Livre não deixa reativar sem estoque.')
-    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': estado, 'variacao': None, 'variacao_nome': ' | '.join(n for n in (nome_variacao(item, v) for v in casam) if n)[:200],
+    nomes = ' | '.join(n for n in (nome_variacao(item, v) for v in casam) if n)[:200]
+    return [{'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': estado, 'variacao': None, 'variacao_nome': nomes if not como.startswith('tit_') else '',
              'sku_atual': achado, 'sku_novo': '', 'aviso': ' '.join(avisos), 'permitido': True, 'estoque': item.get('available_quantity'),
              'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''}]
+
+
+def _achados_individual_sku(item, regra):
+    """Busca por SKU sem SKU novo na regra: uma linha por local cujo SKU casa; o SKU novo é digitado na linha."""
+    saida = []
+    for loc in locais(item):
+        if not (casa_sku(loc['scf'], regra[0], regra[1]) or casa_sku(loc['attr'], regra[0], regra[1])):
+            continue
+        aviso = 'Os dois campos de SKU do anúncio são diferentes (%s / %s).' % (loc['scf'], loc['attr']) if loc['scf'] and loc['attr'] and loc['scf'] != loc['attr'] else ''
+        saida.append({'mlb': item['id'], 'titulo': str(item.get('title') or '')[:120], 'status': str(item.get('status') or ''), 'variacao': loc['variacao'], 'variacao_nome': nome_variacao(item, loc['variacao']),
+                      'sku_atual': loc['scf'] or loc['attr'], 'sku_novo': '', 'aviso': aviso, 'permitido': True,
+                      'link': str(item.get('permalink') or '') if str(item.get('permalink') or '').startswith('https://') else ''})
+    return saida
 
 
 def achados(item, regra):
     """Linhas de pré-visualização para um anúncio (uma por local que casa com a regra)."""
     if regra[0] == MODO_PAUSAR:
-        return _achados_pausar(item, regra[1])
+        return _achados_pausar(item, regra[1], 'active', regra[2])
     if regra[0] == MODO_REATIVAR:
-        return _achados_pausar(item, regra[1], 'paused')
+        return _achados_pausar(item, regra[1], 'paused', regra[2])
     if item.get('status') not in ATIVOS:
         return []            # só entram na lista anúncios que dá para alterar (ativos e pausados)
     if regra[0] in MODOS_INDIVIDUAL:
         return _achados_por_titulo(item, regra)
+    if sku_por_linha(regra):
+        return _achados_individual_sku(item, regra)
     saida = []
     for loc in locais(item):
         mud = _novos_campos(loc, regra)
@@ -506,6 +560,7 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
         if item.get('status') not in ATIVOS:
             raise Bloqueio('Anúncio %s: não dá para alterar.' % (item.get('status') or 'sem status'))
         sem, por_titulo = regra[0] in MODOS_SEM_SKU, regra[0] in MODOS_TITULO
+        por_linha = sku_por_linha(regra)                      # o SKU novo vem de cada linha
         if (sem or por_titulo) and not titulo_casa(item.get('title'), regra[0], regra[1]):
             raise Bloqueio('O título do anúncio mudou e não casa mais com a busca. Busque de novo.')
         atuais = {l['variacao']: l for l in (locais_sem_sku(item) if sem else locais_titulo(item) if por_titulo else locais(item))}
@@ -518,7 +573,9 @@ def trocar_item(conta, tk, vendedor, mlb, alvos, regra):
                 raise Bloqueio('O SKU mudou no Mercado Livre desde que você viu (agora: %s). Busque de novo.' % ((loc['scf'] or loc['attr']) or 'sem SKU'))
             if not sem and not por_titulo and visto not in (loc['scf'], loc['attr']):
                 raise Bloqueio('O SKU mudou no Mercado Livre desde que você viu (agora: %s). Busque de novo.' % (loc['scf'] or loc['attr']))
-            if sem or por_titulo:                       # cada anúncio com o SKU que a pessoa digitou para ele
+            if not sem and not por_titulo and por_linha and not (casa_sku(loc['scf'], regra[0], regra[1]) or casa_sku(loc['attr'], regra[0], regra[1])):
+                raise Bloqueio('O SKU não casa mais com a busca. Busque de novo.')
+            if por_linha:                               # cada anúncio com o SKU que a pessoa digitou para ele
                 novo_ind = str(individual or regra[2] or '').strip()
                 if not novo_ind or len(novo_ind) > MAX_SKU or _CTRL.search(novo_ind):
                     raise Bloqueio('SKU novo inválido para este anúncio (máximo %d caracteres).' % MAX_SKU)

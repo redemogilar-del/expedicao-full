@@ -295,3 +295,39 @@ class TestTiposDeBusca(Base):
         self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000009'])
         r = self.post('/api/skus/reativar', {'conta': 'ML19', 'confirmacao': 'REATIVAR_ANUNCIOS', 'como': 'tit_comeca', 'termo': 'super pro', 'itens': [{'mlb': 'MLB100000009'}]}).get_json()
         self.assertEqual(r['resultados'][0]['status'], 'OK')
+
+
+class TestBuscaPorPedacos(Base):
+    """"Contém" com vários pedaços separados por espaço e sem diferença pelos disfarces (@ = A, 0 = O, Ɛ = E)."""
+    SKU = 'SUPƐR_PR0_FSC_3,6L_M@RF'
+
+    def setUp(self):
+        super().setUp()
+        self.fake.itens['MLB100000009'] = {'id': 'MLB100000009', 'seller_id': 99, 'title': 'Super Pro Fosco 3,6L Marfim', 'status': 'active', 'seller_custom_field': self.SKU, 'attributes': [], 'available_quantity': 3}
+
+    def test_casa_sku(self):
+        c = skus.casa_sku
+        self.assertTrue(c(self.SKU, 'contem', 'SUPER_PRO_   M@RF'))          # dois pedaços, um sem disfarce
+        self.assertTrue(c(self.SKU, 'contem', 'marf super'))                 # qualquer ordem
+        self.assertTrue(c(self.SKU, 'contem', 'FSC_3,6L'))
+        self.assertFalse(c(self.SKU, 'contem', 'SUPER_PRO GELO'))            # todos os pedaços precisam estar
+        self.assertTrue(c(self.SKU, 'comeca', 'super_pro'))
+        self.assertFalse(c(self.SKU, 'comeca', 'PRO_FSC'))
+        self.assertFalse(c(self.SKU, 'igual', 'SUPER_PRO_FSC_3,6L_MARF'))    # "igual" continua exigindo o mesmo texto
+        self.assertTrue(c(self.SKU, 'igual', self.SKU.lower()))
+
+    def test_pausar_por_dois_pedacos(self):
+        d = self.post('/api/skus/buscar', {'conta': 'ML19', 'modo': 'pausar_sku', 'termo': 'SUPER_PRO_   M@RF', 'como': 'sku_contem'}).get_json()
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000009'])
+        r = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'como': 'sku_contem', 'termo': 'SUPER_PRO_   M@RF', 'itens': [{'mlb': 'MLB100000009'}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'OK')
+
+    def test_trocar_por_pedacos_so_sku_inteiro(self):
+        corpo = {'conta': 'ML19', 'modo': 'contem', 'termo': 'SUPER M@RF', 'novo': 'NOVO_X', 'escopo': 'trecho'}
+        self.assertEqual(self.post('/api/skus/buscar', corpo).status_code, 400)
+        d = self.post('/api/skus/buscar', dict(corpo, escopo='inteiro')).get_json()
+        linha = [a for a in d['achados'] if a['mlb'] == 'MLB100000009'][0]
+        self.assertEqual(linha['sku_novo'], 'NOVO_X')
+        r = self.post('/api/skus/aplicar', dict(corpo, escopo='inteiro', confirmacao='TROCAR_SKU', itens=[{'mlb': 'MLB100000009', 'variacao': None, 'sku_visto': self.SKU}])).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'OK')
+        self.assertEqual(self.fake.itens['MLB100000009']['seller_custom_field'], 'NOVO_X')

@@ -42,7 +42,7 @@ function atualizarForm(){
   $('sEscopoCaixa').hidden = tit || m === 'igual' || !$('sNovo').value.trim();
   $('sTermoRot').hidden = m === 'sem_todos'; $('sNovoCaixa').hidden = tit;
   $('sTermoTxt').textContent = !tit ? 'SKU procurado' : m.endsWith('_exato') ? 'Título exato do anúncio' : m.endsWith('_comeca') ? 'Começo do título' : 'Palavras do título';
-  $('sTermo').placeholder = tit ? (m.endsWith('_exato') ? 'ex.: Granito Grafiato Branco 25kg' : m.endsWith('_comeca') ? 'ex.: Granito' : 'ex.: granito 25kg') : (m === 'igual' ? 'ex.: GRANITO_25kg' : (m === 'contem' ? 'ex.: _25kg' : 'ex.: GRANITO'));
+  $('sTermo').placeholder = tit ? (m.endsWith('_exato') ? 'ex.: Granito Grafiato Branco 25kg' : m.endsWith('_comeca') ? 'ex.: Granito' : 'ex.: granito 25kg') : (m === 'igual' ? 'ex.: GRANITO_25kg' : (m === 'contem' ? 'ex.: SUPER_PRO M@RF (pedaços separados por espaço)' : 'ex.: GRANITO'));
   $('sBuscar').textContent = m === 'sem_todos' ? 'Ver todos sem SKU' : 'Buscar anúncios';
 }
 
@@ -288,8 +288,8 @@ function lerDaPlanilha(txt){
 const itemAcao = (l, como) => ({mlb: l.mlb, sku_visto: como === 'sku_igual' ? l.sku_atual : ''});
 function comoForm(pre){
   const c = $(pre + 'Como').value, tit = c.startsWith('tit_');
-  $(pre + 'SkuTxt').textContent = tit ? (c === 'tit_exato' ? 'Título exato do anúncio' : c === 'tit_comeca' ? 'Começo do título' : 'Palavras do título') : (pre === 'r' ? 'SKU para reativar' : 'SKU') + (c === 'sku_contem' ? ' (pedaço)' : c === 'sku_comeca' ? ' (começo)' : '');
-  $(pre + 'Sku').placeholder = tit ? 'ex.: granito 25kg' : c === 'sku_contem' ? 'ex.: _25KG' : c === 'sku_comeca' ? 'ex.: GRANITO' : 'ex.: GRANITO_25KG';
+  $(pre + 'SkuTxt').textContent = tit ? (c === 'tit_exato' ? 'Título exato do anúncio' : c === 'tit_comeca' ? 'Começo do título' : 'Palavras do título') : (pre === 'r' ? 'SKU para reativar' : 'SKU') + (c === 'sku_contem' ? ' (pedaços separados por espaço)' : c === 'sku_comeca' ? ' (começo)' : '');
+  $(pre + 'Sku').placeholder = tit ? 'ex.: granito 25kg' : c === 'sku_contem' ? 'ex.: SUPER_PRO M@RF' : c === 'sku_comeca' ? 'ex.: GRANITO' : 'ex.: GRANITO_25KG';
 }                              // SKU da busca e motivo/previsão da pausa em andamento (vão para a planilha)
 const P_FEITO = l => !!(l.resultado && l.resultado.status === 'OK');
 function pMensagem(texto, tipo){ const m = $('pMsg'); m.textContent = texto || ''; m.hidden = !texto; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); }

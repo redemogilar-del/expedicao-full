@@ -68,6 +68,8 @@ def validar_regra(modo, termo, novo, escopo, como=None):
         escopo = 'inteiro'
     if modo == 'igual' or modo in MODOS_INDIVIDUAL or not novo:     # sem SKU novo na regra: o SKU novo inteiro é digitado em cada linha
         escopo = 'inteiro'
+    if escopo == 'trecho' and len(termo.split()) > 1:
+        raise Bloqueio('Com mais de um pedaço (separados por espaço) só dá para trocar o SKU inteiro: em "O que trocar", escolha "O SKU inteiro".')
     return modo, termo, novo, escopo
 
 
@@ -76,12 +78,59 @@ def sku_por_linha(regra):
     return regra[0] in MODOS_INDIVIDUAL or (regra[0] in MODOS_SKU and not regra[2])
 
 
+# Disfarces de letra usados nos SKUs (@ = A, 0 = O, £/€/Ɛ = E, ! = I, $ = S; letras gregas/cirílicas parecidas):
+# a busca por "contém"/"começa com" compara o "esqueleto" dos dois lados. Mesma regra do ml-hub (ajuste_listas.esqueleto).
+_PARECIDOS = {'A': '@ªá', 'E': '£€εƐɛЄє∈ℇ&', 'I': '!¡|ıї', 'O': '0øØ°', 'S': '$§'}
+_TROCA = {c: letra for letra, cs in _PARECIDOS.items() for c in cs}
+_NOMES_PARECIDOS = {
+    'ALPHA': 'A', 'BETA': 'B', 'EPSILON': 'E', 'ZETA': 'Z', 'ETA': 'H', 'IOTA': 'I', 'KAPPA': 'K', 'MU': 'M', 'NU': 'N',
+    'OMICRON': 'O', 'RHO': 'P', 'TAU': 'T', 'UPSILON': 'Y', 'CHI': 'X', 'SIGMA': 'E', 'LUNATE SIGMA SYMBOL': 'C',
+    'IE': 'E', 'IO': 'E', 'UKRAINIAN IE': 'E', 'E': 'E', 'ES': 'C', 'O': 'O', 'ER': 'P', 'KA': 'K', 'EM': 'M', 'EN': 'H',
+    'TE': 'T', 'HA': 'X', 'BYELORUSSIAN-UKRAINIAN I': 'I', 'YI': 'I', 'I': 'I', 'U': 'Y', 'STRAIGHT U': 'Y', 'A': 'A',
+    'BE': 'B', 'VE': 'B', 'ZE': 'E', 'DZE': 'S', 'JE': 'J', 'SHHA': 'H', 'PALOCHKA': 'I', 'OPEN E': 'E', 'REVERSED OPEN E': 'E',
+}
+
+
+def _letra_parecida(c):
+    if c.isascii() or c in _TROCA:
+        return _TROCA.get(c, c)
+    nome = unicodedata.name(c, '')
+    m = re.search(r'(?:CAPITAL|SMALL) LETTER (.+?)(?: WITH .*)?$', nome) or re.search(r'(?:GREEK|CYRILLIC) (.+?) SYMBOL$', nome)
+    if not m:
+        return c
+    resto = m.group(1)
+    if resto in _NOMES_PARECIDOS:
+        return _NOMES_PARECIDOS[resto]
+    return resto if len(resto) == 1 and resto.isalpha() else c
+
+
+def esqueleto(s):
+    """SUPƐR_PR0_FSC_3,6L_M@RF -> SUPER_PRO_FSC_3_6L_MARF (sem disfarces, maiúsculas, separadores viram _)."""
+    t = ''.join(_letra_parecida(c) for c in str(s or ''))
+    t = unicodedata.normalize('NFKD', t)
+    t = ''.join(_letra_parecida(c) for c in t if not unicodedata.combining(c)).upper()
+    return re.sub(r'[^A-Z0-9]+', '_', t).strip('_')
+
+
+def pedacos(termo):
+    """Pedaços da busca "contém": separados por espaço; cada um precisa estar no SKU (em qualquer ordem)."""
+    return [e for e in (esqueleto(p) for p in str(termo or '').split()) if e]
+
+
 def casa_sku(valor, modo, termo):
-    """O SKU `valor` casa com a busca por SKU (igual/contém/começa com; maiúsculas não importam)?"""
-    a, t = str(valor or '').strip().casefold(), str(termo or '').strip().casefold()
+    """O SKU `valor` casa com a busca por SKU? igual = o mesmo texto (maiúsculas não importam); contém = TODOS os pedaços
+    separados por espaço estão no SKU; começa com = o começo. Contém e começa com ignoram os disfarces (@ = A, 0 = O, Ɛ = E…)."""
+    a, t = str(valor or '').strip(), str(termo or '').strip()
     if not a or not t:
         return False
-    return a == t if modo == 'igual' else a.startswith(t) if modo == 'comeca' else t in a
+    if modo == 'igual':
+        return a.casefold() == t.casefold()
+    ea = esqueleto(a)
+    if modo == 'comeca':
+        et = esqueleto(t)
+        return bool(et) and ea.startswith(et)
+    ps = pedacos(t)
+    return bool(ps) and all(p in ea for p in ps)
 
 
 def _normaliza(texto):
@@ -102,21 +151,18 @@ def titulo_casa(titulo, modo, termo):
 
 
 def trocar(valor, modo, termo, novo, escopo):
-    """SKU novo para `valor`, ou None se `valor` não casa com a regra (maiúsculas/minúsculas não importam na busca)."""
+    """SKU novo para `valor`, ou None se `valor` não casa com a regra (ver `casa_sku`). "Só o trecho" troca o trecho
+    escrito igual ao digitado (maiúsculas não importam); se ele só aparece disfarçado, o SKU não entra."""
     v = str(valor or '').strip()
-    if not v:
+    if not v or not casa_sku(v, modo, termo):
         return None
+    if modo == 'igual' or escopo == 'inteiro':
+        return novo
     a, t = v.casefold(), termo.casefold()
-    if modo == 'igual':
-        return novo if a == t else None
     if modo == 'comeca':
-        if not a.startswith(t):
-            return None
-        return novo if escopo == 'inteiro' else novo + v[len(termo):]
+        return novo + v[len(termo):] if a.startswith(t) else None
     if t not in a:
         return None
-    if escopo == 'inteiro':
-        return novo
     return re.sub(re.escape(termo), lambda _m: novo, v, flags=re.IGNORECASE)
 
 

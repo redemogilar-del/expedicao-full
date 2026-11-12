@@ -72,7 +72,7 @@ _TEXTOS = {
 }
 
 
-def _mudar_status(conta, tk, vendedor, mlb, sku_visto, alvo):
+def _mudar_status(conta, tk, vendedor, mlb, sku_visto, alvo, busca=None):
     """Pausa (alvo 'paused') ou reativa (alvo 'active') um anúncio. Com `sku_visto`, só altera se o anúncio ainda tiver esse SKU.
     Devolve {'mlb','status','mensagem'} com status OK / PULADO / ERRO / NAO_CONFIRMADO."""
     t = _TEXTOS[alvo]
@@ -87,6 +87,8 @@ def _mudar_status(conta, tk, vendedor, mlb, sku_visto, alvo):
             raise Bloqueio(t['so'] % (st or 'sem status'))
         if sku_visto and not skus.tem_sku(item, sku_visto):
             raise Bloqueio('Este anúncio não tem mais o SKU %s. Busque de novo.' % sku_visto)
+        if busca and not skus.casa_status(item, busca[0], busca[1])[0]:
+            raise Bloqueio('Este anúncio não casa mais com a busca (o SKU ou o título mudou). Busque de novo.')
         if not _reservar((conta, mlb)):
             raise Bloqueio('Este anúncio acabou de ser alterado. Aguarde um minuto.')
         resp = _put_pausa(tk, mlb) if alvo == 'paused' else _put_status(tk, mlb, alvo)
@@ -114,14 +116,14 @@ def _mudar_status(conta, tk, vendedor, mlb, sku_visto, alvo):
     return r
 
 
-def pausar_item(conta, tk, vendedor, mlb, sku_visto=''):
-    """Pausa um anúncio ATIVO (ver `_mudar_status`)."""
-    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'paused')
+def pausar_item(conta, tk, vendedor, mlb, sku_visto='', busca=None):
+    """Pausa um anúncio ATIVO (ver `_mudar_status`). `busca` = (como, termo): só pausa se o anúncio ainda casa com ela."""
+    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'paused', busca)
 
 
-def reativar_item(conta, tk, vendedor, mlb, sku_visto=''):
+def reativar_item(conta, tk, vendedor, mlb, sku_visto='', busca=None):
     """Reativa um anúncio PAUSADO (ver `_mudar_status`). O ML recusa reativar anúncio sem estoque: a mensagem avisa."""
-    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'active')
+    return _mudar_status(conta, tk, vendedor, mlb, sku_visto, 'active', busca)
 
 
 _QUALQUER = object()

@@ -86,7 +86,9 @@ class TestRegras(unittest.TestCase):
 
     def test_validar_regra(self):
         self.assertEqual(skus.validar_regra('igual', ' A ', ' B ', 'trecho'), ('igual', 'A', 'B', 'inteiro'))
-        for args in (('x', 'a', 'b', 'inteiro'), ('igual', '', 'b', 'inteiro'), ('igual', 'a', '', 'inteiro'), ('contem', 'a', 'b', 'inteiro'), ('igual', 'a', 'b' * 101, 'inteiro'), ('igual', 'a', 'b\nc', 'inteiro')):
+        self.assertEqual(skus.validar_regra('contem', 'AB', '', 'trecho'), ('contem', 'AB', '', 'inteiro'))      # sem SKU novo: busca e o SKU novo vai em cada linha
+        self.assertEqual(skus.validar_regra('pausar_sku', 'granito', '', '', 'tit_contem'), ('pausar_sku', 'granito', 'tit_contem', 'inteiro'))
+        for args in (('x', 'a', 'b', 'inteiro'), ('igual', '', 'b', 'inteiro'), ('contem', 'a', 'b', 'inteiro'), ('pausar_sku', 'a', '', '', 'sku_contem'), ('pausar_sku', 'ab', '', '', 'outro'), ('igual', 'a', 'b' * 101, 'inteiro'), ('igual', 'a', 'b\nc', 'inteiro')):
             with self.assertRaises(skus.Bloqueio):
                 skus.validar_regra(*args)
 

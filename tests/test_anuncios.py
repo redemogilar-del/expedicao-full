@@ -251,3 +251,47 @@ class TestPausasPlanilha(Base):
         with mock.patch.object(fontes._SESS, 'post', return_value=resp), mock.patch.dict(os.environ, {'EXP_SHEETS_URL': 'https://script.google.com/x', 'EXP_SHEETS_KEY': 'k'}):
             r = self.post('/api/skus/pausas-ler', {})
         self.assertIn('pausas por SKU', r.get_json()['error'])
+
+
+class TestTiposDeBusca(Base):
+    """Busca por SKU sem SKU novo (o SKU novo vai na linha) e pausar/reativar por SKU contém/começa com ou pelo título."""
+    def setUp(self):
+        super().setUp()
+        self.fake.itens['MLB100000009'] = {'id': 'MLB100000009', 'seller_id': 99, 'title': 'Super Pro Fosco 3,6L Marfim', 'status': 'active', 'seller_custom_field': 'SUP\u0190R_PR0_FSC_3,6L_M@RF', 'attributes': [], 'available_quantity': 3}
+
+    def buscar(self, **c):
+        return self.post('/api/skus/buscar', dict({'conta': 'ML19'}, **c)).get_json()
+
+    def test_sku_contem_sem_sku_novo_lista_e_troca_pelo_sku_da_linha(self):
+        d = self.buscar(modo='contem', termo='PR0_FSC_3,6L', novo='', escopo='trecho')
+        linha = [a for a in d['achados'] if a['mlb'] == 'MLB100000009'][0]
+        self.assertEqual((linha['sku_atual'], linha['sku_novo']), ('SUP\u0190R_PR0_FSC_3,6L_M@RF', ''))
+        sem = self.post('/api/skus/aplicar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'contem', 'termo': 'PR0_FSC_3,6L', 'novo': '', 'itens': [{'mlb': 'MLB100000009', 'variacao': None, 'sku_visto': linha['sku_atual']}]})
+        self.assertEqual(sem.status_code, 400)                 # sem SKU na linha não grava
+        r = self.post('/api/skus/aplicar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'contem', 'termo': 'PR0_FSC_3,6L', 'novo': '',
+                                            'itens': [{'mlb': 'MLB100000009', 'variacao': None, 'sku_visto': linha['sku_atual'], 'sku_novo': 'SUPER_PRO_FOSCO_3,6L_MARFIM'}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'OK')
+        self.assertEqual(self.fake.itens['MLB100000009']['seller_custom_field'], 'SUPER_PRO_FOSCO_3,6L_MARFIM')
+
+    def test_pausar_por_sku_contem_e_por_titulo(self):
+        d = self.buscar(modo='pausar_sku', termo='pr0_fsc', como='sku_contem')
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000009'])
+        d = self.buscar(modo='pausar_sku', termo='fosco marfim', como='tit_contem')
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000009'])
+        d = self.buscar(modo='pausar_sku', termo='SUP', como='sku_comeca')
+        self.assertIn('MLB100000009', [a['mlb'] for a in d['achados']])
+        self.assertEqual(self.fake.puts, [])
+        r = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'como': 'tit_contem', 'termo': 'fosco marfim', 'itens': [{'mlb': 'MLB100000009'}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'OK')
+
+    def test_titulo_mudou_nao_pausa(self):
+        r = self.post('/api/vendas/pausar', {'conta': 'ML19', 'confirmacao': 'PAUSAR_ANUNCIOS', 'como': 'tit_contem', 'termo': 'granito azul', 'itens': [{'mlb': 'MLB100000009'}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'PULADO')
+        self.assertEqual(self.fake.puts, [])
+
+    def test_reativar_por_titulo(self):
+        self.fake.itens['MLB100000009']['status'] = 'paused'
+        d = self.buscar(modo='reativar_sku', termo='super pro', como='tit_comeca')
+        self.assertEqual([a['mlb'] for a in d['achados']], ['MLB100000009'])
+        r = self.post('/api/skus/reativar', {'conta': 'ML19', 'confirmacao': 'REATIVAR_ANUNCIOS', 'como': 'tit_comeca', 'termo': 'super pro', 'itens': [{'mlb': 'MLB100000009'}]}).get_json()
+        self.assertEqual(r['resultados'][0]['status'], 'OK')

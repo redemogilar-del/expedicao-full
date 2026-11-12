@@ -1211,7 +1211,7 @@ def api_skus_buscar():
         if c.get('conta') not in fontes.CONTAS:
             raise envios.ArquivoInvalido('Escolha a conta do Mercado Livre.')
         try:
-            regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'))
+            regra = skus.validar_regra(c.get('modo'), c.get('termo'), c.get('novo'), c.get('escopo'), c.get('como'))
         except skus.Bloqueio as exc:
             raise envios.ArquivoInvalido(str(exc))
         d = skus.varrer(c['conta'], regra, c.get('scroll_id'))
@@ -1266,7 +1266,7 @@ def api_skus_aplicar():
                 raise envios.ArquivoInvalido('Item inválido.')
             individual = str(x.get('sku_novo') or '').strip()
             sku_linha = individual or regra[2]
-            if regra[0] in skus.MODOS_INDIVIDUAL and (not sku_linha or len(sku_linha) > skus.MAX_SKU or skus._CTRL.search(sku_linha)):
+            if skus.sku_por_linha(regra) and (not sku_linha or len(sku_linha) > skus.MAX_SKU or skus._CTRL.search(sku_linha)):
                 raise envios.ArquivoInvalido('Digite um SKU válido (até %d caracteres) em cada anúncio marcado.' % skus.MAX_SKU)
             alvos = grupos.setdefault(mlb, [])
             if any(a[0] == var for a in alvos):
@@ -1288,6 +1288,17 @@ def api_skus_aplicar():
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, trocados=sum(r['status'] == 'OK' for r in resultados))
     except Exception as exc:
         return _erro_fonte(exc)
+
+
+def _busca_acao(c, modo):
+    """(como, termo) da busca que trouxe os anúncios (pausar/reativar pela tela Trocar SKU), ou None. O anúncio só muda se ainda casar com ela."""
+    if not c.get('como'):
+        return None
+    try:
+        r = skus.validar_regra(modo, c.get('termo'), '', '', c.get('como'))
+    except skus.Bloqueio as exc:
+        raise envios.ArquivoInvalido(str(exc))
+    return r[2], r[1]
 
 
 def _itens_acao(c, extra=None):
@@ -1315,11 +1326,12 @@ def api_vendas_pausar():
         if c.get('confirmacao') != anuncios.CONFIRMACAO_PAUSAR:
             raise envios.ArquivoInvalido('Confirmação obrigatória para pausar anúncios.')
         lista = _itens_acao(c)
+        busca = _busca_acao(c, skus.MODO_PAUSAR)
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         with ThreadPoolExecutor(max_workers=min(3, len(lista))) as ex:      # poucos de cada vez: o ML recusa (429) quando chegam muitos juntos
-            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
+            resultados = list(ex.map(lambda p: anuncios.pausar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU], busca), lista))
         for r in resultados:
             log.info('PAUSAR %s %s: %s', conta, r['mlb'], r['status'])
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, pausados=sum(r['status'] == 'OK' for r in resultados))
@@ -1335,11 +1347,12 @@ def api_skus_reativar():
         if c.get('confirmacao') != anuncios.CONFIRMACAO_REATIVAR:
             raise envios.ArquivoInvalido('Confirmação obrigatória para reativar anúncios.')
         lista = _itens_acao(c)
+        busca = _busca_acao(c, skus.MODO_REATIVAR)
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         with ThreadPoolExecutor(max_workers=min(3, len(lista))) as ex:      # poucos de cada vez: o ML recusa (429) quando chegam muitos juntos
-            resultados = list(ex.map(lambda p: anuncios.reativar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU]), lista))
+            resultados = list(ex.map(lambda p: anuncios.reativar_item(conta, tk, vendedor, p[0], str(p[1].get('sku_visto') or '').strip()[:skus.MAX_SKU], busca), lista))
         for r in resultados:
             log.info('REATIVAR %s %s: %s', conta, r['mlb'], r['status'])
         return jsonify(ok=True, conta=conta, somente_leitura=False, resultados=resultados, reativados=sum(r['status'] == 'OK' for r in resultados))

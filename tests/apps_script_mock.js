@@ -37,4 +37,32 @@ assert.strictEqual(lido['111'].situacao, 'CANCELADA');
 assert.strictEqual(lido['222'].situacao, 'GERADA');
 assert.deepStrictEqual(Object.keys(etiquetasLer_({ conta: 'ML44', pedidos: ['111'] }).etiquetas), ['111']);
 
+// ---- pausas por SKU (apps_script/pausas_sku.gs): uma linha por SKU enquanto pausado; reativar fecha a mesma linha
+eval(fs.readFileSync(__dirname + '/../apps_script/pausas_sku.gs', 'utf8') + '\nglobalThis.pausasRegistrar_ = pausasRegistrar_; globalThis.pausasLer_ = pausasLer_;');
+assert.throws(() => pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 1, erros: 0, contas: ['ML19'], motivo: 'OUTRO' }));
+assert.throws(() => pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 1, erros: 0, contas: ['ML19'], motivo: 'FALTA_ESTOQUE', previsao: '' }));
+let p1 = pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 5, erros: 2, contas: ['ML19'], motivo: 'FALTA_ESTOQUE', previsao: '2026-12-01' });
+assert.deepStrictEqual([p1.nova, p1.situacao, p1.linha], [true, 'Pausado', 2]);
+const ps = abas['Pausas por SKU'];
+assert.deepStrictEqual(ps.linhas()[0].slice(0, 6), ['SKU', 'Pausados', 'Com erro ao pausar', 'Data da atualização', 'Motivo', 'Previsão de chegada (reativar)']);
+p1 = pausasRegistrar_({ tipo: 'pausa', sku: 'gr_25kg', ok: 2, erros: 0, contas: ['ML44'], motivo: 'FALTA_ESTOQUE', previsao: '2026-12-05' });   // mesmo SKU (maiúsculas não importam): soma na mesma linha
+assert.deepStrictEqual([p1.nova, p1.linha], [false, 2]);
+let l2 = ps.linhas()[1];
+assert.deepStrictEqual([l2[0], l2[1], l2[2], l2[4], l2[5], l2[9], l2[10]], ['GR_25KG', 7, 0, 'Falta de estoque', '05/12/2026', 'Pausado', 'ML19, ML44']);
+pausasRegistrar_({ tipo: 'pausa', sku: '=CMD', ok: 1, erros: 0, contas: ['ML19'], motivo: 'DESCONTINUADO', previsao: '2026-12-01' });
+assert.deepStrictEqual([ps.linhas()[2][0], ps.linhas()[2][4], ps.linhas()[2][5]], ["'=CMD", 'Produto descontinuado', '']);   // nada vira fórmula; descontinuado não tem previsão
+let lidas = pausasLer_().pausas;
+assert.deepStrictEqual(lidas.map(x => x.sku), ['=CMD', 'GR_25KG']);
+assert.strictEqual(lidas[1].previsao, '05/12/2026');
+let r1 = pausasRegistrar_({ tipo: 'reativacao', sku: 'GR_25KG', ok: 6, erros: 1, contas: ['ML19'] });
+assert.deepStrictEqual([r1.linha, r1.situacao], [2, 'Reativado em parte']);
+r1 = pausasRegistrar_({ tipo: 'reativacao', sku: 'GR_25KG', ok: 1, erros: 0, contas: ['ML19'] });
+l2 = ps.linhas()[1];
+assert.deepStrictEqual([r1.linha, l2[6], l2[7], l2[8], l2[9], l2[1]], [2, '29/10/2026 16:00', 7, 0, 'Reativado', 7]);
+assert.deepStrictEqual(pausasLer_().pausas.map(x => x.sku), ['=CMD']);
+p1 = pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 3, erros: 0, contas: ['ML19'], motivo: 'DESCONTINUADO' });     // pausa nova depois de reativado: outra linha
+assert.deepStrictEqual([p1.nova, p1.linha, ps.linhas()[3][1]], [true, 4, 3]);
+r1 = pausasRegistrar_({ tipo: 'reativacao', sku: 'SEM_PAUSA', ok: 2, erros: 0, contas: ['ML44'] });          // reativado sem pausa anotada: linha só com a reativação
+assert.deepStrictEqual([r1.nova, ps.linhas()[4][1], ps.linhas()[4][7], ps.linhas()[4][9]], [true, '', 2, 'Reativado']);
+
 console.log('apps script OK');

@@ -162,3 +162,92 @@ class TestTrocarSkuVendas(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestReativarPorSku(Base):
+    def setUp(self):
+        super().setUp()
+        self.fake.itens['MLB100000007'] = {'id': 'MLB100000007', 'seller_id': 99, 'title': 'Pausado', 'status': 'paused', 'seller_custom_field': 'GR_25KG', 'attributes': [], 'available_quantity': 5}
+        self.fake.itens['MLB100000008'] = {'id': 'MLB100000008', 'seller_id': 99, 'title': 'Pausado sem estoque', 'status': 'paused', 'seller_custom_field': 'GR_25KG', 'attributes': [], 'available_quantity': 0}
+
+    def reativar(self, itens, confirmacao='REATIVAR_ANUNCIOS'):
+        return self.post('/api/skus/reativar', {'conta': 'ML19', 'confirmacao': confirmacao, 'itens': itens})
+
+    def test_busca_so_pausados_com_o_sku_e_avisa_sem_estoque(self):
+        d = self.post('/api/skus/buscar', {'conta': 'ML19', 'modo': 'reativar_sku', 'termo': 'gr_25kg'}).get_json()
+        por = {a['mlb']: a for a in d['achados']}
+        self.assertNotIn('MLB100000001', por)                 # ativo não aparece
+        self.assertIn('MLB100000007', por)
+        self.assertIn('sem estoque', por['MLB100000008']['aviso'])
+        self.assertEqual(por['MLB100000008']['estoque'], 0)
+        self.assertEqual(self.fake.puts, [])
+
+    def test_reativa_so_pausado_com_o_sku_e_confere(self):
+        r = {x['mlb']: x for x in self.reativar([{'mlb': 'MLB100000007', 'sku_visto': 'GR_25KG'}, {'mlb': 'MLB100000001', 'sku_visto': 'GR_25KG'}]).get_json()['resultados']}
+        self.assertEqual(r['MLB100000007']['status'], 'OK')
+        self.assertEqual(self.fake.itens['MLB100000007']['status'], 'active')
+        self.assertEqual((r['MLB100000001']['status'], r['MLB100000001']['mensagem']), ('PULADO', 'Já estava ativo.'))
+        self.assertEqual(self.fake.puts, [('https://api.mercadolibre.com/items/MLB100000007', {'status': 'active'})])
+
+    def test_sku_mudou_nao_reativa(self):
+        r = self.reativar([{'mlb': 'MLB100000007', 'sku_visto': 'OUTRO'}]).get_json()['resultados'][0]
+        self.assertEqual(r['status'], 'PULADO')
+        self.assertEqual(self.fake.puts, [])
+
+    def test_recusa_do_ml_avisa_estoque(self):
+        self.fake.recusa = True
+        r = self.reativar([{'mlb': 'MLB100000008', 'sku_visto': 'GR_25KG'}]).get_json()['resultados'][0]
+        self.assertEqual(r['status'], 'ERRO')
+        self.assertIn('sem estoque', r['mensagem'])
+
+    def test_exige_confirmacao(self):
+        self.assertEqual(self.reativar([{'mlb': 'MLB100000007'}], confirmacao='PAUSAR_ANUNCIOS').status_code, 400)
+        self.assertEqual(self.fake.puts, [])
+
+    def test_modo_reativar_nao_troca_sku(self):
+        r = self.post('/api/skus/aplicar', {'conta': 'ML19', 'confirmacao': 'TROCAR_SKU', 'modo': 'reativar_sku', 'termo': 'GR_25KG', 'itens': [{'mlb': 'MLB100000007', 'variacao': None, 'sku_visto': 'GR_25KG', 'sku_novo': 'X'}]})
+        self.assertEqual(r.status_code, 400)
+
+
+class TestPausasPlanilha(Base):
+    def registrar(self, **corpo):
+        base = {'tipo': 'pausa', 'sku': 'GR_25KG', 'ok': 3, 'erros': 1, 'contas': ['ML19', 'ML44'], 'motivo': 'FALTA_ESTOQUE', 'previsao': '2026-12-01'}
+        base.update(corpo)
+        with mock.patch.object(fontes, '_sheets_post', return_value={'ok': True, 'situacao': 'Pausado', 'nova': True, 'linha': 2}) as sp:
+            r = self.post('/api/skus/pausas-registrar', base)
+        return r, sp
+
+    def test_pausa_vai_para_a_planilha(self):
+        r, sp = self.registrar()
+        self.assertEqual(r.status_code, 200)
+        enviado = sp.call_args[0][0]
+        self.assertEqual({k: enviado[k] for k in ('acao', 'tipo', 'sku', 'ok', 'erros', 'contas', 'motivo', 'previsao')},
+                         {'acao': 'pausas_registrar', 'tipo': 'pausa', 'sku': 'GR_25KG', 'ok': 3, 'erros': 1, 'contas': ['ML19', 'ML44'], 'motivo': 'FALTA_ESTOQUE', 'previsao': '2026-12-01'})
+
+    def test_descontinuado_nao_leva_previsao(self):
+        r, sp = self.registrar(motivo='DESCONTINUADO', previsao='2026-12-01')
+        self.assertEqual(sp.call_args[0][0]['previsao'], '')
+
+    def test_validacoes(self):
+        for corpo in ({'motivo': ''}, {'motivo': 'FALTA_ESTOQUE', 'previsao': ''}, {'previsao': '01/12/2026'}, {'ok': 0, 'erros': 0}, {'ok': -1}, {'ok': True},
+                      {'contas': ['XX']}, {'contas': []}, {'sku': ''}, {'tipo': 'outro'}):
+            r, sp = self.registrar(**corpo)
+            self.assertEqual(r.status_code, 400, corpo)
+            sp.assert_not_called()
+
+    def test_reativacao_sem_motivo(self):
+        r, sp = self.registrar(tipo='reativacao', motivo='', previsao='')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(sp.call_args[0][0]['tipo'], 'reativacao')
+
+    def test_ler(self):
+        with mock.patch.object(fontes, '_sheets_post', return_value={'ok': True, 'pausas': [{'sku': 'GR_25KG', 'previsao': '01/12/2026', 'situacao': 'Pausado'}, {'sku': ''}]}):
+            d = self.post('/api/skus/pausas-ler', {}).get_json()
+        self.assertEqual([x['sku'] for x in d['pausas']], ['GR_25KG'])
+        self.assertTrue(d['somente_leitura'])
+
+    def test_planilha_sem_o_trecho(self):
+        resp = mock.Mock(status_code=200); resp.raise_for_status = lambda: None; resp.json = lambda: {'ok': False, 'erro': 'Ação desconhecida: pausas_ler'}
+        with mock.patch.object(fontes._SESS, 'post', return_value=resp), mock.patch.dict(os.environ, {'EXP_SHEETS_URL': 'https://script.google.com/x', 'EXP_SHEETS_KEY': 'k'}):
+            r = self.post('/api/skus/pausas-ler', {})
+        self.assertIn('pausas por SKU', r.get_json()['error'])

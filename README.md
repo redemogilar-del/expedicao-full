@@ -28,6 +28,10 @@ Troca de SKU em massa **nos anúncios do Mercado Livre** (ML19, ML44 ou as duas)
 
 **Pausar por SKU:** no cartão **Pausar anúncios ativos por SKU** há dois blocos separados. **1. Só buscar e conferir:** digite o SKU e clique em **Buscar ativos com este SKU** (nada é pausado; o ⧉ ao lado de cada MLB copia o número). **2. Buscar e pausar automaticamente** (em vermelho): pede PAUSAR e pausa cada anúncio assim que a busca o traz. Confira a lista (todos vêm marcados; dá para desmarcar), digite PAUSAR e clique em **Pausar só os selecionados**. A pausa vale para o anúncio inteiro, e a linha avisa quando há variações com outro SKU. O painel só pausa se o anúncio ainda tem aquele SKU e confere no Mercado Livre depois.
 
+**Motivo da pausa e planilha:** para pausar (nos dois blocos) é preciso escolher o **motivo** — *Falta de estoque* (com a **data prevista para o SKU chegar**, que é quando ele será reativado) ou *Produto descontinuado*. Ao terminar, a aba **Pausas por SKU** da planilha recebe o SKU, quantos foram pausados, quantos deram erro, a data da atualização, o motivo e a previsão de chegada. Pausar de novo o mesmo SKU soma na mesma linha.
+
+**Reativar por SKU:** no cartão **Reativar anúncios pausados por SKU**, "Ver SKUs pausados na planilha" mostra os SKUs pausados com motivo e previsão (avisa quando chegou a data); "Reativar este SKU" preenche o campo e busca. A busca lista os anúncios **pausados** com o SKU (nada muda); os sem estoque vêm desmarcados, porque o Mercado Livre não reativa sem estoque. Digite REATIVAR e clique em "Reativar só os selecionados": cada anúncio é relido, reativado e conferido, e a linha do SKU na planilha recebe a data da reativação, quantos foram reativados e quantos deram erro (situação *Reativado* ou *Reativado em parte*). Precisa do Apps Script V30 (ou do trecho `apps_script/pausas_sku.gs`).
+
 **Anúncios com variações:** o PUT sempre leva o id de todas as variações do anúncio, porque a documentação do Mercado Livre diz que a variação que não vai no PUT é apagada. Se depois de gravar faltar alguma variação, o resultado avisa e nunca sai como `Trocado ✔`.
 
 ## Aba Vendas do dia

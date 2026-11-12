@@ -193,3 +193,7 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 /* aba Shopee */
 .s-pedido{white-space:nowrap}.s-pedido .mlbs{white-space:nowrap}
 .pausa-blocos{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}.pausa-bloco{flex:1 1 300px;border:1px solid var(--linha);border-radius:10px;padding:12px}.pausa-bloco h3{margin:0 0 6px;font-size:15px}.pausa-bloco.perigo{border-color:var(--verm);background:var(--verm-fundo)}button.perigo{background:var(--verm);color:#fff;border-color:var(--verm)}button.perigo:disabled{opacity:.5}
+
+#pCaixa input[type=text],#pCaixa input[type=date],#rCaixa input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto);width:100%;color-scheme:light dark}
+#pConfirma,#rConfirma{width:auto!important;max-width:220px}
+.reativar-bloco{margin-top:12px}

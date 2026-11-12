@@ -504,7 +504,7 @@ function rResumo(){
   const n = R_LINHAS.filter(l => l.marcado && !R_FEITO(l)).length, digitou = $('rConfirma').value.trim() === 'REATIVAR';
   $('rReativar').textContent = 'Reativar só os selecionados (' + n + ')';
   $('rReativar').disabled = R_BUSCANDO || R_REATIVANDO || !n || !digitou;
-  $('rDica').textContent = R_REATIVANDO ? 'Reativando no Mercado Livre… aguarde.' : R_BUSCANDO ? 'Aguarde a busca terminar para reativar.' : !n ? 'Nenhum anúncio marcado para reativar.' : !digitou ? 'Digite REATIVAR (só a palavra, em maiúsculas) para ligar o botão.' : 'Tudo certo: clique no botão para reativar no Mercado Livre.';
+  $('rDica').textContent = R_REATIVANDO ? 'Reativando no Mercado Livre… aguarde.' : R_BUSCANDO ? 'Aguarde a busca terminar para reativar.' : !R_LINHAS.length ? 'Primeiro digite o SKU e clique em "Buscar pausados com este SKU" (ou use "Reativar este SKU" na lista da planilha).' : !n ? 'Nenhum anúncio marcado para reativar.' : !digitou ? 'Digite REATIVAR (só a palavra, em maiúsculas) para ligar o botão.' : 'Tudo certo: clique no botão para reativar no Mercado Livre.';
 }
 function rDesenhar(){
   $('rCorpo').replaceChildren(...R_LINHAS.map(l => {
@@ -618,3 +618,4 @@ $('rParar').addEventListener('click', () => { R_PARAR = true; });
 $('rConfirma').addEventListener('input', rResumo);
 $('rReativar').addEventListener('click', rReativar);
 $('rLerPlanilha').addEventListener('click', rLerPlanilha);
+rResumo();

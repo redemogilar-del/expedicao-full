@@ -139,12 +139,13 @@ function desenhar(){
     const n = k === 'todos' ? esc.length : k === 'marcados' ? marc.length : (cont[k] || 0);
     fb.append(el('button', {class: k === filtro ? 'on' : '', onclick: () => { filtro = k; desenhar(); }}, nome + ' (' + n + ')'));
   }
-  $('barraGrupos').hidden = !APTOS;
+  $('barraGrupos').hidden = !APTOS; $('baixarEnvioAptos').hidden = !APTOS;
   if (APTOS) {
     const na = esc.filter(r => r.apto === true).length, nn = esc.filter(r => r.apto === false).length, gb = $('grupos'); gb.replaceChildren();
     for (const [k, nome, n] of [['todos', 'Todos', esc.length], ['aptos', 'Aptos para Full', na], ['nao', 'Não aptos', nn]])
       gb.append(el('button', {class: k === grupo ? 'on' : '', onclick: () => { grupo = k; desenhar(); }}, nome + ' (' + n + ')'));
     const ma = esc.filter(r => r.apto === true && r.incluir && r.qtd > 0).length, mn = esc.filter(r => r.apto === false && r.incluir && r.qtd > 0).length;
+    $('baixarEnvioAptos').disabled = !ma; $('baixarEnvioAptos').textContent = 'Baixar planilha de envio só dos aptos para Full (' + ma + ' marcados)';
     $('baixarAptos').disabled = !ma; $('baixarNaoAptos').disabled = !mn; $('marcarAptos').disabled = !na;
     $('baixarAptos').textContent = 'Baixar relatório dos aptos (' + ma + ' marcados)'; $('baixarNaoAptos').textContent = 'Baixar relatório dos não aptos (' + mn + ' marcados)';
   }
@@ -207,7 +208,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharPop();
 
 // ---------- downloads ----------
 async function baixar(tipo){
-  const botao = $({envio: 'baixarEnvio', producao: 'baixarSku', aptos: 'baixarAptos', nao_aptos: 'baixarNaoAptos'}[tipo]); botao.disabled = true;
+  const botao = $({envio: 'baixarEnvio', envio_aptos: 'baixarEnvioAptos', producao: 'baixarSku', aptos: 'baixarAptos', nao_aptos: 'baixarNaoAptos'}[tipo]); botao.disabled = true;
   try {
     const linhas = escopo().map(r => ({incluir: r.incluir, qtd: r.qtd, qtd_calc: r.qtd_calc, status: r.status, tipo: r.tipo, codigo_ml: r.codigo_ml, mlbu: r.mlbu, sku: r.sku,
       produto: r.produto, mlbs: r.mlbs, motivo: r.motivo, vendas: r.vendas, estoque_total: r.estoque_total, frete: r.frete, custo: r.custo,
@@ -224,6 +225,7 @@ async function baixar(tipo){
 }
 { const h = new Date(); $('coletaData').value = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0') + '-' + String(h.getDate()).padStart(2, '0'); }
 $('baixarEnvio').onclick = () => baixar('envio');
+$('baixarEnvioAptos').onclick = () => baixar('envio_aptos');
 $('baixarSku').onclick = () => baixar('producao');
 $('baixarAptos').onclick = () => baixar('aptos');
 $('baixarNaoAptos').onclick = () => baixar('nao_aptos');

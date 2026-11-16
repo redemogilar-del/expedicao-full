@@ -229,7 +229,8 @@ class TestSite(unittest.TestCase):
         self.assertEqual(ws['A1'].value, 'MLB'); self.assertEqual(ws['B1'].value, 'Quantidade para envio')
         self.assertNotEqual(ws['A2'].fill.fgColor.rgb, ws['C2'].fill.fgColor.rgb); self.assertTrue(ws['B2'].font.bold)
         rs = openpyxl.load_workbook(io.BytesIO(r.data))['Resumo por SKU']              # resumo só do que está marcado nos aptos
-        self.assertEqual([(l[0], l[1]) for l in rs.iter_rows(min_row=5, values_only=True)], [('S1', 12), ('TOTAL', 12)])
+        self.assertEqual([(l[0], l[1]) for l in rs.iter_rows(min_row=5, values_only=True)],
+                         [('S1', "=SUMPRODUCT(EXACT('Aptos para Full'!$E$2:$E$5000,A5)*'Aptos para Full'!$B$2:$B$5000)"), ('TOTAL', '=SUM(B5:B5)')])
         r = self.c.post('/api/envios/exportar', json={'tipo': 'nao_aptos', 'linhas': linhas})
         self.assertEqual([l[3] for l in list(openpyxl.load_workbook(io.BytesIO(r.data)).active.iter_rows(min_row=2, values_only=True))[:-1]], ['C'])
         r = self.c.post('/api/envios/exportar', json={'tipo': 'envio', 'linhas': linhas})                  # planilha de envio: aptos e não aptos marcados
@@ -290,7 +291,7 @@ class TestSite(unittest.TestCase):
         self.assertEqual(wb.sheetnames, ['Enviar', 'Resumo por SKU', 'Fora do envio', 'Parâmetros'])
         env = [[c.value for c in l] for l in wb['Enviar'].iter_rows(min_row=2)]
         self.assertEqual(len(env), 4)                                   # 3 marcados + TOTAL
-        self.assertEqual(env[-1][0], 'TOTAL'); self.assertEqual(env[-1][1], 21)
+        self.assertEqual(env[-1][0], 'TOTAL'); self.assertEqual(env[-1][1], '=SUM(B2:B4)')      # total é fórmula (apagar linha atualiza)
         self.assertEqual([l[0] for l in env[:-1]], ['MLB1'] * 3)            # coluna A = MLB (o primeiro do produto)
         origens = {l[2]: l[8] for l in env[:-1]}
         self.assertEqual(origens['A'], 'Regra')
@@ -304,7 +305,18 @@ class TestSite(unittest.TestCase):
         self.assertEqual([c.value for c in rs[4]], ['SKU', 'Quantidade total'])          # sem a coluna de anúncios
         self.assertEqual(rs.max_column, 2)
         resumo = {l[0]: l[1] for l in rs.iter_rows(min_row=5, values_only=True)}
-        self.assertEqual(resumo['S1'], 17); self.assertEqual(resumo['TOTAL'], 21); self.assertNotIn('S9', resumo)
+        self.assertEqual(resumo['S1'], "=SUMPRODUCT(EXACT('Enviar'!$E$2:$E$5000,A6)*'Enviar'!$B$2:$B$5000)")   # resumo soma a aba Enviar
+        self.assertEqual(resumo['TOTAL'], '=SUM(B5:B6)'); self.assertNotIn('S9', resumo)
+        # só os aptos: mesma planilha, sem os não aptos
+        lin = self.linhas_exp(); lin[0]['apto'] = True; lin[1]['apto'] = False; lin[2]['apto'] = True; lin[3]['apto'] = True
+        ra = self.c.post('/api/envios/exportar', json={'tipo': 'envio_aptos', 'linhas': lin})
+        self.assertEqual(ra.status_code, 200); self.assertIn('envio_full_aptos', ra.headers['Content-Disposition'])
+        wa = load_workbook(io.BytesIO(ra.data))
+        self.assertEqual(wa.sheetnames, ['Enviar', 'Resumo por SKU', 'Fora do envio', 'Parâmetros'])
+        self.assertEqual([l[2] for l in wa['Enviar'].iter_rows(min_row=2, values_only=True)], ['C', 'A', None])   # B (não apto) fora (ordem por SKU)
+        self.assertEqual([l[3] for l in wa['Fora do envio'].iter_rows(min_row=2, values_only=True)], ['D'])
+        nada = self.linhas_exp()
+        self.assertEqual(self.c.post('/api/envios/exportar', json={'tipo': 'envio_aptos', 'linhas': nada}).status_code, 400)
         r2 = self.c.post('/api/envios/exportar', json={'tipo': 'producao', 'linhas': self.linhas_exp()})
         self.assertEqual(load_workbook(io.BytesIO(r2.data)).sheetnames, ['Resumo por SKU'])
 

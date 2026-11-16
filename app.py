@@ -323,6 +323,26 @@ def _apto_txt(r):
     return 'Sim' if r['apto'] is True else 'Não' if r['apto'] is False else '—'
 
 
+def _resumo_formulas(ws_resumo, h_resumo, aba_origem, h_origem, col_sku='E', col_qtd='B', ate=5000):
+    """Troca as quantidades do 'Resumo por SKU' por fórmulas que somam a aba de origem (SKU igual, maiúsculas contam).
+    Assim, apagar ou mudar linhas na aba de origem atualiza o resumo sozinho. h_* = linha do cabeçalho."""
+    ref = "'%s'!$%s$%d:$%s$%d"
+    skus = ref % (aba_origem, col_sku, h_origem + 1, col_sku, ate)
+    qtds = ref % (aba_origem, col_qtd, h_origem + 1, col_qtd, ate)
+    ult = ws_resumo.max_row                     # linha do TOTAL
+    for n in range(h_resumo + 1, ult):
+        ws_resumo.cell(n, 2).value = '=SUMPRODUCT(EXACT(%s,A%d)*%s)' % (skus, n, qtds)
+    if ult > h_resumo + 1:
+        ws_resumo.cell(ult, 2).value = '=SUM(B%d:B%d)' % (h_resumo + 1, ult - 1)
+
+
+def _total_formula(ws, h, col='B'):
+    """TOTAL da aba (última linha) vira soma das linhas de cima: apagar uma linha atualiza o total."""
+    ult = ws.max_row
+    if ult > h + 1:
+        ws['%s%d' % (col, ult)] = '=SUM(%s%d:%s%d)' % (col, h + 1, col, ult - 1)
+
+
 def _gerar_xlsx_grupo(linhas, grupo, coleta=None):
     """Relatório separado: só os produtos do grupo (aptos ou não aptos para Full) que estão marcados para enviar,
     mais a aba 'Resumo por SKU' desses produtos."""
@@ -370,11 +390,13 @@ def _gerar_xlsx_grupo(linhas, grupo, coleta=None):
     w2.column_dimensions['A'].width = 30; w2.column_dimensions['B'].width = 18
     w2.freeze_panes = 'A5'; w2.auto_filter.ref = 'A4:B%d' % w2.max_row
     _destacar_ab(w2, 4)
+    _total_formula(ws, 1)
+    _resumo_formulas(w2, 4, ws.title, 1)
     buf = BytesIO(); wb.save(buf); buf.seek(0)
     return buf, '%s_%s.xlsx' % ('aptos_full' if quer else 'nao_aptos_full', agora.strftime('%Y-%m-%d_%H%M')), len(sel)
 
 
-def _gerar_xlsx(linhas, params, tipo, arquivo_ml='', coleta=None):
+def _gerar_xlsx(linhas, params, tipo, arquivo_ml='', coleta=None, so_aptos=False):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -440,6 +462,8 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml='', coleta=None):
         [30, 18], total=['TOTAL', sum(t['qtd'] for t in resumo)],
         topo=[['Data da coleta', coleta.get('data') or agora.strftime('%d/%m/%Y')], ['Número da coleta', _seguro(coleta.get('numero') or '')]])
     if tipo == 'envio':
+        _total_formula(ws, 1)
+        _resumo_formulas(ws2, 4, 'Enviar', 1)
         fora = [r for r in linhas if not r['incluir']]
         ws3 = wb.create_sheet('Fora do envio')
         aba(ws3, ['MLB', 'Qtd calculada', 'Situação', 'Código ML', 'SKU', 'Produto', 'Vendas 30 dias', 'Estoque no Full', 'Frete (R$)', 'Custo (R$)', 'Frete / custo (%)', 'Motivo'],
@@ -464,7 +488,7 @@ def _gerar_xlsx(linhas, params, tipo, arquivo_ml='', coleta=None):
     wb.save(buf)
     buf.seek(0)
     sufixo = ''.join(ch for ch in str(coleta.get('numero') or '') if ch.isalnum() or ch in '-_')[:20]
-    nome = '%s%s_%s.xlsx' % ('envio_full' if tipo == 'envio' else 'resumo_por_sku', ('_coleta' + sufixo) if sufixo else '', agora.strftime('%Y-%m-%d_%H%M'))
+    nome = '%s%s_%s.xlsx' % (('envio_full_aptos' if so_aptos else 'envio_full') if tipo == 'envio' else 'resumo_por_sku', ('_coleta' + sufixo) if sufixo else '', agora.strftime('%Y-%m-%d_%H%M'))
     return buf, nome
 
 
@@ -559,9 +583,15 @@ def api_exportar():
     try:
         corpo = request.get_json(silent=True) or {}
         tipo = corpo.get('tipo')
-        if tipo not in ('envio', 'producao', 'aptos', 'nao_aptos'):
+        if tipo not in ('envio', 'envio_aptos', 'producao', 'aptos', 'nao_aptos'):
             raise envios.ArquivoInvalido('Tipo de planilha inválido.')
         linhas = _linhas_validas(corpo.get('linhas'))
+        so_aptos = tipo == 'envio_aptos'
+        if so_aptos:                                # mesma planilha de envio, só com os aptos para Full
+            tipo = 'envio'
+            linhas = [r for r in linhas if r['apto'] is True]
+            if not any(r['incluir'] for r in linhas):
+                raise envios.ArquivoInvalido('Nenhum produto apto para Full está marcado para enviar.')
         if tipo in ('envio', 'producao') and not any(r['incluir'] for r in linhas):
             raise envios.ArquivoInvalido('Nenhum produto marcado para enviar.')
         params = corpo.get('parametros') if isinstance(corpo.get('parametros'), dict) else {}
@@ -576,7 +606,7 @@ def api_exportar():
             if not n:
                 raise envios.ArquivoInvalido('Nenhum produto %s está marcado para enviar.' % ('apto' if tipo == 'aptos' else 'não apto'))
             return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
-        buf, nome = _gerar_xlsx(linhas, params, tipo, str(corpo.get('arquivo') or '')[:120], coleta)
+        buf, nome = _gerar_xlsx(linhas, params, tipo, str(corpo.get('arquivo') or '')[:120], coleta, so_aptos)
         return send_file(buf, mimetype=XLSX, as_attachment=True, download_name=nome)
     except Exception as exc:
         return _erro(exc)

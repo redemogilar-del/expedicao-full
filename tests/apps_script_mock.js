@@ -38,7 +38,7 @@ assert.strictEqual(lido['222'].situacao, 'GERADA');
 assert.deepStrictEqual(Object.keys(etiquetasLer_({ conta: 'ML44', pedidos: ['111'] }).etiquetas), ['111']);
 
 // ---- pausas por SKU (apps_script/pausas_sku.gs): uma linha por SKU enquanto pausado; reativar fecha a mesma linha
-eval(fs.readFileSync(__dirname + '/../apps_script/pausas_sku.gs', 'utf8') + '\nglobalThis.pausasRegistrar_ = pausasRegistrar_; globalThis.pausasLer_ = pausasLer_;');
+eval(fs.readFileSync(__dirname + '/../apps_script/pausas_sku.gs', 'utf8') + '\nglobalThis.pausasRegistrar_ = pausasRegistrar_; globalThis.pausasLer_ = pausasLer_; globalThis.pausasUpseller_ = pausasUpseller_;');
 assert.throws(() => pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 1, erros: 0, contas: ['ML19'], motivo: 'OUTRO' }));
 assert.throws(() => pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 1, erros: 0, contas: ['ML19'], motivo: 'FALTA_ESTOQUE', previsao: '' }));
 let p1 = pausasRegistrar_({ tipo: 'pausa', sku: 'GR_25KG', ok: 5, erros: 2, contas: ['ML19'], motivo: 'FALTA_ESTOQUE', previsao: '2026-12-01' });
@@ -65,4 +65,15 @@ assert.deepStrictEqual([p1.nova, p1.linha, ps.linhas()[3][1]], [true, 4, 3]);
 r1 = pausasRegistrar_({ tipo: 'reativacao', sku: 'SEM_PAUSA', ok: 2, erros: 0, contas: ['ML44'] });          // reativado sem pausa anotada: linha só com a reativação
 assert.deepStrictEqual([r1.nova, ps.linhas()[4][1], ps.linhas()[4][7], ps.linhas()[4][9]], [true, '', 2, 'Reativado']);
 
+// pausas feitas pelo UpSeller: só anota (sem contar anúncios), vários SKUs de uma vez, sem repetir
+assert.throws(() => pausasUpseller_({ skus: [], motivo: 'DESCONTINUADO' }));
+assert.throws(() => pausasUpseller_({ skus: ['X'], motivo: 'FALTA_ESTOQUE' }));            // sem data prevista
+let u1 = pausasUpseller_({ skus: ['UP_A', 'up_a', ' UP_B ', '=CMD'], contas: ['SHOPEE', 'OUTRA'], motivo: 'FALTA_ESTOQUE', previsao: '2026-12-10' });
+assert.deepStrictEqual([u1.registrados, u1.novas], [3, 2]);                                  // UP_A repetido conta uma vez; =CMD já estava pausado
+const linhaDe = sku => ps.linhas().find(l => String(l[0]).replace(/^'/, '').toUpperCase() === sku);
+let la = linhaDe('UP_A');
+assert.deepStrictEqual([la[1], la[2], la[4], la[5], la[9], la[10]], ['', 0, 'Falta de estoque', '10/12/2026', 'Pausado', 'SHOPEE, UpSeller']);
+let lc = linhaDe('=CMD');
+assert.deepStrictEqual([lc[1], lc[4], lc[10]], [1, 'Falta de estoque', 'ML19, SHOPEE, UpSeller']);   // mantém os já contados pelo site
+assert.ok(pausasLer_().pausas.some(x => x.sku === 'UP_B' && x.contas === 'SHOPEE, UpSeller'));
 console.log('apps script OK');

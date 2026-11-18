@@ -1,5 +1,5 @@
 // Acréscimo ao Apps Script "ML HUB MOGILAR — GOOGLE SHEETS" (o mesmo do EXP_SHEETS_URL): registro das pausas por SKU da aba "Trocar SKU".
-// (Já está dentro do Codigo.gs V30 do repositório ml-hub-anuncios-teste. Use este arquivo só se o seu script for outro.)
+// (Já está dentro do Codigo.gs V30 do repositório ml-hub-anuncios-teste; a ação pausas_upseller, a partir da V36. Use este arquivo só se o seu script for outro.)
 //
 // 1) No switch (b.acao) do doPost, acrescente:
 //
@@ -8,6 +8,9 @@
 //        break;
 //      case 'pausas_ler':
 //        r = pausasLer_();
+//        break;
+//      case 'pausas_upseller':
+//        r = pausasUpseller_(b);
 //        break;
 //
 // 2) Cole as funções abaixo no final do Código.gs.
@@ -49,7 +52,35 @@ function psNum_(v) {
   return isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
-function pausasRegistrar_(b) {
+// Pausas feitas FORA do site (ex.: pelo UpSeller): só anota na planilha, vários SKUs de uma vez, sem contar anúncios
+// (o UpSeller não diz quantos foram). A coluna Contas recebe "UpSeller" (+ as lojas marcadas). Ação 'pausas_upseller'.
+var PS_CONTAS_ = ['ML19', 'ML44', 'SHOPEE', 'UpSeller'];
+var PS_MAX_LOTE_ = 50;
+
+function pausasUpseller_(b) {
+  const lista = Array.isArray(b.skus) ? b.skus : [];
+  const vistos = {};
+  const skus = [];
+  lista.forEach(function (x) {
+    const sku = String(x || '').trim();
+    if (sku && !vistos[psChave_(sku)]) { vistos[psChave_(sku)] = true; skus.push(sku); }
+  });
+  if (!skus.length || skus.length > PS_MAX_LOTE_) throw Error('Informe de 1 a ' + PS_MAX_LOTE_ + ' SKUs.');
+  const contas = (b.contas || []).filter(function (c) { return c === 'ML19' || c === 'ML44' || c === 'SHOPEE'; }).concat(['UpSeller']);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const feitos = skus.map(function (sku) {
+      const r = pausasRegistrar_({ tipo: 'pausa', sku: sku, ok: 0, erros: 0, contas: contas, motivo: b.motivo, previsao: b.previsao }, true);
+      return { sku: sku, linha: r.linha, nova: r.nova };
+    });
+    return { ok: true, registrados: feitos.length, novas: feitos.filter(function (f) { return f.nova; }).length, skus: feitos };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function pausasRegistrar_(b, semTrava) {
   const tipo = b.tipo;
   const sku = String(b.sku || '').trim();
 
@@ -58,7 +89,7 @@ function pausasRegistrar_(b) {
 
   const ok = psNum_(b.ok);
   const erros = psNum_(b.erros);
-  const contas = (b.contas || []).filter(function (c) { return c === 'ML19' || c === 'ML44'; });
+  const contas = (b.contas || []).filter(function (c) { return PS_CONTAS_.indexOf(c) >= 0; });
   let motivo = '';
   let previsao = '';
 
@@ -73,8 +104,8 @@ function pausasRegistrar_(b) {
     }
   }
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  const lock = semTrava ? null : LockService.getScriptLock();
+  if (lock) lock.waitLock(30000);
 
   try {
     const sh = psAba_();
@@ -103,7 +134,8 @@ function pausasRegistrar_(b) {
     let nova;
 
     if (tipo === 'pausa') {
-      nova = [atual ? atual[0] : psTexto_(sku), psNum_(atual && atual[1]) + ok, erros, agora, motivo, previsao, '', '', '', 'Pausado', juntar(atual && atual[10])];
+      const soma = psNum_(atual && atual[1]) + ok;
+      nova = [atual ? atual[0] : psTexto_(sku), soma || (atual ? atual[1] : ''), erros || (atual && !ok ? atual[2] : erros), agora, motivo, previsao, '', '', '', 'Pausado', juntar(atual && atual[10])];
     } else {
       const reativados = psNum_(atual && atual[7]) + ok;
       nova = atual
@@ -118,7 +150,7 @@ function pausasRegistrar_(b) {
 
     return { ok: true, linha: destino, nova: !linha, situacao: nova[9] };
   } finally {
-    lock.releaseLock();
+    if (lock) lock.releaseLock();
   }
 }
 

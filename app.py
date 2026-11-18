@@ -1532,6 +1532,44 @@ def api_skus_pausas_registrar():
         return _erro_fonte(exc)
 
 
+@app.post('/api/skus/pausas-upseller')
+def api_skus_pausas_upseller():
+    """SKUs pausados pelo UpSeller (fora do site): só anota na aba 'Pausas por SKU' (motivo e previsão). Não mexe no Mercado Livre nem na Shopee."""
+    try:
+        c = request.get_json(silent=True) or {}
+        lista = c.get('skus')
+        if not isinstance(lista, list):
+            raise envios.ArquivoInvalido('Informe os SKUs, um por linha.')
+        saida, vistos = [], set()
+        for x in lista:
+            sku = str(x or '').strip() if isinstance(x, (str, int)) and not isinstance(x, bool) else None
+            if sku is None or len(sku) > skus.MAX_SKU or skus._CTRL.search(sku):
+                raise envios.ArquivoInvalido('SKU inválido: ' + str(x)[:40])
+            if sku and sku.upper() not in vistos:
+                vistos.add(sku.upper()); saida.append(sku)
+        if not saida:
+            raise envios.ArquivoInvalido('Informe pelo menos um SKU (um por linha).')
+        if len(saida) > fontes.MAX_PAUSAS_UPSELLER:
+            raise envios.ArquivoInvalido('No máximo %d SKUs de uma vez.' % fontes.MAX_PAUSAS_UPSELLER)
+        motivo = c.get('motivo')
+        if motivo not in fontes.MOTIVOS_PAUSA:
+            raise envios.ArquivoInvalido('Escolha o motivo da pausa: falta de estoque ou produto descontinuado.')
+        previsao = ''
+        if motivo == 'FALTA_ESTOQUE':
+            try:
+                previsao = datetime.strptime(str(c.get('previsao') or ''), '%Y-%m-%d').strftime('%Y-%m-%d')
+            except ValueError:
+                raise envios.ArquivoInvalido('Informe a data prevista para o SKU chegar (é nela que ele será reativado).')
+        contas = c.get('contas') or []
+        if not isinstance(contas, list) or any(x not in ('ML19', 'ML44', 'SHOPEE') for x in contas):
+            raise envios.ArquivoInvalido('Loja inválida.')
+        r = fontes.pausas_upseller(saida, motivo, previsao, sorted(set(contas)))
+        log.info('PAUSAS UPSELLER anotadas: %d SKU(s), motivo %s', len(saida), motivo)
+        return jsonify(ok=True, somente_leitura=False, skus=saida, **r)
+    except Exception as exc:
+        return _erro_fonte(exc)
+
+
 @app.post('/api/skus/pausas-ler')
 def api_skus_pausas_ler():
     """Lê da aba 'Pausas por SKU' os SKUs que continuam pausados (com motivo e previsão de chegada). Somente leitura."""

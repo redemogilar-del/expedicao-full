@@ -719,6 +719,17 @@ def pausas_registrar(reg):
     return {'situacao': str(dados.get('situacao') or ''), 'nova': bool(dados.get('nova')), 'linha': int(dados.get('linha') or 0)}
 
 
+MAX_PAUSAS_UPSELLER = 50
+
+
+def pausas_upseller(skus, motivo, previsao, contas):
+    """Anota na aba 'Pausas por SKU' SKUs pausados FORA do site (pelo UpSeller): só a planilha, sem contar anúncios.
+    `skus`, `motivo`, `previsao` e `contas` já validados pela rota."""
+    dados = _sheets_post({'acao': 'pausas_upseller', 'skus': skus, 'motivo': motivo, 'previsao': previsao, 'contas': contas}, espera=60,
+                         falta='A planilha ainda não tem a anotação das pausas feitas pelo UpSeller (V36 do Apps Script). Falta colar o Codigo.gs novo e publicar uma Nova versão.')
+    return {'registrados': int(dados.get('registrados') or 0), 'novas': int(dados.get('novas') or 0)}
+
+
 def pausas_ler():
     """SKUs que ainda estão pausados segundo a aba 'Pausas por SKU' (mais recentes primeiro). Somente leitura."""
     dados = _sheets_post({'acao': 'pausas_ler'}, espera=45, falta=_FALTA_PAUSAS)

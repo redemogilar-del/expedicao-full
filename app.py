@@ -1134,6 +1134,12 @@ def _imposto_item(x, params):
     return v
 
 
+def _frete_venda(x):
+    """Frete real da venda da tela, por unidade (R$), para o preço necessário usar o frete médio quando ele passou da cotação."""
+    v = _decimal_ou_none(x.get('frete_venda'))
+    return v if v is not None and 0 <= v < 100000 else None
+
+
 def _decimal_ou_none(v):
     try:
         d = precos.D(str(v))
@@ -1184,14 +1190,14 @@ def api_vendas_preco_alvo():
             mlb = str((x or {}).get('mlb') or '').strip().upper() if isinstance(x, dict) else ''
             if not fontes._MLB.match(mlb):
                 raise envios.ArquivoInvalido('Anúncio inválido.')
-            pedidos.append((mlb, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta')), _imposto_item(x, params)))
+            pedidos.append((mlb, _decimal_ou_none(x.get('custo')), _decimal_ou_none(x.get('meta')), _imposto_item(x, params), _frete_venda(x)))
         tk = fontes.token(c['conta'])
         vendedor = fontes._vendedor(c['conta'], tk)
 
         def um(p):
-            mlb, custo, meta, imposto = p
+            mlb, custo, meta, imposto, fv = p
             try:
-                return mlb, precos.analisar(tk, vendedor, precos.buscar_item(tk, mlb), custo, meta, imposto)
+                return mlb, precos.analisar(tk, vendedor, precos.buscar_item(tk, mlb), custo, meta, imposto, fv, c['conta'])
             except precos.Bloqueio as exc:
                 return mlb, {'mlb': mlb, 'acao': 'bloqueado', 'mensagem': str(exc)}
             except Exception as exc:
@@ -1256,16 +1262,16 @@ def api_vendas_preco_aplicar():
             if not fontes._MLB.match(mlb) or mlb in vistos or None in (custo, meta, visto_atual, visto_novo) or visto_atual <= 0 or visto_novo <= 0:
                 raise envios.ArquivoInvalido('Item inválido ou repetido.')
             vistos.add(mlb)
-            pedidos.append((mlb, custo, meta, visto_atual, visto_novo, _imposto_item(x, params)))
+            pedidos.append((mlb, custo, meta, visto_atual, visto_novo, _imposto_item(x, params), _frete_venda(x)))
         conta = c['conta']
         tk = fontes.token(conta)
         vendedor = fontes._vendedor(conta, tk)
         resultados = []
-        for mlb, custo, meta, visto_atual, visto_novo, imposto in pedidos:
+        for mlb, custo, meta, visto_atual, visto_novo, imposto, fv in pedidos:
             r = {'mlb': mlb, 'status': 'PULADO', 'mensagem': ''}
             try:
                 item = precos.buscar_item(tk, mlb)
-                a = precos.analisar(tk, vendedor, item, custo, meta, imposto)
+                a = precos.analisar(tk, vendedor, item, custo, meta, imposto, fv, conta)
                 if a['acao'] != 'subir':
                     raise precos.Bloqueio('Não precisa mais de ajuste: ' + a['mensagem'])
                 atual, novo = precos.D(str(a['preco_atual'])), precos.D(str(a['preco_novo']))

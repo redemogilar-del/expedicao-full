@@ -10,7 +10,7 @@ import os
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -497,6 +497,40 @@ def _envio_do_pedido(tk, vendedor, ped, somente_a_enviar=False, etapa='todos', v
         except RuntimeError:
             saida['frete'], saida['erro'] = None, 'Carrinho não conferido'
     return saida
+
+
+_FRETE_MEDIO, _FRETE_MEDIO_LOCK = {}, threading.Lock()
+FRETE_MEDIO_DIAS, FRETE_MEDIO_MAX, FRETE_MEDIO_VALIDADE = 30, 15, 3600
+
+
+def frete_medio_anuncio(conta, tk, vendedor, mlb):
+    """(média do frete REAL por unidade, nº de vendas usadas) das vendas pagas do anúncio nos últimos 30 dias (até 15, as
+    mais recentes). Só conta venda com um único produto (o frete do envio é todo dele) e com frete conhecido; divide pela
+    quantidade. Somente leitura; cache de 1 h. Sem nenhuma venda aproveitável: (None, 0)."""
+    chave = (conta, mlb)
+    with _FRETE_MEDIO_LOCK:
+        achado = _FRETE_MEDIO.get(chave)
+        if achado and time.monotonic() - achado[2] < FRETE_MEDIO_VALIDADE:
+            return achado[0], achado[1]
+    desde = (datetime.now(timezone(timedelta(hours=-3))) - timedelta(days=FRETE_MEDIO_DIAS)).strftime('%Y-%m-%dT00:00:00.000-03:00')
+    dados = _ml(tk, '/orders/search', {'seller': vendedor, 'item': mlb, 'order.status': 'paid', 'order.date_created.from': desde,
+                                       'sort': 'date_desc', 'limit': FRETE_MEDIO_MAX})
+    peds = [p for p in (dados or {}).get('results') or [] if isinstance(p, dict)]
+    unicos = []
+    for p in peds:
+        itens = [r for r in p.get('order_items') or [] if isinstance(r, dict)]
+        if len(itens) == 1 and str((itens[0].get('item') or {}).get('id') or '') == mlb and int(itens[0].get('quantity') or 0) > 0:
+            unicos.append((p, int(itens[0]['quantity'])))
+    valores = []
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        envios = list(ex.map(lambda x: _envio_do_pedido(tk, vendedor, x[0]), unicos))
+    for (p, q), env in zip(unicos, envios):
+        if env.get('frete') is not None and env.get('divisor', 1) == 1:
+            valores.append(env['frete'] / q)
+    media = round(sum(valores) / len(valores), 2) if valores else None
+    with _FRETE_MEDIO_LOCK:
+        _FRETE_MEDIO[chave] = (media, len(valores), time.monotonic())
+    return media, len(valores)
 
 
 def _motivo_fora(saida, etapa='todos', vence_ate=None, vence_apos=None, expira_ate=None):

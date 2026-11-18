@@ -120,8 +120,26 @@ def buscar_item(tk, mlb):
     return item
 
 
-def analisar(tk, vendedor, item, custo, meta, imposto_pct):
-    """Preço necessário para chegar na margem `meta` (%). Devolve um dicionário; `acao` = 'subir' | 'ok'. Bloqueio vira exceção."""
+def frete_piso(tk, vendedor, item, frete_cotado, frete_venda, conta):
+    """Frete médio REAL do anúncio quando o frete desta venda (por unidade) passou da cotação padrão do ML; senão None.
+    Média das vendas dos últimos 30 dias (fontes.frete_medio_anuncio); sem histórico aproveitável, vale o frete desta venda.
+    Devolve (piso, média, nº de vendas)."""
+    if frete_venda is None or frete_cotado is None or frete_cotado <= 0 or frete_venda <= frete_cotado:
+        return None, None, 0
+    media, n = None, 0
+    try:
+        media, n = fontes.frete_medio_anuncio(conta, tk, vendedor, item['id'])
+    except (RuntimeError, ValueError, fontes.FonteIndisponivel):
+        media = None
+    base = D(str(media)) if media is not None else frete_venda
+    return max(frete_cotado, base), (D(str(media)) if media is not None else None), n
+
+
+def analisar(tk, vendedor, item, custo, meta, imposto_pct, frete_venda=None, conta=None):
+    """Preço necessário para chegar na margem `meta` (%). Devolve um dicionário; `acao` = 'subir' | 'ok'. Bloqueio vira exceção.
+
+    `frete_venda` (R$ por unidade, opcional): frete real da venda que está na tela. Se passou da cotação padrão do ML,
+    o cálculo usa o frete MÉDIO real do anúncio (últimos 30 dias) quando ele for maior que a cotação (`frete_piso`)."""
     if str(item.get('seller_id')) != str(vendedor):
         raise Bloqueio('Anúncio não pertence à conta')
     if item.get('status') not in ('active', 'paused'):
@@ -148,15 +166,28 @@ def analisar(tk, vendedor, item, custo, meta, imposto_pct):
             cache_t[p] = tarifa_api(tk, item, p)
         return cache_t[p]
 
-    def frete(p):
+    def cotacao(p):
         if p not in cache_f:
             cache_f[p] = frete_api(tk, item, vendedor, p)
         return cache_f[p]
+    cot0 = cotacao(atual)
+    fv = D(str(frete_venda)) if frete_venda is not None else None
+    piso, media, n_media = frete_piso(tk, vendedor, item, cot0, fv, conta)
+
+    def frete(p):
+        q = cotacao(p)
+        return max(q, piso) if (piso is not None and q > 0) else q
     t0, f0 = tarifa(atual), frete(atual)
     m0 = margem_no_preco(custo, atual, t0, f0, imposto_pct)
     reg = {'mlb': item['id'], 'tipo': TIPOS[item['listing_type_id']], 'status_anuncio': item.get('status'), 'preco_atual': _f(atual), 'margem_atual': _f(m0), 'custo': _f(custo), 'meta': _f(meta),
            'tarifa': _f(t0), 'frete': _f(f0), 'acao': 'ok', 'preco_novo': None, 'variacao_pct': None, 'margem_nova': None, 'requer_liberacao': False,
-           'mensagem': 'O preço atual do anúncio já atinge a margem (a venda pode ter sido com desconto ou promoção).'}
+           'mensagem': 'O preço atual do anúncio já atinge a margem (a venda pode ter sido com desconto ou promoção).',
+           'frete_cotado': _f(cot0), 'frete_medio': _f(media), 'vendas_media': n_media, 'frete_pelo_medio': piso is not None and piso > cot0}
+    nota = ''
+    if reg['frete_pelo_medio']:
+        nota = (' Frete usado: R$ %.2f, média real de %d venda(s) dos últimos 30 dias (a cotação padrão do ML é R$ %.2f).' % (piso, n_media, cot0) if media is not None
+                else ' Frete usado: R$ %.2f, o desta venda (sem histórico de 30 dias; a cotação padrão do ML é R$ %.2f).' % (piso, cot0))
+        reg['mensagem'] = 'Com o frete médio real, o preço atual já atinge a margem.' + nota
     if m0 >= meta:
         return reg
     novo, t1, f1, m1 = preco_alvo(custo, meta, imposto_pct, tarifa, frete, atual)
@@ -165,7 +196,7 @@ def analisar(tk, vendedor, item, custo, meta, imposto_pct):
     variacao = (novo / atual - 1) * 100
     reg.update(acao='subir', preco_novo=_f(novo), variacao_pct=_f(variacao), margem_nova=_f(m1), tarifa_nova=_f(t1), frete_novo=_f(f1), requer_liberacao=variacao > LIMITE_VARIACAO_PCT,
                mensagem='Subir de R$ %.2f para R$ %.2f (+%.1f%%) para chegar a %.1f%% de margem.' % (atual, novo, variacao, meta) +
-                        (' Aumento acima de %s%%: exige liberação extra.' % LIMITE_VARIACAO_PCT if variacao > LIMITE_VARIACAO_PCT else ''))
+                        (' Aumento acima de %s%%: exige liberação extra.' % LIMITE_VARIACAO_PCT if variacao > LIMITE_VARIACAO_PCT else '') + nota)
     return reg
 
 

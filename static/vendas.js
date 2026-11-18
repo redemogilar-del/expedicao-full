@@ -45,7 +45,7 @@ const dataIso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2
 async function buscar(){
   const enviar = true;
   MODO_ENVIAR = enviar;
-  const escolhida = $('vEConta').value, contas = escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
+  const escolhida = $('vEConta').value, contas = escolhida === 'TODAS' ? ['ML19', 'ML44', 'SHOPEE'] : escolhida === 'AMBAS' ? ['ML19', 'ML44'] : [escolhida];
   const hoje = new Date(), ini = new Date(); ini.setDate(ini.getDate() - DIAS_A_ENVIAR);
   const de = dataIso(ini), ate = dataIso(hoje);
   $('vEnviar').disabled = true; mensagem(''); $('vResultado').hidden = true;
@@ -157,18 +157,19 @@ function botaoCopiar(texto){
 }
 // conferência com o UpSeller: a pessoa cola os números dos pedidos de lá; a tela marca os daqui que não estão lá
 let UPS = null, UPS_FILTRO = 'todos';   // UPS_FILTRO: todos | ambos (UpSeller e site) | so_site (site, não UpSeller) | so_ups (UpSeller, não veio no site)
-const numerosDe = t => new Set((String(t || '').match(/\d{12,}/g) || []));
+// números de pedido: Mercado Livre = 12+ dígitos; Shopee = 6 dígitos + 8 letras/números (ex.: 261104CDT9QASE)
+const numerosDe = t => new Set((String(t || '').toUpperCase().match(/\b(\d{12,}|\d{6}[0-9A-Z]{8})\b/g) || []));
 const chavesSite = () => { const c = new Set(); for (const r of LINHAS) if (!soUps(r)) { c.add(String(r.pedido)); if (r.pack_id) c.add(String(r.pack_id)); } return c; };
 function conferirUpseller(manter){
   const nums = numerosDe($('vUpsTexto').value), r = $('vUpsRes');
-  if (!nums.size) { UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; r.textContent = 'Cole os números dos pedidos do UpSeller (com 12 dígitos ou mais).'; desenhar(); return; }
+  if (!nums.size) { UPS = null; UPF.clear(); UPS_FILTRO = 'todos'; r.textContent = 'Cole os números dos pedidos do UpSeller (Mercado Livre: 12 dígitos ou mais; Shopee: como 261104CDT9QASE).'; desenhar(); return; }
   UPS = nums; if (!manter) UPS_FILTRO = 'todos';
   const site = chavesSite(), foraSet = new Set(), ambosSet = new Set();
   for (const x of LINHAS) if (!soUps(x)) (naUps(x) ? ambosSet : foraSet).add(String(x.pedido));
   const fora = [...foraSet], semAqui = [...nums].filter(n => !site.has(n));
   const cancUps = semAqui.filter(n => UPS_CANC.has(n)), semAquiVivos = semAqui.filter(n => !UPS_CANC.has(n));
   const noUpsSite = nums.size - semAqui.length, pl = PLANILHA && PLANILHA.ml === nums.size ? PLANILHA : null;
-  const linhasTxt = pl ? (pl.arquivos > 1 ? 'As ' + pl.arquivos + ' planilhas têm ' : 'A planilha tem ') + pl.linhas + ' linhas: ' + pl.ml + ' pedidos do Mercado Livre' + (pl.outras ? ' + ' + pl.outras + ' de outras lojas (ex.: Shopee, não entram na conta)' : '') + (pl.repetidos ? ' + ' + pl.repetidos + ' repetidos' : '') + '. ' : '';
+  const linhasTxt = pl ? (pl.arquivos > 1 ? 'As ' + pl.arquivos + ' planilhas têm ' : 'A planilha tem ') + pl.linhas + ' linhas: ' + pl.ml + ' pedidos do Mercado Livre e da Shopee' + (pl.outras ? ' + ' + pl.outras + ' de outras lojas (não entram na conta)' : '') + (pl.repetidos ? ' + ' + pl.repetidos + ' repetidos' : '') + '. ' : '';
   r.replaceChildren(document.createTextNode(linhasTxt + 'Dos ' + nums.size + ' pedidos do UpSeller: ' + noUpsSite + ' estão no site e ' + semAqui.length + ' não vieram na busca' + (cancUps.length ? ' (' + cancUps.length + ' deles o próprio UpSeller marca como Cancelado, então não precisam vir)' : '') + (semAquiVivos.length ? ': ' + semAquiVivos.slice(0, 30).join(', ') + (semAquiVivos.length > 30 ? '…' : '') : '') + '. O site trouxe ' + (foraSet.size + ambosSet.size) + ' pedidos, e ' + foraSet.size + ' deles não estão no UpSeller. '));
   const opc = [['todos', 'Todos'], ['ambos', 'Só os que estão no UpSeller e no site (' + noUpsSite + ')'], ['so_site', 'Só os que estão no site e não no UpSeller (' + fora.length + ')'], ['so_ups', 'Só os que estão no UpSeller e não apareceram no site (' + (semAquiVivos.length + cancUps.filter(n => UPS_MAE[n]).length) + ')']];
   const grupo = el('div', {class:'filtros'}); for (const [k, nome] of opc) grupo.append(el('button', {type:'button', class: UPS_FILTRO === k ? 'on' : '', onclick: () => { UPS_FILTRO = k; conferirUpseller(true); }}, nome));
@@ -326,7 +327,7 @@ function desenhar(){
   { const nE = LINHAS.filter(r => SEL.has(r._i)).length;
     $('vEtqGerar').disabled = !nE; $('vEtqGerada').disabled = !nE; $('vEtqCancelada').disabled = !nE;
     $('vEtqGerar').textContent = 'Gerar etiqueta 40×40 (' + nE + ')'; $('vEtqGerada').textContent = 'Marcar etiqueta gerada (' + nE + ')'; $('vEtqCancelada').textContent = 'Marcar etiqueta cancelada (' + nE + ')'; }
-  $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no Mercado Livre (' + sel.length + ')';
+  $('vPreco').disabled = !sel.length; $('vPreco').textContent = 'Atualizar preço no anúncio — ML e Shopee (' + sel.length + ')';
   { // explica por que marcadas não entram no preço (nada some em silêncio)
     const m = LINHAS.filter(r => SEL.has(r._i)); let ja = 0, calc = 0, bloq = 0, sem = 0;
     for (const r of m) { if (selecionavel(r)) continue; const i = infoDe(r); if (!precisaPreco(r)) sem++; else if (!i) calc++; else if (i.acao === 'ok') ja++; else bloq++; }
@@ -345,8 +346,8 @@ function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
   const cols = [];
   cols.push(el('th', {class:'chk', title:'Marcar as vendas: vale para baixar em Excel, atualizar o preço (só as que podem) e a lista “Não enviar” (só as que ainda serão enviadas)'}, Object.assign(el('input', {type:'checkbox', id:'vTodosSel', title:'Marcar/desmarcar tudo que está na tela'}), {onchange: e => { visiveis().forEach(r => { if (e.target.checked) SEL.add(r._i); else SEL.delete(r._i); }); desenhar(); }})), t('Situação'), t('UpSeller', '', 'OK = esta venda está na lista que você colou do UpSeller'), t('OK etiqueta', '', 'Gerada = você já marcou que a etiqueta deste pedido foi gerada (não precisa gerar de novo). Cancelada = a etiqueta foi cancelada. Vem da aba Etiquetas da planilha.'), t('Prejuízo / deixou de ganhar', 'n', 'Prejuízo (vermelho) ou quanto deixou de ganhar para chegar na margem mínima'), t('Conta'), t('Pedido'), t('Nº do envio', '', 'Número do envio (o #4841… do Mercado Livre) e número da venda no Mercado Livre. Qualquer um deles funciona na busca.'), t('SKU'), t('Status do envio'), t('MLB'), t('Produto'),
-    t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa ML', 'n'), t('Frete', 'n', 'Digite para corrigir o frete desta venda (só nesta tela)'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
-    t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no ML', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
+    t('Qtd', 'n'), t('Venda', 'n'), t('Tarifa', 'n', 'Mercado Livre: tarifa de venda. Shopee: venda − o que a Shopee vai pagar (comissão, taxa de serviço, cupom da loja e frete)'), t('Frete', 'n', 'Digite para corrigir o frete desta venda (só nesta tela)'), t('Imposto', 'n'), t('Custo unit.', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Lucro', 'n'), t('Margem', 'n'),
+    t('Margem mínima', 'n', 'Digite para corrigir ou preencher (vale para o SKU todo, só nesta tela)'), t('Preço no anúncio', 'n'), t('Preço necessário', 'n', 'Preço do anúncio para atingir a margem mínima, com tarifa e frete reais'),
     t('Envio'));
   $('vCab').replaceChildren(...cols);
 }
@@ -649,7 +650,7 @@ $('vPrecoOk').onclick = async () => {
   const res = $('vPrecoRes'); res.hidden = false; res.className = 'aviso'; res.textContent = 'Atualizando…';
   const linhasRes = []; let ok = 0;
   try {
-    for (const conta of ['ML19', 'ML44']) {
+    for (const conta of ['ML19', 'ML44', 'SHOPEE']) {
       const lista = ALVOS.filter(a => a.conta === conta);
       for (let i = 0; i < lista.length; i += 5) {
         const lote = lista.slice(i, i + 5);
@@ -670,7 +671,7 @@ $('vPrecoOk').onclick = async () => {
 // ---------- trocar SKU e pausar anúncios (escritas manuais; sempre com confirmação) ----------
 const anunciosMarcados = () => {
   const por = new Map();
-  for (const r of LINHAS) if (SEL.has(r._i) && !por.has(r.conta + '|' + r.mlb)) por.set(r.conta + '|' + r.mlb, {conta: r.conta, mlb: r.mlb, sku: r.sku || '', titulo: r.titulo || ''});
+  for (const r of LINHAS) { const id = r.anuncio || r.mlb; if (SEL.has(r._i) && !por.has(r.conta + '|' + id)) por.set(r.conta + '|' + id, {conta: r.conta, mlb: id, sku: r.sku || '', titulo: r.titulo || ''}); }   // Shopee: o anúncio é o item_id (a linha é por variação)
   return [...por.values()];
 };
 let ALVOS_SKU = [], ALVOS_PAUSAR = [];
@@ -678,7 +679,7 @@ const emLotes = (lista, fn) => { const por = {}; for (const a of lista) (por[a.c
 let PREENCHE_SKU = {};
 $('vSku').onclick = () => {                 // abre o painel com todos os anúncios marcados, já com o SKU que foi editado na linha
   const pre = {};
-  for (const r of LINHAS) if (SEL.has(r._i) && skuEditado(r)) pre[r.conta + '|' + r.mlb + '|' + (r.sku_orig === SEM_SKU ? '' : r.sku_orig)] = r.sku;
+  for (const r of LINHAS) if (SEL.has(r._i) && skuEditado(r)) pre[r.conta + '|' + (r.anuncio || r.mlb) + '|' + (r.sku_orig === SEM_SKU ? '' : r.sku_orig)] = r.sku;
   abrirTrocaSku(anunciosMarcados(), pre);
 };
 async function abrirTrocaSku(marcados, pre){
@@ -721,7 +722,7 @@ $('vSkuOk').onclick = async () => {
         if (r.status === 'OK') { ok++; for (const t of lote.find(a => a.mlb === r.mlb).trocas) novos[conta + '|' + r.mlb + '|' + t.sku_atual] = t.sku_novo; }
       }
     });
-    for (const x of RAW) { const n = novos[x.conta + '|' + x.mlb + '|' + (x.sku || '')]; if (n) x.sku = n; if (x.sku_orig && novos[x.conta + '|' + x.mlb + '|' + (x.sku_orig === SEM_SKU ? '' : x.sku_orig)] === x.sku) delete x.sku_orig; }      // as vendas que usavam o SKU antigo passam a usar o novo
+    for (const x of RAW) { const id = x.anuncio || x.mlb, n = novos[x.conta + '|' + id + '|' + (x.sku || '')]; if (n) x.sku = n; if (x.sku_orig && novos[x.conta + '|' + id + '|' + (x.sku_orig === SEM_SKU ? '' : x.sku_orig)] === x.sku) delete x.sku_orig; }      // as vendas que usavam o SKU antigo passam a usar o novo
     const faltam = [...new Set(Object.values(novos))].filter(k => !CAD[k]);
     for (let i = 0; i < faltam.length; i += 100) Object.assign(CAD, (await json('/api/vendas/cadastro', {skus: faltam.slice(i, i + 100)})).cadastro);
     if (ok) { await recalcular(); INFO = {}; }

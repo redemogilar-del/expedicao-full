@@ -47,7 +47,7 @@ def validar_parametros(brutos):
     if not isinstance(tabela, dict):
         raise ParametroInvalido('Impostos da planilha inválidos.')
     for conta, d in tabela.items():
-        if isinstance(d, dict) and str(conta) in ('ML19', 'ML44') and d.get('normal') is not None and d.get('full') is not None:
+        if isinstance(d, dict) and str(conta) in ('ML19', 'ML44', 'SHOPEE') and d.get('normal') is not None and d.get('full') is not None:
             saida['impostos'][str(conta)] = {'normal': _decimal(d['normal'], 0, 60, 'Imposto da planilha'), 'full': _decimal(d['full'], 0, 60, 'Imposto da planilha')}
     return saida
 
@@ -86,7 +86,7 @@ def analisar(linha, cad, params):
     if venda is None or venda <= 0 or qtd <= 0:
         faltam.append('valor da venda')
     if tarifa is None:
-        faltam.append('tarifa do ML')
+        faltam.append('renda da Shopee (ainda não informada)' if linha.get('conta') == 'SHOPEE' else 'tarifa do ML')
     if frete is None:
         faltam.append('frete')
     imp_pct = imposto_da_linha(linha, params)

@@ -2,7 +2,7 @@
 {% block titulo %}Vendas do dia — Expedição Mogilar{% endblock %}
 {% block corpo %}
 <h1>Vendas do dia</h1>
-<p class="suave">Puxa as vendas do Mercado Livre (ML19 e ML44), calcula o lucro de cada uma e mostra quais estão <b>dentro</b> ou <b>fora</b> da margem. Você marca o que <b>não deve ser enviado</b> e baixa a lista. Nada é alterado no Mercado Livre sem você marcar e confirmar.</p>
+<p class="suave">Puxa as vendas do Mercado Livre (ML19 e ML44) e da Shopee, calcula o lucro de cada uma e mostra quais estão <b>dentro</b> ou <b>fora</b> da margem. Você marca o que <b>não deve ser enviado</b> e baixa a lista. Nada é alterado no Mercado Livre sem você marcar e confirmar.</p>
 
 <section class="cartao">
   <div class="regras">
@@ -16,7 +16,7 @@
   <h2>A enviar hoje (como no UpSeller)</h2>
   <p class="suave pequeno">Traz os pedidos <b>pagos que ainda não foram enviados</b> (fora o Full), de qualquer dia, separados pelo prazo de despacho como o Mercado Livre faz em "Envios de hoje" e "Próximos dias" ("hoje" inclui os atrasados), e calcula o lucro do mesmo jeito. As etapas do UpSeller são do próprio UpSeller; aqui uso as do Mercado Livre, que são parecidas. Usa o imposto e a margem padrão do quadro de cima.</p>
   <div class="regras">
-    <label>Conta<select id="vEConta"><option value="AMBAS">As duas (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option></select></label>
+    <label>Conta<select id="vEConta"><option value="TODAS" selected>Todas (ML19, ML44 e Shopee)</option><option value="AMBAS">Só Mercado Livre (ML19 e ML44)</option><option value="ML19">ML19</option><option value="ML44">ML44</option><option value="SHOPEE">Shopee</option></select></label>
     <label>Lista (como no Mercado Livre)<select id="vPrazo"><option value="" selected>Todos que faltam enviar (como o UpSeller, sem separar por dia)</option><option value="hoje">Só envios de hoje (vencem hoje ou já atrasados)</option><option value="proximos">Só próximos dias</option></select></label>
     <label>Prazo de envio (como o Modo Rápido do UpSeller)<select id="vEExpira"><option value="" selected>todos</option><option value="0">só os já vencidos</option><option value="2">expira em até 2 horas</option><option value="4">expira em até 4 horas</option><option value="6">expira em até 6 horas</option><option value="8">expira em até 8 horas</option><option value="12">expira em até 12 horas</option><option value="16">expira em até 16 horas</option><option value="24">expira em até 24 horas</option></select></label>
     <label>Etapa do envio<select id="vEtapa"><option value="todos" selected>Todos que ainda não foram enviados (emitir NF, etiqueta, prontos e aguardando — como o Modo Rápido do UpSeller)</option><option value="prontos_aguardando">Prontos + aguardando liberação (como o Modo Rápido do UpSeller)</option><option value="prontos">Só prontos para enviar: etiqueta liberada ou já impressa, ainda não bipada na coleta</option><option value="aguardando">Só os aguardando liberação (“Para Reservar” do UpSeller, o Mercado Livre adiou a data)</option><option value="etiqueta">Só etiqueta liberada, ainda não impressa (≈ “Para Imprimir” do UpSeller)</option><option value="nf">Falta emitir a nota fiscal (≈ “Para Emitir”)</option><option value="impressa">Só etiqueta já impressa</option></select></label>
@@ -54,9 +54,9 @@
   <div class="barra">
     <button class="secundario" id="vMarcarRuins">Marcar: abaixo da margem e prejuízo (que estão na tela)</button>
     <button class="secundario" id="vLimpar">Desmarcar tudo</button>
-    <button class="primario" id="vSku" disabled title="Edite o SKU na linha (ou digite no painel que abre), marque a venda e clique aqui. O Mercado Livre só muda depois da confirmação.">Trocar pelo SKU novo</button>
-    <button class="primario" id="vPausar" disabled title="Pausa os anúncios das vendas marcadas. O Mercado Livre só muda depois da confirmação.">Pausar anúncios selecionados</button>
-    <button class="primario" id="vPreco" disabled>Atualizar preço no Mercado Livre</button>
+    <button class="primario" id="vSku" disabled title="Edite o SKU na linha (ou digite no painel que abre), marque a venda e clique aqui. O anúncio (Mercado Livre ou Shopee) só muda depois da confirmação.">Trocar pelo SKU novo</button>
+    <button class="primario" id="vPausar" disabled title="Pausa os anúncios das vendas marcadas. O anúncio (Mercado Livre ou Shopee) só muda depois da confirmação.">Pausar anúncios selecionados</button>
+    <button class="primario" id="vPreco" disabled>Atualizar preço no anúncio — ML e Shopee</button>
     <button class="secundario" id="vEtqGerar" disabled>Gerar etiqueta 40×40</button>
     <button class="secundario" id="vEtqGerada" disabled title="Anota na planilha que a etiqueta destas vendas já foi gerada">Marcar etiqueta gerada</button>
     <button class="secundario" id="vEtqCancelada" disabled title="Anota na planilha que a etiqueta destas vendas foi cancelada">Marcar etiqueta cancelada</button>
@@ -65,10 +65,10 @@
   <p class="suave pequeno" id="vDica">Para trocar o SKU: edite o SKU na linha, marque a venda e clique em "Trocar pelo SKU novo". Custo e margem mínima podem ser digitados na própria linha (vale para todas as vendas do mesmo SKU; só nesta tela, a planilha não muda). O preço necessário é calculado com a tarifa e o frete reais do Mercado Livre naquele preço.</p>
 
   <div id="vPainelSku" class="cartao painel-preco" hidden>
-    <h2>Trocar SKU no Mercado Livre</h2>
-    <p class="suave pequeno">Cada variação do anúncio aparece numa linha, com o SKU que está hoje no Mercado Livre. Digite o SKU novo de cada uma; linha com o campo vazio não é alterada. Depois da troca o custo e a margem são recalculados com o SKU novo.</p>
+    <h2>Trocar SKU no anúncio (Mercado Livre ou Shopee)</h2>
+    <p class="suave pequeno">Cada variação do anúncio aparece numa linha, com o SKU que está hoje no anúncio (Mercado Livre ou Shopee). Digite o SKU novo de cada uma; linha com o campo vazio não é alterada. Depois da troca o custo e a margem são recalculados com o SKU novo.</p>
     <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>Produto / variação</th><th>SKU atual</th><th>SKU novo</th></tr></thead><tbody id="vSkuLista"></tbody></table></div>
-    <label class="inline-campo"><input type="checkbox" id="vSkuEntendi"> Entendo que isso muda o SKU de verdade no Mercado Livre</label>
+    <label class="inline-campo"><input type="checkbox" id="vSkuEntendi"> Entendo que isso muda o SKU de verdade no Mercado Livre / na Shopee</label>
     <p id="vSkuRes" class="aviso" hidden></p>
     <div class="acoes"><button class="primario" id="vSkuOk" disabled>Confirmar e trocar pelo SKU novo</button><button class="secundario" id="vSkuCancela">Cancelar</button></div>
   </div>
@@ -85,21 +85,21 @@
   </div>
 
   <div id="vPainelPausar" class="cartao painel-preco" hidden>
-    <h2>Pausar anúncios no Mercado Livre</h2>
-    <p class="suave pequeno">Só anúncios ativos são pausados. Para voltar a vender é preciso reativar no Mercado Livre.</p>
+    <h2>Pausar anúncios (Mercado Livre ou Shopee)</h2>
+    <p class="suave pequeno">Só anúncios ativos são pausados. Para voltar a vender é preciso reativar no Mercado Livre ou na Shopee (na Shopee o anúncio fica "fora do ar").</p>
     <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>Produto</th><th>SKU</th></tr></thead><tbody id="vPausarLista"></tbody></table></div>
-    <label class="inline-campo"><input type="checkbox" id="vPausarEntendi"> Entendo que isso pausa os anúncios de verdade no Mercado Livre</label>
+    <label class="inline-campo"><input type="checkbox" id="vPausarEntendi"> Entendo que isso pausa os anúncios de verdade no Mercado Livre / na Shopee</label>
     <p id="vPausarRes" class="aviso" hidden></p>
     <div class="acoes"><button class="primario" id="vPausarOk" disabled>Confirmar e pausar</button><button class="secundario" id="vPausarCancela">Cancelar</button></div>
   </div>
 
   <div id="vPainelPreco" class="cartao painel-preco" hidden>
-    <h2>Confirmar atualização de preço no Mercado Livre</h2>
+    <h2>Confirmar atualização de preço (Mercado Livre e Shopee)</h2>
     <div class="tabela-caixa mini"><table><thead><tr><th>Conta</th><th>Anúncio</th><th>SKU</th><th class="n">Preço atual</th><th class="n">Novo preço</th><th class="n">Aumento</th><th class="n">Margem depois</th></tr></thead><tbody id="vPrecoLista"></tbody></table></div>
     <label class="inline-campo" id="vLiberarCx" hidden><input type="checkbox" id="vLiberar"> Liberar aumentos acima de 15% (há itens com aumento grande)</label>
-    <label class="inline-campo"><input type="checkbox" id="vEntendi"> Entendo que isso muda o preço de verdade no Mercado Livre</label>
+    <label class="inline-campo"><input type="checkbox" id="vEntendi"> Entendo que isso muda o preço de verdade no Mercado Livre / na Shopee</label>
     <p id="vPrecoRes" class="aviso" hidden></p>
-    <div class="acoes"><button class="primario" id="vPrecoOk" disabled>Confirmar e atualizar no Mercado Livre</button><button class="secundario" id="vPrecoCancela">Cancelar</button></div>
+    <div class="acoes"><button class="primario" id="vPrecoOk" disabled>Confirmar e atualizar</button><button class="secundario" id="vPrecoCancela">Cancelar</button></div>
   </div>
 
   <div class="tabela-caixa">

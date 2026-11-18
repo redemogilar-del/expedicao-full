@@ -506,6 +506,27 @@ $('pBuscarAuto').addEventListener('click', () => pBuscar(true));
 $('pParar').addEventListener('click', () => { P_PARAR = true; if (P_AUTO) { P_AUTO = false; pFimAuto(); } });
 $('pConfirma').addEventListener('input', pResumo);
 $('pPausar').addEventListener('click', pPausar);
+// Pausas feitas pelo UpSeller: só anota na planilha (motivo e data vêm dos campos de cima).
+async function uAnotar(){
+  const m = $('uMsg'), b = $('uAnotar');
+  const msg = (t, tipo) => { m.hidden = !t; m.className = 'aviso' + (tipo ? ' ' + tipo : ''); m.textContent = t || ''; };
+  const vistos = new Set(), lista = [];
+  $('uSkus').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(s => { const k = s.toUpperCase(); if (!vistos.has(k)) { vistos.add(k); lista.push(s); } });
+  if (!lista.length) return msg('Cole pelo menos um SKU (um por linha).', 'erro');
+  if (lista.length > 50) return msg('No máximo 50 SKUs de uma vez (você colou ' + lista.length + ').', 'erro');
+  const longo = lista.find(s => s.length > 100); if (longo) return msg('SKU longo demais: ' + longo.slice(0, 40) + '…', 'erro');
+  const mot = pMotivoLer(); if (mot.erro) return msg(mot.erro + ' (campos "Motivo da pausa" e "Data prevista", acima).', 'erro');
+  const contas = ['ML19', 'ML44', 'SHOPEE'].filter(c => $('u' + c).checked);
+  b.disabled = true; msg('Anotando ' + lista.length + ' SKU(s) na planilha…');
+  try {
+    const d = await comTentativas(() => json('/api/skus/pausas-upseller', {skus: lista, motivo: mot.motivo, previsao: mot.previsao, contas}));
+    msg('Anotado na aba Pausas por SKU: ' + d.registrados + ' SKU(s) (' + d.novas + ' linha(s) nova(s); os que já estavam pausados foram atualizados) · ' +
+      (mot.motivo === 'FALTA_ESTOQUE' ? 'falta de estoque, chega em ' + dataBr(mot.previsao) : 'produto descontinuado') + '. Nada foi alterado nos anúncios.', 'ok');
+    $('uSkus').value = '';
+  } catch (e) { msg('Não consegui anotar na planilha: ' + e.message, 'erro'); }
+  finally { b.disabled = false; }
+}
+$('uAnotar').addEventListener('click', uAnotar);
 $('pMotivo').addEventListener('change', pMotivoForm);
 $('pComo').addEventListener('change', () => comoForm('p'));
 $('rComo').addEventListener('change', () => comoForm('r'));

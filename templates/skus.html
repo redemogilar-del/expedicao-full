@@ -48,6 +48,19 @@
       <p class="suave pequeno"><b>Pausa na hora</b>, sem esperar a busca terminar: cada anúncio ativo com o SKU é pausado assim que aparece. Pede para digitar PAUSAR antes de começar. "Parar" interrompe a busca e a pausa; o que já foi pausado continua pausado.</p>
       <button class="perigo" id="pBuscarAuto">Buscar e pausar automaticamente</button>
     </div>
+    <div class="pausa-bloco">
+      <h3>3. Já pausei pelo UpSeller — só anotar na planilha</h3>
+      <p class="suave pequeno">Cole os SKUs que você pausou pelo UpSeller, <b>um por linha</b> (até 50). Usa o <b>motivo</b> e a <b>data prevista</b> escolhidos acima. <b>Nada é pausado nem alterado</b> no Mercado Livre ou na Shopee: só vai para a aba Pausas por SKU (coluna Contas = "UpSeller"), e depois o SKU aparece em "Ver SKUs pausados na planilha" para reativar.</p>
+      <textarea id="uSkus" rows="4" maxlength="6000" autocomplete="off" spellcheck="false" placeholder="GRANITO_25KG&#10;KORATONE_20KG_GELO"></textarea>
+      <div class="barra">
+        <label class="pequeno"><input type="checkbox" id="uML19"> ML19</label>
+        <label class="pequeno"><input type="checkbox" id="uML44"> ML44</label>
+        <label class="pequeno"><input type="checkbox" id="uSHOPEE"> Shopee</label>
+        <span class="suave pequeno">(lojas onde pausou; opcional)</span>
+      </div>
+      <button class="primario" id="uAnotar">Anotar na planilha</button>
+      <p id="uMsg" class="aviso" hidden role="status"></p>
+    </div>
   </div>
   <div class="acoes"><button id="pParar" hidden>Parar</button></div>
   <p id="pMsg" class="aviso" hidden role="status"></p>

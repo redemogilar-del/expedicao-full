@@ -253,6 +253,34 @@ class TestPausasPlanilha(Base):
         self.assertIn('pausas por SKU', r.get_json()['error'])
 
 
+class TestPausasUpseller(Base):
+    def anotar(self, **corpo):
+        base = {'skus': ['GR_25KG', ' gr_25kg ', '', 'KORA_20KG'], 'motivo': 'FALTA_ESTOQUE', 'previsao': '2026-12-01', 'contas': ['SHOPEE', 'ML19', 'ML19']}
+        base.update(corpo)
+        with mock.patch.object(fontes, '_sheets_post', return_value={'ok': True, 'registrados': 2, 'novas': 2}) as sp:
+            r = self.post('/api/skus/pausas-upseller', base)
+        return r, sp
+
+    def test_anota_sem_mexer_no_ml(self):
+        r, sp = self.anotar()
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(sp.call_args[0][0], {'acao': 'pausas_upseller', 'skus': ['GR_25KG', 'KORA_20KG'], 'motivo': 'FALTA_ESTOQUE', 'previsao': '2026-12-01', 'contas': ['ML19', 'SHOPEE']})
+        self.assertEqual(r.get_json()['registrados'], 2)
+        self.assertEqual(self.fake.puts, [])
+
+    def test_descontinuado_sem_data(self):
+        r, sp = self.anotar(motivo='DESCONTINUADO', previsao='', contas=[])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(sp.call_args[0][0]['previsao'], '')
+
+    def test_validacoes(self):
+        for corpo in ({'skus': []}, {'skus': ['', ' ']}, {'skus': 'GR'}, {'skus': ['A' * 101]}, {'skus': ['A\x00B']}, {'skus': ['S%d' % i for i in range(51)]},
+                      {'motivo': ''}, {'previsao': ''}, {'contas': ['XX']}, {'contas': 'ML19'}, {'skus': [True]}):
+            r, sp = self.anotar(**corpo)
+            self.assertEqual(r.status_code, 400, corpo)
+            sp.assert_not_called()
+
+
 class TestTiposDeBusca(Base):
     """Busca por SKU sem SKU novo (o SKU novo vai na linha) e pausar/reativar por SKU contém/começa com ou pelo título."""
     def setUp(self):

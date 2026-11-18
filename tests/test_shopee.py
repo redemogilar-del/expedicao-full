@@ -246,11 +246,11 @@ class TestRotas(unittest.TestCase):
         import openpyxl
         wb = openpyxl.Workbook(); ws = wb.active
         ws.append(['Nº de Pedido da Plataforma', 'Nome da Loja no UpSeller', 'Estado do Pedido'])
-        ws.append([SN_A, 'Shopee Rede Mogilar', 'Em Processo']); ws.append(['2000019232343594', 'Mercado Livre 19', 'Em Processo']); ws.append(['abc', 'Outra', 'x'])
+        ws.append([SN_A, 'Shopee 44', 'Em Processo']); ws.append(['2000019232343594', 'Mercado Livre 19', 'Em Processo']); ws.append(['abc', 'Outra', 'x']); ws.append(['587229171412207399', 'Tik Tok 51', 'x'])
         buf = io.BytesIO(); wb.save(buf); buf.seek(0)
         d = self.c.post('/api/vendas/upseller-ler', data={'planilha': (buf, 'Export.xlsx')}, content_type='multipart/form-data').get_json()
         self.assertEqual([(p['pedido'], p['conta']) for p in d['pedidos']], [(SN_A, 'SHOPEE'), ('2000019232343594', 'ML19')])
-        self.assertEqual(d['outras_lojas'], 1)
+        self.assertEqual(d['outras_lojas'], 2)                              # TikTok e número inválido ficam de fora
         fake = FakeShopee()
         with com(fake):
             r = self.c.post('/api/vendas/pedidos-por-numero', json={'pedidos': [{'pedido': SN_A, 'conta': 'SHOPEE'}, {'pedido': '261101ZZZZZZZZ', 'conta': 'SHOPEE'}]}).get_json()

@@ -813,8 +813,9 @@ def api_vendas_upseller_ler():
                 continue
             total += 1
             num, conta_num = _num_pedido(lin[i_ped])
-            if not num:
-                outras += 1                       # não é número do Mercado Livre nem da Shopee
+            loja = str(lin[i_loja] or '').strip() if i_loja is not None and i_loja < len(lin) else ''
+            if not num or (loja and not _conta_da_loja(loja) and not re.search(r'mercado\s*livre|shopee', loja, re.I)):
+                outras += 1                       # outra loja (ex.: TikTok) ou número que não é do Mercado Livre nem da Shopee
                 continue
             por_num.setdefault(num, []).append(lin)
             if num in vistos:

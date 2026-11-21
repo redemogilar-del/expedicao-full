@@ -73,6 +73,27 @@ class TestCalculoPreco(unittest.TestCase):
         r = self.analisar(FakeML(preco=200.0))
         self.assertEqual((r['acao'], r['preco_novo']), ('ok', None))
 
+    def test_frete_medio_real_quando_a_venda_pagou_mais_que_a_cotacao(self):
+        fake = FakeML(preco=200.0, frete=12.0)              # com frete 12 o preço de hoje já atinge a margem
+        with mock.patch.object(fontes, '_ml', fake.ml), mock.patch.object(fontes, 'frete_medio_anuncio', return_value=(90.0, 4)) as fm:
+            r = precos.analisar('t', '99', fake.item('MLB123456789'), 60, 25, 8, 120, 'ML19')   # frete 12: margem 133%; frete 90: 3%
+        fm.assert_called_once()
+        self.assertEqual((r['acao'], r['frete_cotado'], r['frete_medio'], r['vendas_media'], r['frete_pelo_medio']), ('subir', 12.0, 90.0, 4, True))
+        self.assertEqual(r['frete'], 90.0)                  # usa a média real (90), não a cotação (12) nem a venda (120)
+        self.assertIn('média real de 4 venda', r['mensagem'])
+        # venda com frete abaixo da cotação: nada muda (nem consulta a média)
+        with mock.patch.object(fontes, '_ml', fake.ml), mock.patch.object(fontes, 'frete_medio_anuncio') as fm2:
+            r = precos.analisar('t', '99', fake.item('MLB123456789'), 30, 25, 8, 10, 'ML19')
+        fm2.assert_not_called(); self.assertEqual((r['acao'], r['frete'], r['frete_pelo_medio']), ('ok', 12.0, False))
+        # média menor que a cotação: vale a cotação
+        with mock.patch.object(fontes, '_ml', fake.ml), mock.patch.object(fontes, 'frete_medio_anuncio', return_value=(8.0, 3)):
+            r = precos.analisar('t', '99', fake.item('MLB123456789'), 30, 25, 8, 120, 'ML19')
+        self.assertEqual((r['frete'], r['frete_pelo_medio']), (12.0, False))
+        # sem histórico: usa o frete desta venda
+        with mock.patch.object(fontes, '_ml', fake.ml), mock.patch.object(fontes, 'frete_medio_anuncio', return_value=(None, 0)):
+            r = precos.analisar('t', '99', fake.item('MLB123456789'), 30, 25, 8, 50, 'ML19')
+        self.assertEqual(r['frete'], 50.0); self.assertIn('o desta venda', r['mensagem'])
+
     def test_bloqueios_com_motivo(self):
         for fake, trecho in ((FakeML(status='closed'), 'closed'), (FakeML(tipo='gold'), 'Tipo de anúncio'), (FakeML(dono=1), 'não pertence'),
                              (FakeML(variacoes=[40.0, 45.0]), 'variação')):

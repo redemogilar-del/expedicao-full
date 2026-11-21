@@ -122,7 +122,10 @@ for (const id of ['vImposto', 'vMargem']) $(id).oninput = recalcularDepois;
 const daAba = r => aba === 'full' ? r.grupo === 'full' : r.grupo !== 'full';
 const noSub = r => aba === 'full' || sub === 'todos' || r.grupo === sub;
 const podeMarcar = r => r.grupo === 'a_enviar';
-const chaveInfo = r => [r.conta, r.mlb, r.custo_unit, r.meta, r.imposto_pct].join('|');
+// frete real desta venda por unidade (ML): o preço necessário usa o frete MÉDIO real do anúncio quando ele passou da cotação do ML
+const freteUnit = r => r.conta !== 'SHOPEE' && r.frete !== null && r.frete !== undefined && Number(r.quantidade) > 0 ? Math.round(r.frete / r.quantidade * 100) / 100 : null;
+const freteVendaMlb = r => { let m = null; for (const x of LINHAS) if (x.conta === r.conta && x.mlb === r.mlb) { const f = freteUnit(x); if (f !== null && (m === null || f > m)) m = f; } return m; };
+const chaveInfo = r => [r.conta, r.mlb, r.custo_unit, r.meta, r.imposto_pct, freteVendaMlb(r)].join('|');
 const precisaPreco = r => (r.classe === 'abaixo' || r.classe === 'prejuizo') && r.custo_unit && r.imposto_pct !== null && r.imposto_pct !== undefined;
 const RANK = {sem_dados: 0, prejuizo: 1, abaixo: 2, dentro: 3};
 // sem dados (para a pessoa completar custo/margem; agrupados por SKU) → prejuízo (maior primeiro) → abaixo da margem (maior perda primeiro) → dentro da margem (do menor ao maior lucro)
@@ -317,6 +320,7 @@ function desenhar(){
   }
   cabecalho();
   const lista = visiveis(), corpo = $('vCorpo'); corpo.replaceChildren(...lista.map(linha));
+  porLoja(lista);
   $('vVazio').hidden = lista.length > 0;
   const nEx = SEL.size; $('vBaixarSel').disabled = !nEx; $('vBaixarSel').textContent = 'Baixar Excel das vendas marcadas (' + nEx + ')';
   const te = $('vTodosSel'); if (te) { te.checked = lista.length > 0 && lista.every(r => SEL.has(r._i)); te.disabled = !lista.length; }
@@ -341,6 +345,21 @@ function desenhar(){
   const negs = LINHAS.filter(r => r.classe === 'prejuizo' || r.classe === 'abaixo').length; $('vBaixarNeg').disabled = !negs; $('vBaixarNeg').textContent = 'Baixar Excel dos prejuízos e abaixo da margem (' + negs + ')';
   resumoManual();
   buscarPrecos();
+}
+// totais por loja da lista que está na tela (vale com todos os filtros: situação, UpSeller, busca, prazo)
+function porLoja(lista){
+  const cx = $('vPorLoja'); cx.hidden = !lista.length; if (!lista.length) { cx.replaceChildren(); return; }
+  const t = {}, soma = {prejuizo: 0, prejuizo_rs: 0, abaixo: 0, abaixo_rs: 0, itens: 0};
+  for (const r of lista) {
+    const x = t[r.conta] = t[r.conta] || {prejuizo: 0, prejuizo_rs: 0, abaixo: 0, abaixo_rs: 0, itens: 0};
+    for (const o of [x, soma]) { o.itens++; if (r.perda_tipo === 'prejuizo') { o.prejuizo++; o.prejuizo_rs += r.perda || 0; } else if (r.perda_tipo === 'deixou') { o.abaixo++; o.abaixo_rs += r.perda || 0; } }
+  }
+  const lin = (nome, o, forte) => el('tr', {}, el('td', {}, forte ? el('b', {}, nome) : nome), el('td', {class:'n'}, num(o.itens)),
+    el('td', {class:'n neg'}, num(o.prejuizo) + ' · ' + brl(o.prejuizo_rs)), el('td', {class:'n'}, num(o.abaixo) + ' · ' + brl(o.abaixo_rs)));
+  const ordem = ['ML19', 'ML44', 'SHOPEE'].filter(c => t[c]).concat(Object.keys(t).filter(c => !['ML19', 'ML44', 'SHOPEE'].includes(c)));
+  cx.replaceChildren(el('table', {}, el('caption', {}, 'Por loja — só o que está na lista abaixo (com os filtros escolhidos)'),
+    el('thead', {}, el('tr', {}, el('th', {}, 'Loja'), el('th', {class:'n'}, 'Itens'), el('th', {class:'n'}, 'Com prejuízo (qtd · R$ perdido)'), el('th', {class:'n'}, 'Abaixo da margem (qtd · R$ que deixou de ganhar)'))),
+    el('tbody', {}, ...ordem.map(c => lin(c === 'SHOPEE' ? 'Shopee' : c, t[c])), ordem.length > 1 ? lin('Total', soma, true) : '')));
 }
 function cabecalho(){
   const t = (txt, cls, dica) => el('th', {class: cls || '', title: dica || ''}, txt);
@@ -561,6 +580,7 @@ function linha(r){
       precoAtual = info.preco_atual !== undefined && info.preco_atual !== null ? brl(info.preco_atual) : '—';
       if (info.acao === 'subir') precoNovo = el('span', {class:'neg-claro', title: info.mensagem}, brl(info.preco_novo), el('div', {class:'mlbs'}, '+' + pct(info.variacao_pct) + ' → margem ' + pct(info.margem_nova)));
       else precoNovo = el('span', {class:'mlbs', title: info.mensagem}, info.acao === 'ok' ? 'já atinge a margem' : 'bloqueado: ' + info.mensagem);
+      if (info.frete_pelo_medio) precoNovo = el('span', {}, precoNovo, el('div', {class:'mlbs', title: info.mensagem}, 'frete médio real ' + brl(info.frete) + (info.vendas_media ? ' (' + info.vendas_media + ' vendas)' : ' (desta venda)') + ' · cotação ML ' + brl(info.frete_cotado)));
     } else precoNovo = el('span', {class:'mlbs'}, PEND.has(chaveInfo(r)) ? 'calculando…' : '…');
   } else if (r.classe === 'sem_dados') precoNovo = el('span', {class:'mlbs'}, /custo|SKU/.test(r.pendencias || '') ? 'digite o custo' : 'falta: ' + (r.pendencias || 'dado'));
   const cb = el('input', {type:'checkbox', checked: SEL.has(r._i), title: 'Marcar esta venda (Excel, atualizar preço' + (selecionavel(r) ? ' — este anúncio pode ter o preço atualizado' : '') + (podeMarcar(r) ? ', lista “Não enviar”' : '') + ')'});
@@ -603,14 +623,14 @@ async function buscarPrecos(){
   calculando = true;
   try {
     const porConta = {};
-    for (const [k, r] of falta) { PEND.add(k); (porConta[r.conta] = porConta[r.conta] || []).push({k, mlb: r.mlb, custo: r.custo_unit, meta: r.meta, imposto_pct: r.imposto_pct}); }
+    for (const [k, r] of falta) { PEND.add(k); (porConta[r.conta] = porConta[r.conta] || []).push({k, mlb: r.mlb, custo: r.custo_unit, meta: r.meta, imposto_pct: r.imposto_pct, frete_venda: freteVendaMlb(r)}); }
     for (const conta of Object.keys(porConta)) {
       const lista = porConta[conta];
       for (let i = 0; i < lista.length; i += 6) {
         if (versao !== VERSAO) return;
         const lote = lista.slice(i, i + 6);
         try {
-          const d = await comTentativas(() => json('/api/vendas/preco-alvo', {conta, parametros: imposto, itens: lote.map(x => ({mlb: x.mlb, custo: x.custo, meta: x.meta, imposto_pct: x.imposto_pct}))}), 2);
+          const d = await comTentativas(() => json('/api/vendas/preco-alvo', {conta, parametros: imposto, itens: lote.map(x => ({mlb: x.mlb, custo: x.custo, meta: x.meta, imposto_pct: x.imposto_pct, frete_venda: x.frete_venda}))}), 2);
           if (versao !== VERSAO) return;
           for (const x of lote) { INFO[x.k] = d.resultados[x.mlb] || {acao: 'bloqueado', mensagem: 'sem resposta'}; PEND.delete(x.k); }
         } catch (e) {
@@ -631,7 +651,7 @@ function alvosSelecionados(){
   for (const r of LINHAS) {
     if (!SEL.has(r._i) || !selecionavel(r)) continue;
     const k = r.conta + '|' + r.mlb, i = infoDe(r), ant = por.get(k);
-    if (!ant || r.meta > ant.meta) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku, custo: r.custo_unit, meta: r.meta, imposto_pct: r.imposto_pct, info: i, pedidos: ant ? ant.pedidos : []});
+    if (!ant || r.meta > ant.meta) por.set(k, {conta: r.conta, mlb: r.mlb, sku: r.sku, custo: r.custo_unit, meta: r.meta, imposto_pct: r.imposto_pct, frete_venda: freteVendaMlb(r), info: i, pedidos: ant ? ant.pedidos : []});
     por.get(k).pedidos.push(String(r.pedido));
   }
   return [...por.values()];
@@ -656,7 +676,7 @@ $('vPrecoOk').onclick = async () => {
         const lote = lista.slice(i, i + 5);
         res.textContent = 'Atualizando ' + conta + ' (' + (i + lote.length) + ' de ' + lista.length + ')…';
         const d = await json('/api/vendas/preco-aplicar', {conta, confirmacao: CONFIRMACAO, parametros: parametros(), liberar_acima_limite: $('vLiberar').checked,
-          itens: lote.map(a => ({mlb: a.mlb, sku: a.sku || '', pedidos: [...new Set(a.pedidos)].slice(0, 40), custo: a.custo, meta: a.meta, imposto_pct: a.imposto_pct, preco_atual_visto: a.info.preco_atual, preco_novo_visto: a.info.preco_novo}))});
+          itens: lote.map(a => ({mlb: a.mlb, sku: a.sku || '', pedidos: [...new Set(a.pedidos)].slice(0, 40), custo: a.custo, meta: a.meta, imposto_pct: a.imposto_pct, frete_venda: a.frete_venda, preco_atual_visto: a.info.preco_atual, preco_novo_visto: a.info.preco_novo}))});
         for (const r of d.resultados) RES[conta + '|' + r.mlb] = {status: r.status, mensagem: r.mensagem};
         for (const r of d.resultados) { linhasRes.push(conta + ' ' + r.mlb + ': ' + r.status + ' — ' + r.mensagem + (r.planilha ? ' (planilha de preços: ' + r.planilha + ')' : '') + (r.historico ? ' · ' + r.historico : '')); }
         ok += d.atualizados;

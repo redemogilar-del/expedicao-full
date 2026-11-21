@@ -197,3 +197,5 @@ td input[type=text]{min-width:190px;padding:4px 8px}
 #pCaixa input[type=text],#pCaixa input[type=date],#rCaixa input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);color:var(--texto);width:100%;color-scheme:light dark}
 #pConfirma,#rConfirma{width:auto!important;max-width:220px}
 .reativar-bloco{margin-top:12px}
+
+.por-loja{margin:8px 0 12px}.por-loja table{width:auto;min-width:520px}.por-loja th,.por-loja td{padding:6px 12px}.por-loja caption{text-align:left;color:var(--suave);font-size:13px;padding-bottom:4px}
